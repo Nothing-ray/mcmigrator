@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcmig"
+version = "0.1.0"
+description = "Minecraft 整合包版本迁移工具(只读 scan/diff)"
+requires-python = ">=3.11"
+dependencies = [
+    "rich>=13.0",
+    "PyYAML>=6.0",
+    "pathspec>=0.12",
+]
+
+[project.scripts]
+mcmig = "migration.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["migration*"]
+
+[tool.setuptools.package-data]
+migration = ["data/*.yaml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

@@ -1,0 +1,27 @@
+# 内置默认规则(最低优先级)。简写形式:类别 -> glob 列表。
+never:
+  - logs/**
+  - crash-reports/**
+  - "<ver>.jar"
+  - "<ver>.json"
+  - "<ver>-natives/**"
+  - PCL/**
+  - downloads/**
+  - patchouli_books/**
+  - patchouli_data.json
+  - usercache.json
+  - observable_announce
+  - command_history.txt
+  - defaultconfigs/**
+  - "**/cache/**"
+must_migrate:
+  - options.txt
+  - servers.dat
+  - servers.dat_old
+  - saves/**
+  - schematics/**
+  - xaero/**
+  - XaeroWaypoints_*/**
+  - local/ftbchunks/**
+  - Distant_Horizons_server_data/**
+  - dragon-survival/**

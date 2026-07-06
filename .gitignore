@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.mcmig/snapshots/
+*.egg-info/
+build/
+dist/
