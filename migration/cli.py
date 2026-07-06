@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 from . import __version__, rules
@@ -15,8 +16,6 @@ from .snapshot import Snapshot, snapshot_path
 
 log = logging.getLogger(__name__)
 
-DEFAULT_GAME_ROOT = "冒险活动客户端"
-
 
 def build_parser() -> argparse.ArgumentParser:
     """构建完整 argparse 解析器。"""
@@ -25,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_common(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--game-root", default=DEFAULT_GAME_ROOT, help="游戏根目录(含 versions/)")
+        p.add_argument("--game-root", default=None, help="游戏根目录(含 versions/)")
         p.add_argument(
             "--exclude", action="append", default=[], metavar="GLOB", help="本次按 never"
         )
@@ -55,6 +54,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _setup_logging(quiet: bool) -> None:
     logging.basicConfig(level=logging.WARNING if quiet else logging.INFO, format="%(message)s")
+
+
+def _resolve_game_root(args: argparse.Namespace) -> Path:
+    """解析游戏根目录:--game-root > MCMIG_GAME_ROOT > .mcmig/config.yaml > 报错退出 2。"""
+    if args.game_root:
+        return Path(args.game_root)
+    env = os.environ.get("MCMIG_GAME_ROOT")
+    if env:
+        return Path(env)
+    cfg = Path.cwd() / ".mcmig" / "config.yaml"
+    if cfg.is_file():
+        import yaml
+
+        doc = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
+        gr = doc.get("game_root")
+        if gr:
+            return Path(gr)
+    _print(
+        "[错误] 未配置游戏根目录。请用 --game-root、设置环境变量 MCMIG_GAME_ROOT、"
+        "或在 .mcmig/config.yaml 写 game_root"
+    )
+    raise SystemExit(2)
 
 
 def build_ruleset(
@@ -97,7 +118,7 @@ def _print(text: str) -> None:
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
-    game_root = Path(args.game_root)
+    game_root = _resolve_game_root(args)
     ver_dir = _version_dir(game_root, args.version)
     if not ver_dir.is_dir():
         avail = _list_versions(game_root)

@@ -3,6 +3,8 @@ import json
 from contextlib import redirect_stdout
 from pathlib import Path
 
+import pytest
+
 from migration import cli
 from migration.snapshot import snapshot_path
 
@@ -89,3 +91,36 @@ def test_scan_json_output(tmp_path: Path, monkeypatch):
     assert doc["version"] == "mini"
     assert doc["file_count"] >= 1
     assert "by_category" in doc
+
+
+def test_resolve_game_root_flag_wins(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("MCMIG_GAME_ROOT", "/from/env")  # 设 env 以证明 flag 压过它
+    args = cli.build_parser().parse_args(["scan", "v", "--game-root", "/from/flag"])
+    assert cli._resolve_game_root(args) == Path("/from/flag")
+
+
+def test_resolve_game_root_env(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # 无 config
+    monkeypatch.setenv("MCMIG_GAME_ROOT", "/from/env")
+    args = cli.build_parser().parse_args(["scan", "v"])  # 无 flag
+    assert cli._resolve_game_root(args) == Path("/from/env")
+
+
+def test_resolve_game_root_config(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("MCMIG_GAME_ROOT", raising=False)
+    (tmp_path / ".mcmig").mkdir()
+    (tmp_path / ".mcmig" / "config.yaml").write_text("game_root: /from/config\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    args = cli.build_parser().parse_args(["scan", "v"])
+    assert cli._resolve_game_root(args) == Path("/from/config")
+
+
+def test_resolve_game_root_error(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.delenv("MCMIG_GAME_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)  # 无 config
+    args = cli.build_parser().parse_args(["scan", "v"])
+    with pytest.raises(SystemExit) as exc:
+        cli._resolve_game_root(args)
+    assert exc.value.code == 2
+    msg = capsys.readouterr().out
+    assert "--game-root" in msg and "MCMIG_GAME_ROOT" in msg and "config.yaml" in msg
