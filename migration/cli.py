@@ -57,7 +57,9 @@ def _setup_logging(quiet: bool) -> None:
     logging.basicConfig(level=logging.WARNING if quiet else logging.INFO, format="%(message)s")
 
 
-def build_ruleset(version: str, args: argparse.Namespace, mcmig_dir: Path):
+def build_ruleset(
+    version: str, args: argparse.Namespace, mcmig_dir: Path
+) -> tuple[rules.RuleSet, list[str]]:
     """按优先级(CLI > extra > user > default)组装 RuleSet,返回 (ruleset, 错误列表)。"""
     cli_rules = rules.load_cli_rules(args.exclude, args.include)
     extra: list[rules.Rule] = []
