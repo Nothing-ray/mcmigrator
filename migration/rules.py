@@ -142,7 +142,9 @@ def _expand_ver(rules: list[Rule], version: str) -> list[Rule]:
 
 def load_default_rules(version: str) -> tuple[list[Rule], list[str]]:
     """加载打包在内的内置默认规则(最低优先级),并展开 <ver> 占位。"""
-    txt = resources.files("migration").joinpath("data/default_rules.yaml").read_text(encoding="utf-8")
+    txt = (
+        resources.files("migration").joinpath("data/default_rules.yaml").read_text(encoding="utf-8")
+    )
     doc = yaml.safe_load(txt)
     rules_list, errors = _parse_rules_doc(doc, "default")
     return _expand_ver(rules_list, version), errors
@@ -159,9 +161,7 @@ def load_user_rules(path: Path) -> tuple[list[Rule], list[str]]:
     return _parse_rules_doc(doc, f"user:{path.name}")
 
 
-def load_cli_rules(
-    excludes: list[str] | None, includes: list[str] | None
-) -> list[Rule]:
+def load_cli_rules(excludes: list[str] | None, includes: list[str] | None) -> list[Rule]:
     """根据 CLI --exclude/--include 构造临时规则(最高优先级)。"""
     out: list[Rule] = []
     for g in excludes or []:

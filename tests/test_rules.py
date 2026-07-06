@@ -10,10 +10,12 @@ def test_category_values():
 
 
 def test_ruleset_first_match_wins():
-    rs = RuleSet(rules=[
-        Rule(match="config/*.toml", decide=Category.NEVER),
-        Rule(match="config/create.toml", decide=Category.MUST_MIGRATE),
-    ])
+    rs = RuleSet(
+        rules=[
+            Rule(match="config/*.toml", decide=Category.NEVER),
+            Rule(match="config/create.toml", decide=Category.MUST_MIGRATE),
+        ]
+    )
     # 第一条命中 config/create.toml → NEVER(尽管第二条更具体)
     assert rs.classify("config/create.toml") == Category.NEVER
 
@@ -59,8 +61,7 @@ def test_load_cli_rules_exclude_include():
 def test_load_user_rules_verbose(tmp_path: Path):
     f = tmp_path / "r.yaml"
     f.write_text(
-        "version: 1\nrules:\n"
-        "  - match: 'secret/**'\n    decide: never\n    reason: '私货'\n",
+        "version: 1\nrules:\n  - match: 'secret/**'\n    decide: never\n    reason: '私货'\n",
         encoding="utf-8",
     )
     layer, errs = rules.load_user_rules(f)
