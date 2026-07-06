@@ -4,6 +4,7 @@ __pycache__/
 .mcmig/snapshots/
 .mcmig/config.yaml
 /game_data/
+/modpack_docs/
 *.egg-info/
 build/
 dist/
