@@ -28,8 +28,10 @@ def test_classify_normalizes_backslash():
     assert rs.classify("config\\a.toml") == Category.NEVER
 
 
-def test_glob_star_does_not_cross_slash():
-    rs = RuleSet(rules=[Rule(match="config/*", decide=Category.NEVER)])
+def test_glob_suffix_does_not_collapse_to_subdirs():
+    # config/*.toml 不会命中子目录文件:.toml 后缀不匹配目录名 'sub',
+    # 故不触发 gitignore 目录级联 —— 设计文档承诺的 "config/*.toml 仅命中 config/foo.toml"
+    rs = RuleSet(rules=[Rule(match="config/*.toml", decide=Category.NEVER)])
     assert rs.classify("config/a.toml") == Category.NEVER
     assert rs.classify("config/sub/b.toml") == Category.UNKNOWN
 

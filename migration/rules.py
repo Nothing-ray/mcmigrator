@@ -39,16 +39,6 @@ class Rule:
     source: str = ""  # 规则来源:cli / user / default
 
 
-def _is_prefix_pattern(match: str) -> bool:
-    """判断 pattern 是否以 ** 结尾。
-
-    pathspec 对 `xxx/**` 类 pattern 只生成前缀型 regex(如 `^xxx/`),
-    需用 search 做前缀匹配;其余 pattern 生成带尾锚的 regex,用 fullmatch
-    严格匹配(避免目录折叠:`config/*` 不应命中 `config/sub/b.toml`)。
-    """
-    return match.rstrip("/").endswith("**")
-
-
 @dataclass
 class RuleSet:
     """按优先级展开的规则集;rules[0] 优先级最高,first-match-wins。"""
@@ -57,10 +47,9 @@ class RuleSet:
     _compiled: list = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
-        self._compiled = []
-        for r in self.rules:
-            regex = pathspec.PathSpec.from_lines("gitwildmatch", [r.match]).patterns[0].regex
-            self._compiled.append((regex, _is_prefix_pattern(r.match), r))
+        self._compiled = [
+            (pathspec.PathSpec.from_lines("gitwildmatch", [r.match]), r) for r in self.rules
+        ]
 
     @classmethod
     def from_layers(cls, *layers: list[Rule]) -> "RuleSet":
@@ -71,14 +60,14 @@ class RuleSet:
         return cls(rules=merged)
 
     def classify(self, rel_path: str) -> Category:
-        """对相对版本根的路径做分类,返回首个命中规则的 decide;无命中→UNKNOWN。"""
+        """对相对版本根的路径做分类,返回首个命中规则的 decide;无命中→UNKNOWN。
+
+        glob 语义遵循 gitignore(pathspec gitwildmatch):含 `/` 的模式锚定版本根,
+        `**` 跨层递归;目录命中会级联到其下文件(标准 gitignore 行为)。
+        """
         norm = rel_path.replace("\\", "/")
-        for regex, is_prefix, rule in self._compiled:
-            if is_prefix:
-                hit = regex.search(norm)
-            else:
-                hit = regex.fullmatch(norm)
-            if hit:
+        for spec, rule in self._compiled:
+            if spec.match_file(norm):
                 return rule.decide
         return Category.UNKNOWN
 
