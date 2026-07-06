@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from importlib import resources
@@ -13,8 +12,6 @@ from pathlib import Path
 
 import pathspec
 import yaml
-
-log = logging.getLogger(__name__)
 
 
 class Category(Enum):
@@ -44,7 +41,7 @@ class RuleSet:
     """按优先级展开的规则集;rules[0] 优先级最高,first-match-wins。"""
 
     rules: list[Rule]
-    _compiled: list = field(default_factory=list, repr=False)
+    _compiled: list[tuple[pathspec.PathSpec, Rule]] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         self._compiled = [
