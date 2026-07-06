@@ -58,9 +58,13 @@ def _setup_logging(quiet: bool) -> None:
 
 
 def build_ruleset(
-    version: str, args: argparse.Namespace, mcmig_dir: Path
+    versions: str | list[str], args: argparse.Namespace, mcmig_dir: Path
 ) -> tuple[rules.RuleSet, list[str]]:
-    """按优先级(CLI > extra > user > default)组装 RuleSet,返回 (ruleset, 错误列表)。"""
+    """按优先级(CLI > extra > user > default)组装 RuleSet,返回 (ruleset, 错误列表)。
+
+    versions 为单版本名(scan 上下文)或版本列表(diff 上下文传 [src, dst]),
+    用于展开内置默认规则中的 <ver> 占位。
+    """
     cli_rules = rules.load_cli_rules(args.exclude, args.include)
     extra: list[rules.Rule] = []
     errors: list[str] = []
@@ -71,7 +75,7 @@ def build_ruleset(
     user_path = mcmig_dir / "rules.yaml"
     user, ue = rules.load_user_rules(user_path)
     errors.extend(ue)
-    default, de = rules.load_default_rules(version)
+    default, de = rules.load_default_rules(versions)
     errors.extend(de)
     rs = rules.RuleSet.from_layers(cli_rules, extra, user, default)
     return rs, errors
@@ -156,7 +160,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         _print(f"[错误] 快照读取失败: {e}")
         return 2
     mcmig_dir = cwd / ".mcmig"
-    rs, errs = build_ruleset(args.dst, args, mcmig_dir)
+    rs, errs = build_ruleset([args.src, args.dst], args, mcmig_dir)
     for e in errs:
         _print(f"[规则警告] {e}")
     clf = Classifier(rs)

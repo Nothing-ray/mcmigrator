@@ -102,3 +102,16 @@ def test_from_layers_priority_order():
     low = [Rule(match="x", decide=Category.MUST_MIGRATE, source="default")]
     rs = RuleSet.from_layers(high, low)
     assert rs.classify("x") == Category.NEVER  # 高层先命中
+
+
+def test_load_default_rules_multiple_versions():
+    # diff 上下文:规则集应同时展开 src 与 dst 的 <ver> 占位
+    layer, _ = rules.load_default_rules(["v227", "v228"])
+    matches = {r.match for r in layer}
+    assert "v227.jar" in matches
+    assert "v228.jar" in matches
+    assert "v227-natives/**" in matches
+    assert "v228-natives/**" in matches
+    # 每条 <ver> 规则应展开为 2 条(两版本),非 <ver> 规则不变
+    # logs/** 等非 <ver> 规则各 1 条;<ver>.jar 类应出现 2 条(v227/v228)
+    assert sum(1 for r in layer if r.match in ("v227.jar", "v228.jar")) == 2

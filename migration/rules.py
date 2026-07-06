@@ -122,32 +122,43 @@ def _parse_rules_doc(doc: object, source: str) -> tuple[list[Rule], list[str]]:
     return rules, errors
 
 
-def _expand_ver(rules: list[Rule], version: str) -> list[Rule]:
-    """把规则 match 中的 <ver> 占位替换成真实版本名。"""
+def _expand_ver(rules: list[Rule], versions: list[str]) -> list[Rule]:
+    """把规则 match 中的 <ver> 占位替换成各真实版本名(每个 <ver> 规则按版本展开成多条)。
+
+    diff 上下文需同时识别 src 与 dst 的版本二进制,故接受版本列表;
+    scan 上下文传单元素列表即可。
+    """
     out: list[Rule] = []
     for r in rules:
         if "<ver>" in r.match:
-            out.append(
-                Rule(
-                    match=r.match.replace("<ver>", version),
-                    decide=r.decide,
-                    reason=r.reason,
-                    source=r.source,
+            for v in versions:
+                out.append(
+                    Rule(
+                        match=r.match.replace("<ver>", v),
+                        decide=r.decide,
+                        reason=r.reason,
+                        source=r.source,
+                    )
                 )
-            )
         else:
             out.append(r)
     return out
 
 
-def load_default_rules(version: str) -> tuple[list[Rule], list[str]]:
-    """加载打包在内的内置默认规则(最低优先级),并展开 <ver> 占位。"""
+def load_default_rules(versions: str | list[str]) -> tuple[list[Rule], list[str]]:
+    """加载打包在内的内置默认规则(最低优先级),并展开 <ver> 占位。
+
+    versions 可为单版本名(scan 上下文)或列表(diff 上下文传 [src, dst],
+    以便两侧的版本专属二进制都命中 never 规则)。
+    """
+    if isinstance(versions, str):
+        versions = [versions]
     txt = (
         resources.files("migration").joinpath("data/default_rules.yaml").read_text(encoding="utf-8")
     )
     doc = yaml.safe_load(txt)
     rules_list, errors = _parse_rules_doc(doc, "default")
-    return _expand_ver(rules_list, version), errors
+    return _expand_ver(rules_list, versions), errors
 
 
 def load_user_rules(path: Path) -> tuple[list[Rule], list[str]]:

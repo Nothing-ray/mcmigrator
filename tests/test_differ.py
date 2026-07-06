@@ -1,6 +1,7 @@
 from migration import rules
 from migration.classifier import Classifier
 from migration.differ import Differ
+from migration.rules import Category
 from migration.snapshot import FileEntry
 
 
@@ -83,3 +84,15 @@ def test_empty_dst_all_must_to_migrate():
     d = Differ([_e("options.txt"), _e("servers.dat")], [], clf).diff()
     paths = {i.path for i in d.to_migrate}
     assert {"options.txt", "servers.dat"} <= paths
+
+
+def test_src_and_dst_version_binaries_classified_never():
+    # diff 上下文:规则集同时识别 src 与 dst 的版本二进制 → 都判 never(非 unknown)
+    default, _ = rules.load_default_rules(["1.21.1-NeoForge_21.1.227", "1.21.1-NeoForge_21.1.228"])
+    clf = Classifier(rules.RuleSet.from_layers(default))
+    # 源版本二进制
+    assert clf.classify_path("1.21.1-NeoForge_21.1.227.jar") == Category.NEVER
+    assert clf.classify_path("1.21.1-NeoForge_21.1.227.json") == Category.NEVER
+    assert clf.classify_path("1.21.1-NeoForge_21.1.227-natives/lwjgl.dll") == Category.NEVER
+    # 目标版本二进制
+    assert clf.classify_path("1.21.1-NeoForge_21.1.228.jar") == Category.NEVER
