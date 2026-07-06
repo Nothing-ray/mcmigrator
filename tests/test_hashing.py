@@ -16,6 +16,12 @@ def test_mods_jar_should_not_hash(tmp_path: Path):
     assert hashing.should_hash(p, strict=False) is False
 
 
+def test_mods_jar_case_insensitive(tmp_path: Path):
+    # 大小写不敏感:Mods/、MODS/ 也应识别为 mods 目录(文件系统可能保留原大小写)
+    assert hashing.should_hash(tmp_path / "Mods" / "create.jar", strict=False) is False
+    assert hashing.should_hash(tmp_path / "MODS" / "x.jar", strict=False) is False
+
+
 def test_sqlite_should_not_hash(tmp_path: Path):
     assert hashing.should_hash(tmp_path / "dh" / "lod.sqlite", strict=False) is False
 

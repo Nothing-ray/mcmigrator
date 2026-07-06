@@ -70,3 +70,24 @@ def test_snapshot_path_helper():
 
     p = snapshot_path(Path("C:/work"), "v1")
     assert p == Path("C:/work/.mcmig/snapshots/v1.snapshot.json")
+
+
+def test_load_rejects_file_entry_missing_path(tmp_path: Path):
+    """快照某条文件记录缺必需字段(path/size)→ SnapshotFormatError(非裸 KeyError)。"""
+    sp = tmp_path / "bad_entry.json"
+    sp.write_text(
+        json.dumps(
+            {
+                "snapshot_format": 1,
+                "version": "v",
+                "game_root": "",
+                "scanned_at": "",
+                "hash_mode": "tiered",
+                "file_count": 1,
+                "files": [{"size": 10, "md5": "x"}],  # 缺 path
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(SnapshotFormatError):
+        Snapshot.load(sp)

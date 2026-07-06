@@ -48,7 +48,7 @@ class RuleSet:
 
     def __post_init__(self) -> None:
         self._compiled = [
-            (pathspec.PathSpec.from_lines("gitwildmatch", [r.match]), r) for r in self.rules
+            (pathspec.PathSpec.from_lines("gitignore", [r.match]), r) for r in self.rules
         ]
 
     @classmethod

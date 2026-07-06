@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from . import hashing
@@ -58,7 +58,7 @@ class Scanner:
         snap = Snapshot(
             version=self.version_name,
             game_root=game_root,
-            scanned_at=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            scanned_at=datetime.now().astimezone().isoformat(timespec="seconds"),
             hash_mode="strict" if self.strict else "tiered",
             file_count=len(entries),
             files=entries,

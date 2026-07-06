@@ -24,8 +24,8 @@ def should_hash(path: Path, *, strict: bool = False) -> bool:
     if strict:
         return True
     suffix = path.suffix.lower()
-    # mods jar:玩家不改内部,按文件名集合比,不哈希
-    if suffix == ".jar" and "mods" in path.parts:
+    # mods jar:玩家不改内部,按文件名集合比,不哈希(大小写不敏感:Mods/、MODS/ 也算)
+    if suffix == ".jar" and any(p.lower() == "mods" for p in path.parts):
         return False
     # bulk 二进制(sqlite/zip/mca):整体替换型,size 是好代理
     if suffix in _BULK_EXTS:

@@ -57,25 +57,34 @@ class Snapshot:
 
     @classmethod
     def load(cls, path: Path) -> "Snapshot":
-        """从 JSON 读快照;格式版本不支持时抛 SnapshotFormatError。"""
+        """从 JSON 读快照;格式版本不支持或字段缺失/损坏时抛 SnapshotFormatError。"""
         with path.open("r", encoding="utf-8") as f:
-            payload = json.load(f)
+            try:
+                payload = json.load(f)
+            except json.JSONDecodeError as e:
+                raise SnapshotFormatError(f"快照 JSON 解析失败: {e}") from e
+        if not isinstance(payload, dict):
+            raise SnapshotFormatError(f"快照顶层非对象: {type(payload).__name__}")
         fmt = payload.get("snapshot_format")
         if fmt != SNAPSHOT_FORMAT:
             raise SnapshotFormatError(
                 f"快照格式版本 {fmt} 不支持(当前 {SNAPSHOT_FORMAT}),请重新 scan"
             )
-        files = [
-            FileEntry(path=d["path"], size=d["size"], md5=d.get("md5")) for d in payload["files"]
-        ]
-        return cls(
-            version=payload["version"],
-            game_root=payload["game_root"],
-            scanned_at=payload["scanned_at"],
-            hash_mode=payload["hash_mode"],
-            file_count=payload["file_count"],
-            files=files,
-        )
+        try:
+            files = [
+                FileEntry(path=d["path"], size=d["size"], md5=d.get("md5"))
+                for d in payload["files"]
+            ]
+            return cls(
+                version=payload["version"],
+                game_root=payload["game_root"],
+                scanned_at=payload["scanned_at"],
+                hash_mode=payload["hash_mode"],
+                file_count=payload["file_count"],
+                files=files,
+            )
+        except (KeyError, TypeError) as e:
+            raise SnapshotFormatError(f"快照内容字段缺失或类型错误: {e}") from e
 
 
 def snapshot_path(workdir: Path, version: str) -> Path:
