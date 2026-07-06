@@ -14,7 +14,7 @@ def build_mini_version(root: Path, *, variant_b: bool = False) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     # 必迁类
     (root / "options.txt").write_text(OPTS, encoding="utf-8")
-    (root / "server.dat").write_bytes(b"\x0a\x00\x00")
+    (root / "servers.dat").write_bytes(b"\x0a\x00\x00")
     (root / "saves" / "world1").mkdir(parents=True, exist_ok=True)
     (root / "saves" / "world1" / "level.dat").write_bytes(b"\x00")
     # 不迁类
