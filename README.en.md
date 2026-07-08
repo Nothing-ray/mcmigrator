@@ -100,6 +100,10 @@ Contributions welcome (in Chinese or English):
 
 → [GitHub Issues](https://github.com/Nothing-ray/mcmigrator/issues) | PRs welcome (under MIT license)
 
+## Known Limitations
+
+- **On legacy Chinese Windows consoles (cmd / GBK code page), emoji in reports render as `?`.** This is a limitation of the Windows console encoding (GBK/cp936), which cannot represent emoji. `mcmigrator` degrades automatically to avoid crashing — Chinese text and all paths/reasons always display correctly; only decorative symbols like ✅📦🔄 become `?`. Modern terminals (Windows Terminal / PowerShell 7) are unaffected.
+
 ## Roadmap
 
 - ✅ v0: `scan`/`diff` read-only comparison (done)

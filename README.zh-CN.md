@@ -95,6 +95,10 @@ mcmigrator/
 
 → [GitHub Issues](https://github.com/Nothing-ray/mcmigrator/issues) | PR 欢迎(贡献按 MIT 许可)
 
+## 已知限制
+
+- **旧版中文 Windows 控制台(cmd / GBK 代码页)下,报告里的 emoji 会显示为 `?`**。这是 Windows 控制台编码(GBK/cp936)无法渲染 emoji 的限制——`mcmigrator` 会自动降级以避免崩溃,中文与所有路径/原因始终正常显示,仅 ✅📦🔄 等装饰性符号变为 `?`。现代终端(Windows Terminal / PowerShell 7)不受影响。
+
 ## 路线图
 
 - ✅ v0:`scan`/`diff` 只读对比(已完成)
