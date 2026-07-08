@@ -9,8 +9,20 @@ import pytest
 OPTS = "version:I am a config\n"  # 固定内容
 
 
-def build_mini_version(root: Path, *, variant_b: bool = False) -> Path:
-    """构建一个迷你版本文件夹,返回其路径。variant_b 做改动用于 diff。"""
+def build_mini_version(
+    root: Path,
+    *,
+    variant_b: bool = False,
+    bak_files: list[str] | None = None,
+    whitelist_files: list[str] | None = None,
+) -> Path:
+    """构建一个迷你版本文件夹,返回其路径。
+
+    Args:
+        variant_b: 做改动用于 diff。
+        bak_files: 要创建的 .bak 文件相对路径列表(模拟玩家改过的 config)。
+        whitelist_files: 要创建的白名单文件相对路径列表(无 .bak 的玩家偏好)。
+    """
     root.mkdir(parents=True, exist_ok=True)
     # 必迁类
     (root / "options.txt").write_text(OPTS, encoding="utf-8")
@@ -37,6 +49,14 @@ def build_mini_version(root: Path, *, variant_b: bool = False) -> Path:
     # 命中 **/cache/**
     (root / "xaero" / "cache").mkdir(parents=True)
     (root / "xaero" / "cache" / "c.zip").write_bytes(b"\x00")
+    for bak_rel in bak_files or []:
+        p = root / bak_rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"\x00")
+    for wl_rel in whitelist_files or []:
+        p = root / wl_rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
     return root
 
 
@@ -48,3 +68,21 @@ def mini_version(tmp_path: Path) -> Path:
 @pytest.fixture
 def mini_version_b(tmp_path: Path) -> Path:
     return build_mini_version(tmp_path / "mini_b", variant_b=True)
+
+
+@pytest.fixture
+def mini_version_with_bak(tmp_path: Path) -> Path:
+    """带 .bak 的 mini(模拟玩家改过 config/create.toml)。"""
+    return build_mini_version(
+        tmp_path / "mini_bak",
+        bak_files=["config/create-1.toml.bak"],
+    )
+
+
+@pytest.fixture
+def mini_version_with_whitelist(tmp_path: Path) -> Path:
+    """带白名单文件的 mini(iris.properties + jade preset)。"""
+    return build_mini_version(
+        tmp_path / "mini_wl",
+        whitelist_files=["iris.properties", "config/jade/preset.json"],
+    )

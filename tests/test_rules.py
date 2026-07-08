@@ -115,3 +115,81 @@ def test_load_default_rules_multiple_versions():
     # 每条 <ver> 规则应展开为 2 条(两版本),非 <ver> 规则不变
     # logs/** 等非 <ver> 规则各 1 条;<ver>.jar 类应出现 2 条(v227/v228)
     assert sum(1 for r in layer if r.match in ("v227.jar", "v228.jar")) == 2
+
+
+def test_load_whitelist_rules_returns_must_migrate(tmp_path: Path):
+    from migration import rules
+    from migration.rules import Category
+
+    f = tmp_path / "wl.yaml"
+    f.write_text(
+        "version: 1\nrules:\n"
+        "  - match: 'iris.properties'\n    reason: 'Iris 设置'\n"
+        "  - match: 'config/jade/**/*.json'\n    reason: 'Jade 偏好'\n",
+        encoding="utf-8",
+    )
+    layer, errs = rules.load_whitelist_rules(f)
+    assert errs == []
+    assert len(layer) == 2
+    assert all(r.decide == Category.MUST_MIGRATE for r in layer)
+    assert layer[0].match == "iris.properties"
+    assert layer[0].reason == "Iris 设置"
+    assert layer[0].source == "whitelist"
+
+
+def test_load_whitelist_rules_missing_file_returns_empty(tmp_path: Path):
+    from migration import rules
+
+    layer, errs = rules.load_whitelist_rules(tmp_path / "nope.yaml")
+    assert layer == [] and errs == []
+
+
+def test_load_whitelist_rules_bad_match_skipped(tmp_path: Path):
+    from migration import rules
+
+    f = tmp_path / "bad.yaml"
+    f.write_text(
+        "rules:\n  - match: ''\n    reason: '空 match'\n  - match: 'ok.txt'\n",
+        encoding="utf-8",
+    )
+    layer, errs = rules.load_whitelist_rules(f)
+    assert len(layer) == 1
+    assert layer[0].match == "ok.txt"
+    assert len(errs) == 1 and "match" in errs[0]
+
+
+def test_whitelist_priority_above_default_below_user():
+    """白名单层 > default,< user(rules.yaml)。"""
+    from migration.rules import Category, Rule, RuleSet
+
+    user = [Rule(match="iris.properties", decide=Category.NEVER, source="user")]
+    whitelist = [Rule(match="iris.properties", decide=Category.MUST_MIGRATE, source="whitelist")]
+    default = [Rule(match="iris.properties", decide=Category.UNKNOWN, source="default")]
+    rs = RuleSet.from_layers(user, whitelist, default)
+    assert rs.classify("iris.properties") == Category.NEVER  # user 优先
+
+    rs2 = RuleSet.from_layers(whitelist, default)
+    assert rs2.classify("iris.properties") == Category.MUST_MIGRATE  # whitelist 升级
+
+
+def test_load_whitelist_rules_from_text_returns_must_migrate():
+    """文本入口功能等价——验证基本解析(PyInstaller 安全路径)。"""
+    from migration import rules
+    from migration.rules import Category
+
+    text = "version: 1\nrules:\n  - match: 'iris.properties'\n    reason: 'Iris'\n"
+    layer, errs = rules.load_whitelist_rules_from_text(text, "units")
+    assert errs == []
+    assert len(layer) == 1
+    assert layer[0].match == "iris.properties"
+    assert layer[0].decide == Category.MUST_MIGRATE
+    assert layer[0].source == "whitelist"
+
+
+def test_load_whitelist_rules_from_text_bad_yaml():
+    """YAML 语法错误返回空列表+错误消息。"""
+    from migration import rules
+
+    layer, errs = rules.load_whitelist_rules_from_text(": broken", "bad")
+    assert layer == []
+    assert len(errs) == 1 and "YAML" in errs[0]

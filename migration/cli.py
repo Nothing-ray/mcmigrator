@@ -5,16 +5,17 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
 from pathlib import Path
 
 from . import __version__, rules
 from .classifier import Classifier
 from .differ import Differ
-from .reporter import DiffReporter, ReportOptions
+from .plan import plan_path
+from .planner import Planner
+from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
 from .scanner import Scanner
 from .snapshot import Snapshot, snapshot_path
-
-log = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,7 +50,33 @@ def build_parser() -> argparse.ArgumentParser:
     p_diff.add_argument("--mods", action="store_true", help="仅显示 mods 桶")
     p_diff.add_argument("--category", default=None, help="仅显示指定桶")
     add_common(p_diff)
+
+    p_plan = sub.add_parser("plan", help="生成迁移计划(只读,产出 action 列表)")
+    p_plan.add_argument("src", help="源版本名")
+    p_plan.add_argument("dst", help="目标版本名")
+    p_plan.add_argument("--exclude", action="append", default=[], metavar="GLOB")
+    p_plan.add_argument("--include", action="append", default=[], metavar="GLOB")
+    p_plan.add_argument("--rule", action="append", default=[], metavar="FILE")
+    p_plan.add_argument("--show-skip", action="store_true", help="显示 skip_*/keep_mod/ignore")
+    p_plan.add_argument("--category", default=None, help="仅显示某 action")
+    p_plan.add_argument("--json", action="store_true")
+    p_plan.add_argument("--no-save", action="store_true", help="不持久化 plan 文件")
+    p_plan.add_argument("-q", "--quiet", action="store_true")
     return parser
+
+
+def _safe_reconfigure_streams() -> None:
+    """将 stdout/stderr 错误处理改为 replace,避免 GBK 控制台 emoji 崩溃。
+
+    保留控制台原生编码(gbk/utf-8 自适应):中文始终正常,emoji 降级为 '?'。
+    rich 无论走 legacy_windows_render 还是 file.write 路径,最终都经 file.write,
+    故在编码层 reconfigure 即可全覆盖。PyInstaller exe 同样适用(sys.stdout 仍为 TextIOWrapper)。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError):
+            pass  # 非 TextIOWrapper 或不支持 reconfigure(如已关闭/重定向到非文本流)
 
 
 def _setup_logging(quiet: bool) -> None:
@@ -79,12 +106,15 @@ def _resolve_game_root(args: argparse.Namespace) -> Path:
 
 
 def build_ruleset(
-    versions: str | list[str], args: argparse.Namespace, mcmig_dir: Path
+    versions: str | list[str],
+    args: argparse.Namespace,
+    mcmig_dir: Path,
+    *,
+    with_whitelist: bool = False,
 ) -> tuple[rules.RuleSet, list[str]]:
-    """按优先级(CLI > extra > user > default)组装 RuleSet,返回 (ruleset, 错误列表)。
+    """按优先级(CLI > extra > user > whitelist > default)组装 RuleSet。
 
-    versions 为单版本名(scan 上下文)或版本列表(diff 上下文传 [src, dst]),
-    用于展开内置默认规则中的 <ver> 占位。
+    with_whitelist=True 时插入白名单层(仅 plan 命令启用),scan/diff 零回归。
     """
     cli_rules = rules.load_cli_rules(args.exclude, args.include)
     extra: list[rules.Rule] = []
@@ -96,9 +126,16 @@ def build_ruleset(
     user_path = mcmig_dir / "rules.yaml"
     user, ue = rules.load_user_rules(user_path)
     errors.extend(ue)
+    whitelist: list[rules.Rule] = []
+    if with_whitelist:
+        from importlib import resources
+
+        wl_text = resources.files("migration").joinpath("data/whitelist.yaml").read_text(encoding="utf-8")
+        whitelist, we = rules.load_whitelist_rules_from_text(wl_text, "whitelist.yaml")
+        errors.extend(we)
     default, de = rules.load_default_rules(versions)
     errors.extend(de)
-    rs = rules.RuleSet.from_layers(cli_rules, extra, user, default)
+    rs = rules.RuleSet.from_layers(cli_rules, extra, user, whitelist, default)
     return rs, errors
 
 
@@ -200,13 +237,54 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """plan 子命令:load snapshots → diff → plan → 渲染 + 持久化。"""
+    cwd = Path.cwd()
+    src_path = snapshot_path(cwd, args.src)
+    dst_path = snapshot_path(cwd, args.dst)
+    missing = [n for n, p in ((args.src, src_path), (args.dst, dst_path)) if not p.exists()]
+    if missing:
+        _print("[错误] 缺少快照: " + ", ".join(missing))
+        _print("请先运行: mcmig scan <版本名>")
+        return 2
+    try:
+        src = Snapshot.load(src_path)
+        dst = Snapshot.load(dst_path)
+    except Exception as e:  # noqa: BLE001
+        _print(f"[错误] 快照读取失败: {e}")
+        return 2
+    mcmig_dir = cwd / ".mcmig"
+    rs, errs = build_ruleset([args.src, args.dst], args, mcmig_dir, with_whitelist=True)
+    for e in errs:
+        _print(f"[规则警告] {e}")
+    clf = Classifier(rs)
+    report = Differ(src.files, dst.files, clf).diff()
+    src_index = {e.path: e for e in src.files}
+    plan = Planner(report, src_index).plan()
+    plan.src, plan.dst = args.src, args.dst
+    reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst)
+    if args.json:
+        _print(reporter.to_json())
+    else:
+        reporter.render(PlanOptions(show_skip=args.show_skip, category=args.category))
+    if not args.no_save:
+        try:
+            plan.save(plan_path(cwd, args.src, args.dst))
+        except OSError as e:
+            _print(f"[警告] plan 文件写入失败(已忽略,stdout 仍有效): {e}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。"""
+    _safe_reconfigure_streams()
     args = build_parser().parse_args(argv)
     _setup_logging(getattr(args, "quiet", False))
     if args.command == "scan":
         return _cmd_scan(args)
     if args.command == "diff":
         return _cmd_diff(args)
+    if args.command == "plan":
+        return _cmd_plan(args)
     build_parser().print_help()
     return 1

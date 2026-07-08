@@ -179,3 +179,63 @@ def load_cli_rules(excludes: list[str] | None, includes: list[str] | None) -> li
             Rule(match=g, decide=Category.MUST_MIGRATE, reason="CLI --include", source="cli")
         )
     return out
+
+
+def _parse_whitelist_doc(doc: dict, source_name: str) -> tuple[list[Rule], list[str]]:
+    """解析白名单 YAML 文档(已 load 好的 dict),返回 (规则列表, 错误列表)。
+
+    每条强制 decide=MUST_MIGRATE + source="whitelist"。
+    source_name 仅用于错误消息(如 "whitelist.yaml")。
+    """
+    rules_list: list[Rule] = []
+    errors: list[str] = []
+    for i, raw in enumerate(doc.get("rules") or []):
+        if not isinstance(raw, dict):
+            errors.append(f"{source_name} 白名单 #{i}: 非映射")
+            continue
+        match = raw.get("match")
+        if not match or not isinstance(match, str):
+            errors.append(f"{source_name} 白名单 #{i}: 缺少 match")
+            continue
+        rules_list.append(
+            Rule(
+                match=match,
+                decide=Category.MUST_MIGRATE,
+                reason=str(raw.get("reason", "")),
+                source="whitelist",
+            )
+        )
+    return rules_list, errors
+
+
+def load_whitelist_rules(path: Path) -> tuple[list[Rule], list[str]]:
+    """加载白名单规则文件(详写格式,但 decide 强制为 MUST_MIGRATE,不要求 yaml 写)。
+
+    白名单语义=「该迁的文件清单」,每条 match/reason,decide 固定 MUST_MIGRATE。
+    文件不存在时返回空(对齐 user rules)。优先级:user rules > whitelist > default。
+    """
+    if not path.exists():
+        return [], []
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        return [], [f"{path}: YAML 解析失败: {e}"]
+    if not isinstance(doc, dict):
+        return [], [f"{path}: 文档非映射结构"]
+    return _parse_whitelist_doc(doc, path.name)
+
+
+def load_whitelist_rules_from_text(text: str, source_name: str) -> tuple[list[Rule], list[str]]:
+    """从 YAML 文本直接解析白名单规则(PyInstaller 安全)。
+
+    与 load_whitelist_rules 语义等价,但不依赖文件系统路径——
+    供 importlib.resources 读取打包资源时使用。
+    source_name 仅用于错误消息(如 "whitelist.yaml")。
+    """
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        return [], [f"{source_name}: YAML 解析失败: {e}"]
+    if not isinstance(doc, dict):
+        return [], [f"{source_name}: 文档非映射结构"]
+    return _parse_whitelist_doc(doc, source_name)

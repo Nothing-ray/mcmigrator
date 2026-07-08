@@ -1,0 +1,23 @@
+# 无 .bak 但属玩家偏好的文件白名单。
+# 这些文件由 mod 直接写入玩家设置,不经过 NeoForge 的 .bak 机制,
+# 故 .bak 判定法无法识别,需显式列入。
+# 来源:AGENTS.md「config 玩家改动判定法」+ 实测 227 vs 228
+# 优先级:user rules > whitelist > default rules(用户可用 rules.yaml 覆盖)
+# 语义:每条强制 decide=must_migrate(yaml 不写 decide)
+
+version: 1
+rules:
+  - match: "iris.properties"
+    reason: "Iris 光影客户端设置(无 .bak 机制)"
+
+  - match: "config/jade/**/*.json"
+    reason: "Jade 显示偏好(无 .bak)"
+
+  - match: "config/jei/*sort-order*"
+    reason: "JEI 配方排序(无 .bak)"
+
+  - match: "config/jei/bookmarks.ini"
+    reason: "JEI 书签(无 .bak)"
+
+  - match: "local/ftbchunks/**/ftbchunks-client.snbt"
+    reason: "FTB Chunks 客户端偏好(无 .bak)"

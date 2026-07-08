@@ -93,3 +93,79 @@ def test_e2e_rule_change_without_rescan(mini_version: Path, tmp_path: Path, monk
     _run(["diff", "mini", "target", "--game-root", str(game_root), "--json"], buf3)
     d3 = json.loads(buf3.getvalue())
     assert "options.txt" in {i["path"] for i in d3["buckets"]["to_migrate"]}
+
+
+def test_e2e_plan_bak_judgment(mini_version_with_bak: Path, tmp_path: Path, monkeypatch):
+    """.bak 命中 → config candidate 升级为 copy_new。"""
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    shutil.move(str(mini_version_with_bak), str(versions / "mini"))
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    _run(["scan", "mini", "--game-root", str(game_root)])
+    _run(["scan", "target", "--game-root", str(game_root)])
+
+    buf = io.StringIO()
+    _run(["plan", "mini", "target", "--json"], buf)
+    doc = json.loads(buf.getvalue())
+    actions = {a["path"]: a["action"] for a in doc["actions"]}
+    assert actions.get("config/create.toml") == "copy_new"
+
+
+def test_e2e_plan_whitelist_upgrades_to_migrate(mini_version_with_whitelist: Path, tmp_path: Path, monkeypatch):
+    """白名单命中的文件在规则层归 must_migrate → copy_new(不进 candidate)。"""
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    shutil.move(str(mini_version_with_whitelist), str(versions / "mini"))
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    _run(["scan", "mini", "--game-root", str(game_root)])
+    _run(["scan", "target", "--game-root", str(game_root)])
+
+    buf = io.StringIO()
+    _run(["plan", "mini", "target", "--json"], buf)
+    doc = json.loads(buf.getvalue())
+    actions = {a["path"]: a["action"] for a in doc["actions"]}
+    assert actions.get("iris.properties") == "copy_new"
+    assert actions.get("config/jade/preset.json") == "copy_new"
+
+
+def test_e2e_plan_no_write_to_game_dir(mini_version: Path, tmp_path: Path, monkeypatch):
+    """plan 命令对游戏目录零写入(验收标准 3)。"""
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    shutil.move(str(mini_version), str(versions / "mini"))
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    _run(["scan", "mini", "--game-root", str(game_root)])
+    _run(["scan", "target", "--game-root", str(game_root)])
+
+    before = {p: p.stat().st_mtime_ns for p in game_root.rglob("*") if p.is_file()}
+    _run(["plan", "mini", "target"])
+    after = {p: p.stat().st_mtime_ns for p in game_root.rglob("*") if p.is_file()}
+    assert before == after
+
+
+def test_e2e_plan_default_config_skipped(tmp_path: Path, monkeypatch):
+    """config 下无 .bak 且不在白名单 → skip_default_config。"""
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    mini = versions / "mini"
+    mini.mkdir(parents=True)
+    (mini / "config").mkdir()
+    (mini / "config" / "default.toml").write_text("a=1\n", encoding="utf-8")
+    (mini / "options.txt").write_text("v\n", encoding="utf-8")
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    _run(["scan", "mini", "--game-root", str(game_root)])
+    _run(["scan", "target", "--game-root", str(game_root)])
+
+    buf = io.StringIO()
+    _run(["plan", "mini", "target", "--json"], buf)
+    doc = json.loads(buf.getvalue())
+    actions = {a["path"]: a["action"] for a in doc["actions"]}
+    assert actions.get("config/default.toml") == "skip_default_config"

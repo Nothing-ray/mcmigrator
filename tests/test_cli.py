@@ -124,3 +124,130 @@ def test_resolve_game_root_error(tmp_path: Path, monkeypatch, capsys):
     assert exc.value.code == 2
     msg = capsys.readouterr().out
     assert "--game-root" in msg and "MCMIG_GAME_ROOT" in msg and "config.yaml" in msg
+
+
+def test_plan_writes_plan_file(mini_version: Path, tmp_path: Path, monkeypatch):
+    import shutil
+    from migration import cli
+    from migration.plan import plan_path
+
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    shutil.move(str(mini_version), str(versions / "mini"))
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "mini", "--game-root", str(game_root)])
+    cli.main(["scan", "target", "--game-root", str(game_root)])
+
+    code = cli.main(["plan", "mini", "target"])
+    assert code == 0
+    assert plan_path(tmp_path, "mini", "target").exists()
+
+
+def test_plan_missing_snapshot_friendly_error(tmp_path: Path, monkeypatch, capsys):
+    from migration import cli
+
+    monkeypatch.chdir(tmp_path)
+    code = cli.main(["plan", "a", "b"])
+    out = capsys.readouterr().out
+    assert code != 0
+    assert "scan" in out
+
+
+def test_plan_json_output(tmp_path: Path, mini_version: Path, monkeypatch, capsys):
+    import json
+    import shutil
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    shutil.move(str(mini_version), str(versions / "mini"))
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "mini", "--game-root", str(game_root)])
+    cli.main(["scan", "target", "--game-root", str(game_root)])
+    capsys.readouterr()  # 清空 scan 输出,仅捕获 plan --json
+
+    code = cli.main(["plan", "mini", "target", "--json"])
+    out = capsys.readouterr().out
+    assert code == 0
+    doc = json.loads(out)
+    assert doc["src"] == "mini" and doc["dst"] == "target"
+    assert "summary" in doc and "actions" in doc
+
+
+def test_plan_no_save_skips_file(tmp_path: Path, mini_version: Path, monkeypatch):
+    import shutil
+    from migration import cli
+    from migration.plan import plan_path
+
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    shutil.move(str(mini_version), str(versions / "mini"))
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "mini", "--game-root", str(game_root)])
+    cli.main(["scan", "target", "--game-root", str(game_root)])
+
+    cli.main(["plan", "mini", "target", "--no-save"])
+    assert not plan_path(tmp_path, "mini", "target").exists()
+
+
+def test_plan_show_skip_includes_skip_actions(tmp_path, mini_version, monkeypatch, capsys):
+    import shutil
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    shutil.move(str(mini_version), str(versions / "mini"))
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "mini", "--game-root", str(game_root)])
+    cli.main(["scan", "target", "--game-root", str(game_root)])
+
+    cli.main(["plan", "mini", "target", "--show-skip"])
+    out = capsys.readouterr().out
+    assert "skip_default" in out or "skip_never" in out or "skip_identical" in out
+
+
+def test_safe_reconfigure_streams_prevents_gbk_emoji_crash():
+    """GBK strict stdout 经 _safe_reconfigure_streams 后 rich emoji 不再 UnicodeEncodeError。
+
+    回归测试:无此修复时 rich 输出 emoji 到 gbk 控制台必崩(✅📦 等不可编码)。
+    """
+    import io
+    import sys
+
+    from migration.cli import _safe_reconfigure_streams
+
+    orig = (sys.stdout, sys.stderr)
+    try:
+        sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding="gbk", errors="strict")
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="gbk", errors="strict")
+        assert sys.stdout.errors == "strict"
+        _safe_reconfigure_streams()
+        assert sys.stdout.errors == "replace"
+        from rich.console import Console
+
+        Console().print("[bold]test ✅ 中文 📦 🔄 ⚙️[/]")  # 不应 raise
+    finally:
+        sys.stdout, sys.stderr = orig
+
+
+def test_safe_reconfigure_streams_swallows_non_textiowrapper():
+    """_safe_reconfigure_streams 对无 reconfigure 方法的流(如 StringIO)静默跳过不崩。"""
+    import sys
+
+    from migration.cli import _safe_reconfigure_streams
+
+    orig = (sys.stdout, sys.stderr)
+    try:
+        sys.stdout = io.StringIO()  # StringIO 无 reconfigure 方法
+        sys.stderr = io.StringIO()
+        _safe_reconfigure_streams()  # 不应 raise
+    finally:
+        sys.stdout, sys.stderr = orig
