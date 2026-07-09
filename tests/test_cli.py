@@ -211,7 +211,7 @@ def test_plan_show_skip_includes_skip_actions(tmp_path, mini_version, monkeypatc
 
     cli.main(["plan", "mini", "target", "--show-skip"])
     out = capsys.readouterr().out
-    assert "skip_default" in out or "skip_never" in out or "skip_identical" in out
+    assert "默认配置" in out or "不迁" in out or "一致" in out
 
 
 def test_safe_reconfigure_streams_prevents_gbk_emoji_crash():
@@ -251,3 +251,80 @@ def test_safe_reconfigure_streams_swallows_non_textiowrapper():
         _safe_reconfigure_streams()  # 不应 raise
     finally:
         sys.stdout, sys.stderr = orig
+
+
+def test_plan_rebuild_files_go_rebuild_origin(tmp_path: Path, monkeypatch, capsys):
+    """fml.toml 等命中 rebuild.yaml → plan 中 origin=rebuild(不进 candidate)。"""
+    import json
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    mini = versions / "mini"
+    mini.mkdir()
+    (mini / "config").mkdir()
+    (mini / "config" / "fml.toml").write_text("x=1\n", encoding="utf-8")
+    (mini / "options.txt").write_text("v\n", encoding="utf-8")
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "mini", "--game-root", str(game_root)])
+    cli.main(["scan", "target", "--game-root", str(game_root)])
+    capsys.readouterr()
+    cli.main(["plan", "mini", "target", "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    origins = {a["path"]: a["origin"] for a in doc["actions"]}
+    assert origins.get("config/fml.toml") == "rebuild"
+
+
+def test_plan_whitelist_sodium_options_goes_must_migrate(tmp_path: Path, monkeypatch, capsys):
+    """sodium-options.json 命中白名单 → must_migrate(不进 rebuild/default_config)。"""
+    import json
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    mini = versions / "mini"
+    mini.mkdir()
+    (mini / "config").mkdir()
+    (mini / "config" / "sodium-options.json").write_text("{}", encoding="utf-8")
+    (mini / "options.txt").write_text("v\n", encoding="utf-8")
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "mini", "--game-root", str(game_root)])
+    cli.main(["scan", "target", "--game-root", str(game_root)])
+    capsys.readouterr()
+    cli.main(["plan", "mini", "target", "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    origins = {a["path"]: a["origin"] for a in doc["actions"]}
+    assert origins.get("config/sodium-options.json") == "must_migrate"
+
+
+def test_plan_rebuild_yields_to_user_rules(tmp_path: Path, monkeypatch, capsys):
+    """user rules.yaml 写 fml.toml→must_migrate 时压过 rebuild(P2 用户主权)。"""
+    import json
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    mini = versions / "mini"
+    mini.mkdir()
+    (mini / "config").mkdir()
+    (mini / "config" / "fml.toml").write_text("x=1\n", encoding="utf-8")
+    (mini / "options.txt").write_text("v\n", encoding="utf-8")
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".mcmig").mkdir()
+    (tmp_path / ".mcmig" / "rules.yaml").write_text(
+        "version: 1\nrules:\n  - match: 'config/fml.toml'\n    decide: must_migrate\n    reason: 'user override'\n",
+        encoding="utf-8",
+    )
+    cli.main(["scan", "mini", "--game-root", str(game_root)])
+    cli.main(["scan", "target", "--game-root", str(game_root)])
+    capsys.readouterr()
+    cli.main(["plan", "mini", "target", "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    origins = {a["path"]: a["origin"] for a in doc["actions"]}
+    assert origins.get("config/fml.toml") == "must_migrate"

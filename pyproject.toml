@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcmig"
-version = "0.2.0"
+version = "0.3.0"
 description = "Minecraft 整合包版本迁移工具(只读 scan/diff)"
 requires-python = ">=3.11"
 dependencies = [

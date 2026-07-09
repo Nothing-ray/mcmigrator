@@ -1,6 +1,7 @@
 """Plan 数据模型与 JSON 持久化。
 
 Plan = 可执行 action 列表(由 Planner 从 DiffReport 细化而来),供 Executor 后续消费。
+2D 模型:behavior(操作,Executor 吃)× origin(语义来源,reporter 吃)。
 对齐 snapshot.py 风格:格式版本检查 + 友好错误。
 """
 
@@ -13,25 +14,104 @@ from pathlib import Path
 
 from .snapshot import TOOL_VERSION
 
-PLAN_FORMAT = 1
+PLAN_FORMAT = 2
 
 
 class PlanFormatError(Exception):
     """plan 文件格式版本不支持或内容损坏。"""
 
 
-class Action(Enum):
-    """单个文件在迁移计划中的动作。"""
+class Behavior(str, Enum):
+    """单个文件的操作(Executor 关心,3 值闭合,极稳)。
 
-    COPY_NEW = "copy_new"                 # 源有目标无,直接复制
-    OVERWRITE = "overwrite"               # 两边都有但不同,源覆盖(目标备份)
-    SKIP_IDENTICAL = "skip_identical"     # 两边一致
-    SKIP_NEVER = "skip_never"             # 分类 never
-    SKIP_DEFAULT_CONFIG = "skip_default_config"  # config 无 .bak 且不在白名单
-    ADD_MOD = "add_mod"                   # 源独有 mod
-    KEEP_MOD = "keep_mod"                 # 共有 mod
-    IGNORE_TARGET_MOD = "ignore_target_mod"  # 目标独有 mod
-    ASK = "ask"                           # 无法判定,需人工确认
+    - COPY: 复制 src→dst(若 backup_target 非空,先备份 dst)。
+    - SKIP: 不动。
+    - ASK: 需人工确认(非交互→SKIP,交互→提示)。
+    """
+
+    COPY = "copy"
+    SKIP = "skip"
+    ASK = "ask"
+
+
+@dataclass(frozen=True)
+class OriginSpec:
+    """单个 origin 的元数据:结构契约(behavior)+ reporter 显示皮。
+
+    Attributes:
+        title: 含 emoji 的分组标题(如 "✅ 必迁")。
+        default_visible: 不带 --show-skip 时是否默认显示。
+        show_backup: 是否在该 origin 分组表里显示 backup_target 列。
+        behavior: 该 origin 对应的操作(2D 模型 1:1 不变量,spec §2 表);
+            reporter 据此判定是否显示 new/modified 子计数,Executor/Planner 不读。
+    """
+
+    title: str
+    default_visible: bool
+    show_backup: bool
+    behavior: Behavior
+
+
+class Origin(str, Enum):
+    """单个文件的语义来源(reporter 关心,随路线图增长)。"""
+
+    MUST_MIGRATE = "must_migrate"
+    CONFIG_MODIFIED = "config_modified"
+    BAK_FILE = "bak_file"
+    MOD_ADDED = "mod_added"
+    IDENTICAL = "identical"
+    NEVER = "never"
+    DEFAULT_CONFIG = "default_config"
+    REBUILD = "rebuild"
+    MOD_SHARED = "mod_shared"
+    MOD_TARGET_ONLY = "mod_target_only"
+    NEEDS_REVIEW = "needs_review"
+
+
+# origin -> OriginSpec(初版词表,见 spec §2.2/§2;behavior 为结构契约,非显示皮)
+_ORIGIN_SEED: dict[str, OriginSpec] = {
+    "must_migrate":    OriginSpec("✅ 必迁",            True,  False, Behavior.COPY),
+    "config_modified": OriginSpec("✏️ 改过的 config",   True,  False, Behavior.COPY),
+    "bak_file":        OriginSpec("📋 备份文件",        True,  False, Behavior.COPY),
+    "mod_added":       OriginSpec("📦 补 Mod",          True,  False, Behavior.COPY),
+    "needs_review":    OriginSpec("❓ 待确认",          True,  False, Behavior.ASK),
+    "rebuild":         OriginSpec("🔒 版本敏感",        False, False, Behavior.SKIP),
+    "default_config":  OriginSpec("⚙️ 默认配置",        False, False, Behavior.SKIP),
+    "never":           OriginSpec("⛔ 不迁",            False, False, Behavior.SKIP),
+    "identical":       OriginSpec("⏭ 一致",            False, False, Behavior.SKIP),
+    "mod_shared":      OriginSpec("📦 共有 Mod",        False, False, Behavior.SKIP),
+    "mod_target_only": OriginSpec("📦 目标独有 Mod",    False, False, Behavior.SKIP),
+}
+
+
+# 先声明词典供模块级引用,再通过 _seed_registry() 填充(两步保证 import 安全)
+ORIGIN_REGISTRY: dict[str, OriginSpec] = {}
+
+
+def register_origin(
+    key: str, *, title: str, visible: bool, show_backup: bool, behavior: Behavior
+) -> None:
+    """注册一个 origin 元数据(启动时播种已知 origin;未来 profiles/插件可扩展新 origin)。
+
+    Args:
+        key: origin 字符串值(如 "must_migrate")。
+        title: 含 emoji 的分组标题。
+        visible: 默认是否显示。
+        show_backup: 是否显示 backup_target 列。
+        behavior: 该 origin 对应的操作(COPY/SKIP/ASK,2D 模型 1:1 不变量)。
+    """
+    ORIGIN_REGISTRY[key] = OriginSpec(
+        title=title, default_visible=visible, show_backup=show_backup, behavior=behavior
+    )
+
+
+def _seed_registry() -> None:
+    """从 Origin 全部成员播种注册表(幂等)。"""
+    for member in Origin:
+        ORIGIN_REGISTRY[member.value] = _ORIGIN_SEED[member.value]
+
+
+_seed_registry()
 
 
 @dataclass(frozen=True)
@@ -39,24 +119,27 @@ class ActionRecord:
     """单个文件的迁移动作记录。"""
 
     path: str
-    action: Action
+    behavior: Behavior
+    origin: Origin
     src_size: int | None
     dst_size: int | None
     md5_match: bool | None  # true/false/null;null = 未比对(size-based 或一边缺)
     confidence: str         # "high" / "medium" / "low"
     reason: str
-    backup_target: str | None  # overwrite 时为 "_conflict_backup/<path>";其余 None
+    backup_target: str | None  # 覆盖时为 "_conflict_backup/<path>";驱动 COPY 内备份步骤;其余 None
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        d["action"] = self.action.value
+        d["behavior"] = self.behavior.value
+        d["origin"] = self.origin.value
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "ActionRecord":
         return cls(
             path=d["path"],
-            action=Action(d["action"]),
+            behavior=Behavior(d["behavior"]),
+            origin=Origin(d["origin"]),
             src_size=d.get("src_size"),
             dst_size=d.get("dst_size"),
             md5_match=d.get("md5_match"),
@@ -78,10 +161,10 @@ class MigrationPlan:
     plan_format: int = PLAN_FORMAT
 
     def summary(self) -> dict[str, int]:
-        """按 action 统计计数。"""
-        counts: dict[str, int] = {a.value: 0 for a in Action}
+        """按 origin 统计计数。"""
+        counts: dict[str, int] = {o.value: 0 for o in Origin}
         for r in self.actions:
-            counts[r.action.value] += 1
+            counts[r.origin.value] += 1
         return counts
 
     def save(self, path: Path) -> None:

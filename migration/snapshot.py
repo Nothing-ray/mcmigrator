@@ -9,7 +9,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-TOOL_VERSION = "0.2.0"
+TOOL_VERSION = "0.3.0"
 SNAPSHOT_FORMAT = 1
 
 

@@ -40,7 +40,6 @@ def test_options_defaults_hide_identical_and_never():
 
 
 def test_plan_reporter_to_json_parseable():
-    import json
     from migration.differ import DiffItem, DiffReport
     from migration.planner import Planner
     from migration.reporter import PlanReporter
@@ -53,8 +52,11 @@ def test_plan_reporter_to_json_parseable():
     plan.src, plan.dst = "227", "229"
     doc = json.loads(PlanReporter(plan, src_version="227", dst_version="229").to_json())
     assert doc["src"] == "227" and doc["dst"] == "229"
-    assert doc["summary"]["copy_new"] == 1
-    assert any(a["path"] == "options.txt" and a["action"] == "copy_new" for a in doc["actions"])
+    assert doc["summary"]["must_migrate"] == 1
+    assert any(
+        a["path"] == "options.txt" and a["behavior"] == "copy" and a["origin"] == "must_migrate"
+        for a in doc["actions"]
+    )
 
 
 def test_plan_reporter_render_no_error(capsys):
@@ -84,7 +86,7 @@ def test_plan_options_defaults_hide_skip():
     assert opts.category is None
 
 
-def test_plan_reporter_show_skip_renders_skip_actions(capsys):
+def test_plan_reporter_show_skip_renders_skip_origins(capsys):
     from migration.differ import DiffItem, DiffReport
     from migration.planner import Planner
     from migration.reporter import PlanOptions, PlanReporter
@@ -98,12 +100,33 @@ def test_plan_reporter_show_skip_renders_skip_actions(capsys):
     plan.src, plan.dst = "a", "b"
     PlanReporter(plan, src_version="a", dst_version="b").render(PlanOptions(show_skip=True))
     out = capsys.readouterr().out
-    assert "skip_default" in out
+    assert "默认配置" in out  # origin=default_config 的标题
+    assert "新增" not in out and "覆盖" not in out  # SKIP 类 origin 不显示 new/modified 子计数
 
 
-def test_action_meta_covers_all_action_values():
-    """ACTION_META 必须覆盖所有 Action enum 值,否则 render 会静默丢弃。"""
-    from migration.plan import Action
-    from migration.reporter import ACTION_META
+def test_origin_registry_covers_all_origin_values():
+    """ORIGIN_REGISTRY 必须覆盖所有 Origin enum 值,否则 render 会静默丢弃。"""
+    from migration.plan import Origin, ORIGIN_REGISTRY
 
-    assert set(ACTION_META.keys()) == {a.value for a in Action}
+    assert set(ORIGIN_REGISTRY.keys()) == {o.value for o in Origin}
+
+
+def test_plan_reporter_new_modified_subcount(capsys):
+    from migration.differ import DiffItem, DiffReport
+    from migration.planner import Planner
+    from migration.reporter import PlanOptions, PlanReporter
+    from migration.snapshot import FileEntry
+
+    report = DiffReport(
+        to_migrate=[
+            DiffItem("options.txt", FileEntry("options.txt", 10, "a"), None, "new"),
+            DiffItem("server.dat", FileEntry("server.dat", 5, "a"),
+                     FileEntry("server.dat", 4, "b"), "modified"),
+        ],
+    )
+    plan = Planner(report, {"options.txt": FileEntry("options.txt", 10, "a")}).plan()
+    plan.src, plan.dst = "a", "b"
+    PlanReporter(plan, src_version="a", dst_version="b").render(PlanOptions())
+    out = capsys.readouterr().out
+    # must_migrate 组标题含新增/覆盖子计数
+    assert "新增" in out and "覆盖" in out

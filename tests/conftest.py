@@ -86,3 +86,14 @@ def mini_version_with_whitelist(tmp_path: Path) -> Path:
         tmp_path / "mini_wl",
         whitelist_files=["iris.properties", "config/jade/preset.json"],
     )
+
+
+@pytest.fixture
+def origin_registry_snapshot():
+    """快照/还原 ORIGIN_REGISTRY,隔离 register_origin 写入对其他测试的污染。"""
+    from migration.plan import ORIGIN_REGISTRY
+
+    snapshot = dict(ORIGIN_REGISTRY)
+    yield
+    ORIGIN_REGISTRY.clear()
+    ORIGIN_REGISTRY.update(snapshot)

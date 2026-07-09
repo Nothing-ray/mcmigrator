@@ -57,8 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--exclude", action="append", default=[], metavar="GLOB")
     p_plan.add_argument("--include", action="append", default=[], metavar="GLOB")
     p_plan.add_argument("--rule", action="append", default=[], metavar="FILE")
-    p_plan.add_argument("--show-skip", action="store_true", help="显示 skip_*/keep_mod/ignore")
-    p_plan.add_argument("--category", default=None, help="仅显示某 action")
+    p_plan.add_argument("--show-skip", action="store_true", help="显示 skip 类 origin(never/default_config/identical/mod_shared/mod_target_only/rebuild)")
+    p_plan.add_argument("--category", default=None, help="仅显示某 origin")
     p_plan.add_argument("--json", action="store_true")
     p_plan.add_argument("--no-save", action="store_true", help="不持久化 plan 文件")
     p_plan.add_argument("-q", "--quiet", action="store_true")
@@ -112,10 +112,12 @@ def build_ruleset(
     *,
     with_whitelist: bool = False,
 ) -> tuple[rules.RuleSet, list[str]]:
-    """按优先级(CLI > extra > user > whitelist > default)组装 RuleSet。
+    """按优先级(CLI > extra > user > REBUILD > whitelist > default)组装 RuleSet。
 
-    with_whitelist=True 时插入白名单层(仅 plan 命令启用),scan/diff 零回归。
+    rebuild 层对所有命令(scan/diff/plan)常开;whitelist 仅 plan 命令启用。
     """
+    from importlib import resources
+
     cli_rules = rules.load_cli_rules(args.exclude, args.include)
     extra: list[rules.Rule] = []
     errors: list[str] = []
@@ -126,16 +128,18 @@ def build_ruleset(
     user_path = mcmig_dir / "rules.yaml"
     user, ue = rules.load_user_rules(user_path)
     errors.extend(ue)
+    # rebuild 层:常开(scan/diff/plan 都需正确识别版本敏感文件)
+    rb_text = resources.files("migration").joinpath("data/rebuild.yaml").read_text(encoding="utf-8")
+    rebuild, rbe = rules.load_rebuild_rules_from_text(rb_text, "rebuild.yaml")
+    errors.extend(rbe)
     whitelist: list[rules.Rule] = []
     if with_whitelist:
-        from importlib import resources
-
         wl_text = resources.files("migration").joinpath("data/whitelist.yaml").read_text(encoding="utf-8")
         whitelist, we = rules.load_whitelist_rules_from_text(wl_text, "whitelist.yaml")
         errors.extend(we)
     default, de = rules.load_default_rules(versions)
     errors.extend(de)
-    rs = rules.RuleSet.from_layers(cli_rules, extra, user, whitelist, default)
+    rs = rules.RuleSet.from_layers(cli_rules, extra, user, rebuild, whitelist, default)
     return rs, errors
 
 

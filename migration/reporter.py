@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .differ import DiffItem, DiffReport
-from .plan import MigrationPlan
+from .plan import Behavior, MigrationPlan, ORIGIN_REGISTRY
 
 BUCKETS = ["to_migrate", "candidate", "mods", "only_in_dst", "identical", "never"]
 BUCKET_TITLE = {
@@ -90,20 +90,9 @@ class DiffReporter:
             console.print(tbl)
 
 
-ACTION_META: dict[str, tuple[str, bool, bool]] = {
-    # action: (title, default_visible, show_backup_column)
-    "copy_new":            ("✅ 新增(copy_new)",          True,  False),
-    "overwrite":           ("🔄 覆盖(overwrite)",         True,  True),
-    "add_mod":             ("📦 补 Mod(add_mod)",         True,  False),
-    "ask":                 ("❓ 待确认(ask)",             True,  False),
-    "skip_identical":      ("⏭ 一致(skip_identical)",    False, False),
-    "skip_never":          ("⛔ 不迁(skip_never)",        False, False),
-    "skip_default_config": ("⚙️ 默认配置(skip_default)",  False, False),
-    "keep_mod":            ("📦 共有 Mod(keep_mod)",      False, False),
-    "ignore_target_mod":   ("📦 目标独有 Mod(ignore)",    False, False),
-}
-
-_DEFAULT_VISIBLE = [a for a, (_, vis, _) in ACTION_META.items() if vis]
+def _default_visible_origins() -> list[str]:
+    """延迟计算默认可见 origin(运行时反映注册表最新状态)。"""
+    return [k for k, m in ORIGIN_REGISTRY.items() if m.default_visible]
 
 
 @dataclass
@@ -112,7 +101,7 @@ class PlanOptions:
 
     show_skip: bool = False
     category: str | None = None
-    visible_actions: set[str] | None = None  # 预留
+    visible_actions: set[str] | None = None  # 预留(key 为 origin 字符串)
 
 
 class PlanReporter:
@@ -136,45 +125,53 @@ class PlanReporter:
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
-    def _visible_actions(self, opts: PlanOptions) -> list[str]:
+    def _visible_origins(self, opts: PlanOptions) -> list[str]:
         if opts.category:
-            return [opts.category] if opts.category in ACTION_META else []
+            return [opts.category] if opts.category in ORIGIN_REGISTRY else []
         if opts.visible_actions is not None:
-            return [a for a in ACTION_META if a in opts.visible_actions]
+            return [o for o in ORIGIN_REGISTRY if o in opts.visible_actions]
         if opts.show_skip:
-            return list(ACTION_META.keys())
-        return _DEFAULT_VISIBLE
+            return list(ORIGIN_REGISTRY.keys())
+        return _default_visible_origins()
 
     def render(self, opts: PlanOptions, console: Console | None = None) -> None:
-        """渲染 rich 终端报告(按 action 分组)。"""
+        """渲染 rich 终端报告(按 origin 分组)。"""
         console = console or Console()
         console.print(
             f"[bold]plan:[/] [cyan]{self.src_version}[/] → [cyan]{self.dst_version}[/]"
         )
         summary = self.plan.summary()
-        # 仅显示非零 action(9 action 全显示会过长,与 DiffReporter 显示全部桶有意不同)
+        # 仅显示非零 origin(全显示会过长)
         summary_str = ", ".join(
-            f"{ACTION_META[a][0].split('(')[0]}{summary.get(a, 0)}"
-            for a in ACTION_META
-            if summary.get(a, 0) > 0
+            f"{ORIGIN_REGISTRY[o].title}{summary.get(o, 0)}"
+            for o in ORIGIN_REGISTRY
+            if summary.get(o, 0) > 0
         )
         console.print(f"[dim]汇总: {summary_str}[/]")
-        for action_key in self._visible_actions(opts):
-            items = [r for r in self.plan.actions if r.action.value == action_key]
+        for origin_key in self._visible_origins(opts):
+            items = [r for r in self.plan.actions if r.origin.value == origin_key]
             if not items:
                 continue
-            title, _, show_backup = ACTION_META[action_key]
-            tbl = Table(title=f"{title} ({len(items)})", title_style="bold")
+            meta = ORIGIN_REGISTRY[origin_key]
+            # COPY 类 origin 按 backup_target 推导 new/modified 子计数(SKIP/ASK 类不拆)。
+            # behavior 来自注册表单一来源(2D 模型 1:1 不变量),非硬编码 origin 列表。
+            if meta.behavior == Behavior.COPY:
+                new_count = sum(1 for r in items if not r.backup_target)
+                mod_count = sum(1 for r in items if r.backup_target)
+                title = f"{meta.title} ({len(items)}: 新增 {new_count} · 覆盖 {mod_count} 已备份)"
+            else:
+                title = f"{meta.title} ({len(items)})"
+            tbl = Table(title=title, title_style="bold")
             tbl.add_column("路径")
             tbl.add_column("置信度", style="dim")
             tbl.add_column("原因", style="dim")
-            if show_backup:
+            if meta.show_backup:
                 tbl.add_column("备份目标")
             for r in items:
                 row = [r.path, r.confidence, r.reason]
-                if show_backup:
+                if meta.show_backup:
                     row.append(r.backup_target or "")
                 tbl.add_row(*row)
             console.print(tbl)
         if not opts.show_skip and not opts.category:
-            console.print("[dim]默认隐藏 skip_*,用 --show-skip 查看[/]")
+            console.print("[dim]默认隐藏 skip 类 origin,用 --show-skip 查看[/]")
