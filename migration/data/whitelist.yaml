@@ -1,23 +1,40 @@
 # 无 .bak 但属玩家偏好的文件白名单。
 # 这些文件由 mod 直接写入玩家设置,不经过 NeoForge 的 .bak 机制,
 # 故 .bak 判定法无法识别,需显式列入。
-# 来源:AGENTS.md「config 玩家改动判定法」+ 实测 227 vs 228
-# 优先级:user rules > whitelist > default rules(用户可用 rules.yaml 覆盖)
+# 来源:AGENTS.md「config 玩家改动判定法」+ 实测 227 vs 228 + spec §5
+# 优先级:user rules > rebuild > whitelist > default rules
 # 语义:每条强制 decide=must_migrate(yaml 不写 decide)
 
 version: 1
 rules:
+  # 高置信度(已读内容证实为玩家客户端偏好,无 .bak)
   - match: "iris.properties"
     reason: "Iris 光影客户端设置(无 .bak 机制)"
 
   - match: "config/jade/**/*.json"
     reason: "Jade 显示偏好(无 .bak)"
 
-  - match: "config/jei/*sort-order*"
-    reason: "JEI 配方排序(无 .bak)"
+  - match: "config/jei/*.ini"
+    reason: "JEI 客户端 UI/排序/书签/搜索偏好(.ini 直接写无 .bak;收编原 sort-order+bookmarks)"
 
-  - match: "config/jei/bookmarks.ini"
-    reason: "JEI 书签(无 .bak)"
+  - match: "config/jei/blacklist.json"
+    reason: "JEI 玩家隐藏物品清单(无 .bak)"
+
+  - match: "config/MouseTweaks.cfg"
+    reason: "鼠标 inventory 行为偏好(.cfg 直接写无 .bak)"
+
+  - match: "config/sodium-options.json"
+    reason: "Sodium 画质/性能偏好(直接写 JSON 无 .bak;Q6 证据:无设备数据)"
+
+  # 中等置信度(命名/类推)
+  - match: "config/ftb*-client.snbt"
+    reason: "FTB 客户端偏好(library/ultimine,类同 ftbchunks-client;-client 后缀)"
+
+  - match: "config/xaero/**"
+    reason: "Xaero 小地图显示偏好(非路径点数据;cfg/json/txt 直接写)"
+
+  - match: "config/DistantHorizons.toml"
+    reason: "Distant Horizons 远景视觉偏好(DH 自带配置系统无 .bak;含 serverId 与 LOD 数据配套迁)"
 
   - match: "local/ftbchunks/**/ftbchunks-client.snbt"
     reason: "FTB Chunks 客户端偏好(无 .bak)"

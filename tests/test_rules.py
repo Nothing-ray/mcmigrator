@@ -172,6 +172,13 @@ def test_whitelist_priority_above_default_below_user():
     assert rs2.classify("iris.properties") == Category.MUST_MIGRATE  # whitelist 升级
 
 
+def test_rebuild_beats_whitelist_same_path():
+    """同 path 既命中 rebuild 又命中 whitelist → rebuild 赢(spec §4.4 / §8.2 安全护栏)。"""
+    rebuild = [Rule(match="config/fml.toml", decide=Category.REBUILD, source="rebuild")]
+    whitelist = [Rule(match="config/fml.toml", decide=Category.MUST_MIGRATE, source="whitelist")]
+    assert RuleSet.from_layers(rebuild, whitelist).classify("config/fml.toml") == Category.REBUILD
+
+
 def test_load_whitelist_rules_from_text_returns_must_migrate():
     """文本入口功能等价——验证基本解析(PyInstaller 安全路径)。"""
     from migration import rules
@@ -193,3 +200,66 @@ def test_load_whitelist_rules_from_text_bad_yaml():
     layer, errs = rules.load_whitelist_rules_from_text(": broken", "bad")
     assert layer == []
     assert len(errs) == 1 and "YAML" in errs[0]
+
+
+def test_category_has_rebuild():
+    assert Category.REBUILD.value == "rebuild"
+
+
+def test_rebuild_decide_accepted_in_verbose_rules(tmp_path: Path):
+    f = tmp_path / "r.yaml"
+    f.write_text(
+        "version: 1\nrules:\n  - match: 'config/fml.toml'\n    decide: rebuild\n    reason: '版本绑定'\n",
+        encoding="utf-8",
+    )
+    layer, errs = rules.load_user_rules(f)
+    assert errs == []
+    assert layer[0].decide == Category.REBUILD
+
+
+def test_load_rebuild_rules_from_text_forces_rebuild():
+    text = "version: 1\nrules:\n  - match: 'config/fml.toml'\n    reason: 'FML'\n"
+    layer, errs = rules.load_rebuild_rules_from_text(text, "rebuild.yaml")
+    assert errs == []
+    assert len(layer) == 1
+    assert layer[0].match == "config/fml.toml"
+    assert layer[0].decide == Category.REBUILD
+    assert layer[0].source == "rebuild"
+
+
+def test_load_rebuild_rules_from_text_bad_match_skipped():
+    text = "rules:\n  - match: ''\n    reason: '空'\n  - match: 'config/ok.toml'\n"
+    layer, errs = rules.load_rebuild_rules_from_text(text, "rebuild.yaml")
+    assert len(layer) == 1
+    assert layer[0].match == "config/ok.toml"
+    assert len(errs) == 1 and "match" in errs[0]
+
+
+def test_load_rebuild_rules_from_text_bad_yaml():
+    layer, errs = rules.load_rebuild_rules_from_text(": broken", "bad")
+    assert layer == []
+    assert len(errs) == 1 and "YAML" in errs[0]
+
+
+def test_rebuild_yaml_loads_six_entries():
+    from importlib import resources
+    text = resources.files("migration").joinpath("data/rebuild.yaml").read_text(encoding="utf-8")
+    layer, errs = rules.load_rebuild_rules_from_text(text, "rebuild.yaml")
+    assert errs == []
+    matches = {r.match for r in layer}
+    assert "config/fml.toml" in matches
+    assert "config/sodium-fingerprint.json" in matches
+    assert len(layer) == 6
+    assert all(r.decide == Category.REBUILD for r in layer)
+
+
+def test_whitelist_yaml_loads_sodium_options():
+    from importlib import resources
+    text = resources.files("migration").joinpath("data/whitelist.yaml").read_text(encoding="utf-8")
+    layer, errs = rules.load_whitelist_rules_from_text(text, "whitelist.yaml")
+    assert errs == []
+    matches = {r.match for r in layer}
+    assert "config/sodium-options.json" in matches
+    assert "config/jei/*.ini" in matches
+    # 旧条目已被 *.ini 收编删除
+    assert "config/jei/*sort-order*" not in matches

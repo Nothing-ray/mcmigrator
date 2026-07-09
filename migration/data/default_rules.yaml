@@ -14,6 +14,8 @@ never:
   - command_history.txt
   - defaultconfigs/**
   - "**/cache/**"
+  - config/jei/world/**                    # JEI 查询历史(运行时可重建)
+  - config/ars_nouveau/search_index/**     # Lucene 索引(运行时可重建)
 must_migrate:
   - options.txt
   - servers.dat

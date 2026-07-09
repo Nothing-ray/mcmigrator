@@ -19,6 +19,7 @@ class Category(Enum):
 
     NEVER = "never"
     MUST_MIGRATE = "must_migrate"
+    REBUILD = "rebuild"  # 版本/硬件派生的高危文件,默认让目标重建
     UNKNOWN = "unknown"
     ASK = "ask"
 
@@ -239,3 +240,45 @@ def load_whitelist_rules_from_text(text: str, source_name: str) -> tuple[list[Ru
     if not isinstance(doc, dict):
         return [], [f"{source_name}: 文档非映射结构"]
     return _parse_whitelist_doc(doc, source_name)
+
+
+def _parse_rebuild_doc(doc: dict, source_name: str) -> tuple[list[Rule], list[str]]:
+    """解析 rebuild YAML 文档(已 load 好的 dict),返回 (规则列表, 错误列表)。
+
+    每条强制 decide=REBUILD + source="rebuild"。
+    source_name 仅用于错误消息(如 "rebuild.yaml")。
+    """
+    rules_list: list[Rule] = []
+    errors: list[str] = []
+    for i, raw in enumerate(doc.get("rules") or []):
+        if not isinstance(raw, dict):
+            errors.append(f"{source_name} rebuild #{i}: 非映射")
+            continue
+        match = raw.get("match")
+        if not match or not isinstance(match, str):
+            errors.append(f"{source_name} rebuild #{i}: 缺少 match")
+            continue
+        rules_list.append(
+            Rule(
+                match=match,
+                decide=Category.REBUILD,
+                reason=str(raw.get("reason", "")),
+                source="rebuild",
+            )
+        )
+    return rules_list, errors
+
+
+def load_rebuild_rules_from_text(text: str, source_name: str) -> tuple[list[Rule], list[str]]:
+    """从 YAML 文本直接解析 rebuild 规则(PyInstaller 安全)。
+
+    与白名单语义对偶:每条强制 decide=REBUILD(source="rebuild"),不要求 yaml 写 decide。
+    供 importlib.resources 读取打包资源时使用。source_name 仅用于错误消息。
+    """
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        return [], [f"{source_name}: YAML 解析失败: {e}"]
+    if not isinstance(doc, dict):
+        return [], [f"{source_name}: 文档非映射结构"]
+    return _parse_rebuild_doc(doc, source_name)

@@ -96,3 +96,17 @@ def test_src_and_dst_version_binaries_classified_never():
     assert clf.classify_path("1.21.1-NeoForge_21.1.227-natives/lwjgl.dll") == Category.NEVER
     # 目标版本二进制
     assert clf.classify_path("1.21.1-NeoForge_21.1.228.jar") == Category.NEVER
+
+
+def test_rebuild_classified_goes_never_bucket_with_rebuild_note():
+    from migration.rules import Category, Rule, RuleSet
+
+    rs = RuleSet(rules=[Rule(match="config/fml.toml", decide=Category.REBUILD)])
+    clf = Classifier(rs)
+    d = Differ([_e("config/fml.toml", md5="a")], [_e("config/fml.toml", md5="b")], clf).diff()
+    # 进 never 桶,note="rebuild"(与普通 never 区分,供 planner 定 origin)
+    matches = [i for i in d.never if i.path == "config/fml.toml"]
+    assert len(matches) == 1
+    assert matches[0].note == "rebuild"
+    # 不应进 candidate
+    assert not any(i.path == "config/fml.toml" for i in d.candidate)

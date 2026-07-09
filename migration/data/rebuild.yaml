@@ -1,0 +1,19 @@
+# 版本/硬件派生的高危文件:跨版本/跨机器迁移会崩溃或指纹错乱。
+# 默认让目标版本自行重建。用户可用 .mcmig/rules.yaml 强制覆盖(P2:用户主权)。
+# 优先级:cli > extra > user > REBUILD > whitelist > default
+# 语义:每条强制 decide=rebuild(yaml 不写 decide),source="rebuild"
+
+version: 1
+rules:
+  - match: "config/fml.toml"
+    reason: "FML 加载器核心配置(maxThreads/earlyWindowSkipGLVersions,版本+硬件派生)"
+  - match: "config/neoforge-client.toml"
+    reason: "NeoForge 客户端渲染管线开关(加载器派生)"
+  - match: "config/neoforge-common.toml"
+    reason: "NeoForge 通用开发/日志开关(加载器派生)"
+  - match: "config/sodium-fingerprint.json"
+    reason: "Sodium 设备指纹(s/u/p 哈希+时间戳,跨机器/跨版本必失效)"
+  - match: "config/iris-excluded.json"
+    reason: "Iris 按 GPU 拉黑的光影清单(同机可迁跨机错;保守跳过,用户可覆盖)"
+  - match: "config/sodium-mixins.properties"
+    reason: "Sodium Mixin 激活集(版本绑定;保守跳过,用户可覆盖)"

@@ -13,12 +13,20 @@ MODS_PREFIX = "mods/"
 
 @dataclass(frozen=True)
 class DiffItem:
-    """单个文件的 diff 条目。"""
+    """单个文件的 diff 条目。
+
+    note 为 Differ→Planner 的字符串契约(非枚举,各桶异质;typo 静默走默认):
+    - to_migrate / candidate: new / modified
+    - identical:              verified / size-based
+    - never:                  never / rebuild
+    - mods:                   to_add / shared / target_only
+    - only_in_dst:            target_only
+    """
 
     path: str
     src: FileEntry | None
     dst: FileEntry | None
-    note: str = ""  # verified / size-based / modified / new / to_add / shared / target_only ...
+    note: str = ""
 
 
 @dataclass
@@ -88,6 +96,9 @@ class Differ:
             cat = self.classifier.classify_path(path)
             if cat == Category.NEVER:
                 report.never.append(DiffItem(path, s, d, note="never"))
+                continue
+            if cat == Category.REBUILD:
+                report.never.append(DiffItem(path, s, d, note="rebuild"))
                 continue
             if cat == Category.MUST_MIGRATE:
                 if d is None:
