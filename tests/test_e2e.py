@@ -109,8 +109,8 @@ def test_e2e_plan_bak_judgment(mini_version_with_bak: Path, tmp_path: Path, monk
     buf = io.StringIO()
     _run(["plan", "mini", "target", "--json"], buf)
     doc = json.loads(buf.getvalue())
-    actions = {a["path"]: a["action"] for a in doc["actions"]}
-    assert actions.get("config/create.toml") == "copy_new"
+    actions = {a["path"]: a["behavior"] for a in doc["actions"]}
+    assert actions.get("config/create.toml") == "copy"
 
 
 def test_e2e_plan_whitelist_upgrades_to_migrate(mini_version_with_whitelist: Path, tmp_path: Path, monkeypatch):
@@ -127,9 +127,9 @@ def test_e2e_plan_whitelist_upgrades_to_migrate(mini_version_with_whitelist: Pat
     buf = io.StringIO()
     _run(["plan", "mini", "target", "--json"], buf)
     doc = json.loads(buf.getvalue())
-    actions = {a["path"]: a["action"] for a in doc["actions"]}
-    assert actions.get("iris.properties") == "copy_new"
-    assert actions.get("config/jade/preset.json") == "copy_new"
+    actions = {a["path"]: a["behavior"] for a in doc["actions"]}
+    assert actions.get("iris.properties") == "copy"
+    assert actions.get("config/jade/preset.json") == "copy"
 
 
 def test_e2e_plan_no_write_to_game_dir(mini_version: Path, tmp_path: Path, monkeypatch):
@@ -167,5 +167,66 @@ def test_e2e_plan_default_config_skipped(tmp_path: Path, monkeypatch):
     buf = io.StringIO()
     _run(["plan", "mini", "target", "--json"], buf)
     doc = json.loads(buf.getvalue())
-    actions = {a["path"]: a["action"] for a in doc["actions"]}
-    assert actions.get("config/default.toml") == "skip_default_config"
+    origins = {a["path"]: a["origin"] for a in doc["actions"]}
+    assert origins.get("config/default.toml") == "default_config"
+
+
+def test_e2e_acceptance_plan_format_and_origins(tmp_path: Path, monkeypatch, capsys):
+    """spec 验收标准整合:plan_format=2;.bak→bak_file;rebuild→rebuild;白名单→must_migrate;
+    scan/diff 零回归(snapshot 可读)。"""
+    import json
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    mini = versions / "mini"
+    mini.mkdir(parents=True)
+    (mini / "config").mkdir(parents=True)
+    # 玩家改过的 config + 其 versioned .bak
+    (mini / "config" / "create.toml").write_text("a=1\n", encoding="utf-8")
+    (mini / "config" / "create-1.toml.bak").write_bytes(b"\x00")
+    # 高危 rebuild 文件
+    (mini / "config" / "fml.toml").write_text("x=1\n", encoding="utf-8")
+    # 白名单文件(无 .bak 玩家偏好)
+    (mini / "config" / "sodium-options.json").write_text("{}", encoding="utf-8")
+    # 必迁
+    (mini / "options.txt").write_text("v\n", encoding="utf-8")
+    (versions / "target").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    # scan/diff 零回归:先 scan 再 diff 不报错
+    assert _run(["scan", "mini", "--game-root", str(game_root)]) == 0
+    assert _run(["scan", "target", "--game-root", str(game_root)]) == 0
+    buf = io.StringIO()
+    assert _run(["diff", "mini", "target", "--game-root", str(game_root), "--json"], buf) == 0
+    json.loads(buf.getvalue())  # 可解析
+
+    # plan
+    capsys.readouterr()
+    assert _run(["plan", "mini", "target", "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    # 验收 2:plan_format=2
+    assert doc["plan_format"] == 2
+    origins = {a["path"]: a["origin"] for a in doc["actions"]}
+    behaviors = {a["path"]: a["behavior"] for a in doc["actions"]}
+    # 验收 1:.bak → bak_file(非 default_config)
+    assert origins.get("config/create-1.toml.bak") == "bak_file"
+    assert behaviors.get("config/create-1.toml.bak") == "copy"
+    # 验收 1:高危文件 → rebuild
+    assert origins.get("config/fml.toml") == "rebuild"
+    assert behaviors.get("config/fml.toml") == "skip"
+    # 验收 1:白名单 → must_migrate
+    assert origins.get("config/sodium-options.json") == "must_migrate"
+
+
+def test_e2e_scan_zero_regression_snapshot_format_unchanged(tmp_path: Path, monkeypatch):
+    """验收 3:SNAPSHOT_FORMAT 不动,scan 产物可读。"""
+    from migration.snapshot import SNAPSHOT_FORMAT, Snapshot, snapshot_path
+
+    assert SNAPSHOT_FORMAT == 1  # 未改动
+    game_root = tmp_path / "game"
+    (game_root / "versions" / "mini").mkdir(parents=True)
+    (game_root / "versions" / "mini" / "options.txt").write_text("v\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert _run(["scan", "mini", "--game-root", str(game_root)]) == 0
+    snap = Snapshot.load(snapshot_path(tmp_path, "mini"))  # 旧 snapshot 仍可读
+    assert snap.file_count >= 1
