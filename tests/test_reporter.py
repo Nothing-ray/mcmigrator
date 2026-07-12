@@ -130,3 +130,76 @@ def test_plan_reporter_new_modified_subcount(capsys):
     out = capsys.readouterr().out
     # must_migrate 组标题含新增/覆盖子计数
     assert "新增" in out and "覆盖" in out
+
+
+def test_plan_reporter_orphan_in_summary():
+    from migration.differ import DiffItem, DiffReport
+    from migration.planner import Planner
+    from migration.reporter import PlanReporter
+    from migration.snapshot import FileEntry
+
+    report = DiffReport(
+        never=[DiffItem("config/jade/foo.json", FileEntry("config/jade/foo.json", 5, "a"),
+                        None, "orphan")]
+    )
+    plan = Planner(report, {"config/jade/foo.json": FileEntry("config/jade/foo.json", 5, "a")}).plan()
+    plan.src, plan.dst = "228", "233"
+    doc = json.loads(PlanReporter(plan, src_version="228", dst_version="233").to_json())
+    assert doc["summary"].get("orphan", 0) == 1
+
+
+def test_plan_reporter_render_orphan_group(capsys):
+    from migration.differ import DiffItem, DiffReport
+    from migration.planner import Planner
+    from migration.reporter import PlanReporter, PlanOptions
+    from migration.snapshot import FileEntry
+
+    report = DiffReport(
+        never=[DiffItem("config/jade/foo.json", FileEntry("config/jade/foo.json", 5, "a"),
+                        None, "orphan")]
+    )
+    plan = Planner(report, {"config/jade/foo.json": FileEntry("config/jade/foo.json", 5, "a")}).plan()
+    plan.src, plan.dst = "228", "233"
+    PlanReporter(plan, src_version="228", dst_version="233").render(
+        PlanOptions(show_skip=True)
+    )
+    out = capsys.readouterr().out
+    assert "孤儿" in out
+
+
+def test_plan_reporter_compat_warnings_render(capsys):
+    from migration.moddb import CompatWarning
+    from migration.reporter import PlanReporter
+    from migration.plan import MigrationPlan
+    from datetime import datetime, timezone
+
+    plan = MigrationPlan(
+        src="228", dst="233",
+        generated_at=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        actions=[],
+    )
+    warnings = [
+        CompatWarning("cp_lib", "cp_lib.jar", "5.0.18", "[21.1.233,)", "21.1.228"),
+    ]
+    reporter = PlanReporter(plan, src_version="228", dst_version="233")
+    reporter.render_compat_warnings(warnings)
+    out = capsys.readouterr().out
+    assert "cp_lib" in out
+    assert "21.1.233" in out
+    assert "21.1.228" in out
+
+
+def test_plan_reporter_compat_warnings_empty_no_output(capsys):
+    from migration.reporter import PlanReporter
+    from migration.plan import MigrationPlan
+    from datetime import datetime, timezone
+
+    plan = MigrationPlan(
+        src="228", dst="233",
+        generated_at=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        actions=[],
+    )
+    reporter = PlanReporter(plan, src_version="228", dst_version="233")
+    reporter.render_compat_warnings([])
+    out = capsys.readouterr().out
+    assert out == ""

@@ -175,3 +175,25 @@ class PlanReporter:
             console.print(tbl)
         if not opts.show_skip and not opts.category:
             console.print("[dim]默认隐藏 skip 类 origin,用 --show-skip 查看[/]")
+
+    def render_compat_warnings(
+        self, warnings: list, console: Console | None = None
+    ) -> None:
+        """渲染 mod 版本兼容警告段(如有)。"""
+        if not warnings:
+            return
+        console = console or Console()
+        console.print()
+        console.print("[bold yellow]⚠️ Mod 版本兼容警告[/]")
+        console.print(
+            "[dim]以下玩家额外添加的 mod 可能与目标 NeoForge 版本不兼容,"
+            "迁移后可能导致游戏崩溃。[/]"
+        )
+        tbl = Table(title="兼容警告", title_style="bold yellow")
+        tbl.add_column("Mod")
+        tbl.add_column("版本")
+        tbl.add_column("要求 NeoForge")
+        tbl.add_column("目标 NeoForge")
+        for w in warnings:
+            tbl.add_row(w.modid, w.mod_version, w.required_range, w.dst_neoforge)
+        console.print(tbl)
