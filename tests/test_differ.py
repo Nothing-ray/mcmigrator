@@ -110,3 +110,15 @@ def test_rebuild_classified_goes_never_bucket_with_rebuild_note():
     assert matches[0].note == "rebuild"
     # 不应进 candidate
     assert not any(i.path == "config/fml.toml" for i in d.candidate)
+
+
+def test_orphan_classified_goes_never_bucket_with_orphan_note():
+    from migration.rules import Category, Rule, RuleSet
+
+    rs = RuleSet(rules=[Rule(match="config/jade/foo.json", decide=Category.ORPHAN)])
+    clf = Classifier(rs)
+    d = Differ([_e("config/jade/foo.json", md5="a")], [], clf).diff()
+    matches = [i for i in d.never if i.path == "config/jade/foo.json"]
+    assert len(matches) == 1
+    assert matches[0].note == "orphan"
+    assert not any(i.path == "config/jade/foo.json" for i in d.candidate)

@@ -135,7 +135,7 @@ def test_config_candidate_with_plain_bak_goes_copy_config_modified():
     a = next(a for a in actions if a.path == "config/create.toml")
     assert a.behavior == Behavior.COPY
     assert a.origin == Origin.CONFIG_MODIFIED
-    assert a.reason == ".bak sibling exists"
+    assert "differs" in a.reason
     assert a.confidence == "high"
 
 
@@ -201,14 +201,14 @@ def test_multiple_bak_versions_also_match():
     assert a.origin == Origin.CONFIG_MODIFIED
 
 
-def test_bak_does_not_false_match_stem_with_hyphens():
-    from migration.planner import has_bak_sibling
+def test_find_bak_siblings_does_not_false_match_stem_with_hyphens():
+    from migration.planner import find_bak_siblings
 
     src = {
         "config/dragon-survival.toml",
         "config/dragon-survival-extra.toml.bak",
     }
-    assert has_bak_sibling("config/dragon-survival.toml", src) is False
+    assert find_bak_siblings("config/dragon-survival.toml", src) == []
 
 
 def test_resolve_bak_parent_versioned():
@@ -353,3 +353,110 @@ def test_origin_orphan_exists():
     spec = ORIGIN_REGISTRY["orphan"]
     assert spec.behavior == Behavior.SKIP
     assert spec.default_visible is False
+
+
+def test_never_note_orphan_goes_skip_orphan():
+    report = DiffReport(
+        never=[DiffItem("config/jade/foo.json", _e("config/jade/foo.json"), None, "orphan")]
+    )
+    actions = _plan(report)
+    a = next(a for a in actions if a.path == "config/jade/foo.json")
+    assert a.behavior == Behavior.SKIP
+    assert a.origin == Origin.ORPHAN
+
+
+def test_find_bak_siblings_returns_paths():
+    from migration.planner import find_bak_siblings
+
+    src = {"config/create.toml", "config/create-1.toml.bak", "config/create-2.toml.bak"}
+    result = find_bak_siblings("config/create.toml", src)
+    assert "config/create-1.toml.bak" in result
+    assert "config/create-2.toml.bak" in result
+    assert len(result) == 2
+
+
+def test_find_bak_siblings_plain_bak():
+    from migration.planner import find_bak_siblings
+
+    src = {"config/create.toml", "config/create.toml.bak"}
+    result = find_bak_siblings("config/create.toml", src)
+    assert result == ["config/create.toml.bak"]
+
+
+def test_find_bak_siblings_no_bak_returns_empty():
+    from migration.planner import find_bak_siblings
+
+    assert find_bak_siblings("config/foo.toml", {"config/foo.toml"}) == []
+
+
+def test_bak_md5_equal_downgrades_to_default_config():
+    """parent config MD5 == .bak MD5 -> auto-generated -> default_config (SKIP)."""
+    report = DiffReport(
+        candidate=[DiffItem("config/royal.toml", _e("config/royal.toml", md5="aaa"), None, "new")]
+    )
+    src = [_e("config/royal.toml", md5="aaa"), _e("config/royal-1.toml.bak", md5="aaa")]
+    actions = _plan(report, src)
+    a = next(a for a in actions if a.path == "config/royal.toml")
+    assert a.behavior == Behavior.SKIP
+    assert a.origin == Origin.DEFAULT_CONFIG
+    assert "identical" in a.reason
+
+
+def test_bak_md5_different_keeps_config_modified():
+    """parent config MD5 != .bak MD5 -> player modified -> config_modified (COPY)."""
+    report = DiffReport(
+        candidate=[DiffItem("config/create.toml", _e("config/create.toml", md5="aaa"), None, "new")]
+    )
+    src = [_e("config/create.toml", md5="aaa"), _e("config/create-1.toml.bak", md5="bbb")]
+    actions = _plan(report, src)
+    a = next(a for a in actions if a.path == "config/create.toml")
+    assert a.behavior == Behavior.COPY
+    assert a.origin == Origin.CONFIG_MODIFIED
+    assert "differs" in a.reason
+
+
+def test_bak_md5_multiple_all_equal_downgrades():
+    """Multiple .bak all identical to config -> downgrade."""
+    report = DiffReport(
+        candidate=[DiffItem("config/foo.toml", _e("config/foo.toml", md5="aaa"), None, "new")]
+    )
+    src = [
+        _e("config/foo.toml", md5="aaa"),
+        _e("config/foo-1.toml.bak", md5="aaa"),
+        _e("config/foo-2.toml.bak", md5="aaa"),
+    ]
+    actions = _plan(report, src)
+    a = next(a for a in actions if a.path == "config/foo.toml")
+    assert a.behavior == Behavior.SKIP
+    assert a.origin == Origin.DEFAULT_CONFIG
+
+
+def test_bak_md5_multiple_one_differs_keeps_modified():
+    """Multiple .bak, any one differs -> keep config_modified."""
+    report = DiffReport(
+        candidate=[DiffItem("config/foo.toml", _e("config/foo.toml", md5="aaa"), None, "new")]
+    )
+    src = [
+        _e("config/foo.toml", md5="aaa"),
+        _e("config/foo-1.toml.bak", md5="aaa"),
+        _e("config/foo-2.toml.bak", md5="bbb"),
+    ]
+    actions = _plan(report, src)
+    a = next(a for a in actions if a.path == "config/foo.toml")
+    assert a.behavior == Behavior.COPY
+    assert a.origin == Origin.CONFIG_MODIFIED
+
+
+def test_bak_no_md5_keeps_old_behavior():
+    """No MD5 (size-based) -> conservative old logic (has .bak -> config_modified)."""
+    report = DiffReport(
+        candidate=[DiffItem("config/big.toml", _e("config/big.toml", size=100, md5=None), None, "new")]
+    )
+    src = [
+        _e("config/big.toml", size=100, md5=None),
+        _e("config/big-1.toml.bak", size=90, md5=None),
+    ]
+    actions = _plan(report, src)
+    a = next(a for a in actions if a.path == "config/big.toml")
+    assert a.behavior == Behavior.COPY
+    assert a.origin == Origin.CONFIG_MODIFIED

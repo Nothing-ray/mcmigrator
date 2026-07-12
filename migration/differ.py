@@ -18,7 +18,7 @@ class DiffItem:
     note 为 Differ→Planner 的字符串契约(非枚举,各桶异质;typo 静默走默认):
     - to_migrate / candidate: new / modified
     - identical:              verified / size-based
-    - never:                  never / rebuild
+    - never:                  never / rebuild / orphan
     - mods:                   to_add / shared / target_only
     - only_in_dst:            target_only
     """
@@ -99,6 +99,9 @@ class Differ:
                 continue
             if cat == Category.REBUILD:
                 report.never.append(DiffItem(path, s, d, note="rebuild"))
+                continue
+            if cat == Category.ORPHAN:
+                report.never.append(DiffItem(path, s, d, note="orphan"))
                 continue
             if cat == Category.MUST_MIGRATE:
                 if d is None:

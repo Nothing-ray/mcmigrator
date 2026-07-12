@@ -2,10 +2,10 @@
 
 决策树要点(完整见 Reference/design/planner-rules.md 与 spec):
 - mods 桶 → mod_added/mod_shared/mod_target_only(按 note)
-- never → skip;note="rebuild" → origin=rebuild,否则 origin=never
+- never → skip;note="rebuild" → origin=rebuild,note="orphan" → origin=orphan,否则 origin=never
 - identical → skip_identical(分 verified/size-based)
 - to_migrate → copy(backup_target 区分 new/modified)
-- candidate → config/ 前缀做 .bak 判定,非 config → ask
+- candidate → config/ 前缀做 .bak+MD5 判定,非 config → ask
 - only_in_dst 不产生 action
 """
 
@@ -35,28 +35,32 @@ def _md5_match(s: FileEntry | None, d: FileEntry | None) -> bool | None:
     return None
 
 
-def has_bak_sibling(path: str, src_paths: set[str]) -> bool:
-    """判断 src 清单中是否存在该文件的 .bak 兄弟(plain 或 versioned)。
+def find_bak_siblings(path: str, src_paths: set[str]) -> list[str]:
+    """找到所有 .bak 兄弟文件路径(plain + versioned),可能为空。
 
     - plain: path + ".bak"(如 config/foo.toml.bak)
-    - versioned: stem + "-[0-9]*" + suffix + ".bak"(如 config/foo-1.toml.bak,数字开头)
+    - versioned: stem + "-[0-9]*" + suffix + ".bak"(如 config/foo-1.toml.bak)
 
-    仅作路径模式匹配,不读文件内容。
+    与 resolve_bak_parent 对偶:后者从 .bak 反推父,本函数从父找 .bak。
     """
+    results: list[str] = []
     plain = path + ".bak"
     if plain in src_paths:
-        return True
+        results.append(plain)
     dot = path.rfind(".")
     if dot == -1:
         stem, suffix = path, ""
     else:
         stem, suffix = path[:dot], path[dot:]
     pattern = f"{stem}-[0-9]*{suffix}.bak"
-    return any(fnmatch.fnmatch(p, pattern) for p in src_paths)
+    for p in src_paths:
+        if fnmatch.fnmatch(p, pattern) and p not in results:
+            results.append(p)
+    return results
 
 
 def resolve_bak_parent(path: str, src_paths: set[str]) -> str | None:
-    """从一个 .bak 文件路径反推父 config(与 has_bak_sibling 对偶)。
+    """从一个 .bak 文件路径反推父 config(与 find_bak_siblings 对偶)。
 
     仅做路径模式匹配,不读文件。返回父 path(在 src_paths 中)或 None(孤儿)。
     仅适用于 config/ 前缀(NeoForge .bak 机制专属)。
@@ -162,7 +166,12 @@ class Planner:
         )
 
     def _for_never(self, item: DiffItem) -> ActionRecord:
-        origin = Origin.REBUILD if item.note == "rebuild" else Origin.NEVER
+        if item.note == "orphan":
+            origin = Origin.ORPHAN
+        elif item.note == "rebuild":
+            origin = Origin.REBUILD
+        else:
+            origin = Origin.NEVER
         return ActionRecord(
             path=item.path, behavior=Behavior.SKIP, origin=origin,
             src_size=item.src.size if item.src else None,
@@ -186,28 +195,46 @@ class Planner:
         )
 
     def _for_candidate(self, item: DiffItem) -> ActionRecord:
-        """candidate 决策树(config/ 前缀走 .bak 判定,非 config → ask)。
+        """candidate 决策树(config/ 前缀走 .bak+MD5 判定,非 config -> ask)。
 
         白名单命中的文件已在规则层归 must_migrate(不进 candidate),故此处
-        candidate 已是「白名单未命中的残余」——config 下只做 .bak 判定。
+        candidate 已是「白名单未命中的残余」。.bak 存在时进一步检查 MD5:
+        parent MD5 == .bak MD5 -> 自动生成(降级 default_config);
+        parent MD5 != .bak MD5 -> 玩家改过(config_modified)。
         """
         if not item.path.startswith(CONFIG_PREFIX):
             return self._ask(item, reason="candidate (non-config, needs user confirm)")
         src_paths = set(self.src_index.keys())
-        if has_bak_sibling(item.path, src_paths):
+        bak_paths = find_bak_siblings(item.path, src_paths)
+        if bak_paths:
+            parent_md5 = item.src.md5 if item.src else None
+            bak_md5s: list[str | None] = []
+            for p in bak_paths:
+                bak_entry = self.src_index.get(p)
+                bak_md5s.append(bak_entry.md5 if bak_entry else None)
+            has_md5 = parent_md5 is not None and all(m is not None for m in bak_md5s)
+            if has_md5 and all(m == parent_md5 for m in bak_md5s):
+                return ActionRecord(
+                    path=item.path, behavior=Behavior.SKIP, origin=Origin.DEFAULT_CONFIG,
+                    src_size=item.src.size if item.src else None,
+                    dst_size=item.dst.size if item.dst else None,
+                    md5_match=_md5_match(item.src, item.dst), confidence="high",
+                    reason=".bak content identical to config (auto-generated)",
+                    backup_target=None,
+                )
             if item.note == "new":
                 return ActionRecord(
                     path=item.path, behavior=Behavior.COPY, origin=Origin.CONFIG_MODIFIED,
                     src_size=item.src.size if item.src else None, dst_size=None,
                     md5_match=None, confidence="high",
-                    reason=".bak sibling exists", backup_target=None,
+                    reason=".bak content differs (player modified)", backup_target=None,
                 )
             return ActionRecord(
                 path=item.path, behavior=Behavior.COPY, origin=Origin.CONFIG_MODIFIED,
                 src_size=item.src.size if item.src else None,
                 dst_size=item.dst.size if item.dst else None,
                 md5_match=_md5_match(item.src, item.dst), confidence="high",
-                reason=".bak sibling exists",
+                reason=".bak content differs (player modified)",
                 backup_target=_backup_target(item.path),
             )
         return ActionRecord(
