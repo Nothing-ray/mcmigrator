@@ -1,0 +1,14 @@
+# 非约定式 config→modid 映射覆盖表
+# 约定: config/<modid>* 或 config/<modid>/* → modid (自动匹配)
+# 此表仅列不遵循约定的例外
+version: 1
+mappings:
+  - match: "config/xaero/**"
+    modid: "xaerominimap"
+    reason: "目录名 xaero ≠ modid xaerominimap"
+  - match: "config/xaerohud.txt"
+    modid: "xaerominimap"
+    reason: "文件名无 modid 前缀特征"
+  - match: "config/xaeropatreon.txt"
+    modid: "xaerominimap"
+    reason: "同上"

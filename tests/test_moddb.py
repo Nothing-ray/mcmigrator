@@ -2,7 +2,18 @@
 
 from pathlib import Path
 
-from migration.moddb import ModInfo, ModRegistry, scan_mods
+from migration.moddb import (
+    ModInfo,
+    ModRegistry,
+    OverrideTable,
+    extract_modid_candidate,
+    generate_orphan_rules,
+    load_mod_config_map,
+    map_config_to_mod,
+    scan_mods,
+)
+from migration.rules import Category
+from migration.snapshot import FileEntry
 
 
 def make_fake_jar(
@@ -167,3 +178,202 @@ def test_mod_registry_contains_case_insensitive():
     assert "CREATE" in reg
     assert "Create" in reg
     assert "other" not in reg
+
+
+# --- extract_modid_candidate ---
+
+
+def test_extract_candidate_subdirectory():
+    assert extract_modid_candidate("config/jade/foo.json") == "jade"
+
+
+def test_extract_candidate_top_level_with_suffix():
+    assert extract_modid_candidate("config/create-client.toml") == "create"
+
+
+def test_extract_candidate_no_suffix():
+    assert extract_modid_candidate("config/distanthorizons.toml") == "distanthorizons"
+
+
+def test_extract_candidate_distant_horizons_camelcase():
+    assert extract_modid_candidate("config/DistantHorizons.toml") == "distanthorizons"
+
+
+def test_extract_candidate_core_config_returns_none():
+    assert extract_modid_candidate("config/fml.toml") is None
+    assert extract_modid_candidate("config/neoforge-client.toml") is None
+    assert extract_modid_candidate("config/neoforge-common.toml") is None
+
+
+def test_extract_candidate_bak_returns_none():
+    assert extract_modid_candidate("config/create-1.toml.bak") is None
+
+
+def test_extract_candidate_spaces_returns_none():
+    assert extract_modid_candidate("config/Vital Herbs Config.toml") is None
+
+
+def test_extract_candidate_non_config_returns_none():
+    assert extract_modid_candidate("options.txt") is None
+    assert extract_modid_candidate("kubejs/x.js") is None
+
+
+def test_extract_candidate_underscore_preserved():
+    assert extract_modid_candidate("config/ars_nouveau-client.toml") == "ars_nouveau"
+
+
+# --- OverrideTable ---
+
+
+def test_override_table_lookup_match():
+    table = OverrideTable([("config/xaero/**", "xaerominimap", "test")])
+    assert table.lookup("config/xaero/minimap.json") == "xaerominimap"
+
+
+def test_override_table_lookup_no_match():
+    table = OverrideTable([("config/xaero/**", "xaerominimap", "test")])
+    assert table.lookup("config/create.toml") is None
+
+
+def test_override_table_empty():
+    table = OverrideTable([])
+    assert table.lookup("config/anything.toml") is None
+
+
+def test_load_mod_config_map_has_xaero():
+    table = load_mod_config_map()
+    assert table.lookup("config/xaero/minimap.json") == "xaerominimap"
+    assert table.lookup("config/xaerohud.txt") == "xaerominimap"
+
+
+# --- map_config_to_mod ---
+
+
+def _reg(*modids: str) -> ModRegistry:
+    reg = ModRegistry()
+    for mid in modids:
+        reg.add(ModInfo(modid=mid, version="1.0", jar_filename=f"{mid}.jar", neoforge_range=None))
+    return reg
+
+
+def test_map_config_mod_in_dst_not_orphan():
+    reg = _reg("create")
+    override = OverrideTable([])
+    modid, is_orphan = map_config_to_mod("config/create-client.toml", reg, override)
+    assert modid == "create"
+    assert is_orphan is False
+
+
+def test_map_config_mod_not_in_dst_is_orphan():
+    reg = _reg("other")
+    override = OverrideTable([])
+    modid, is_orphan = map_config_to_mod("config/jade/foo.json", reg, override)
+    assert modid == "jade"
+    assert is_orphan is True
+
+
+def test_map_config_underscore_fallback():
+    reg = _reg("tide")
+    override = OverrideTable([])
+    modid, is_orphan = map_config_to_mod("config/tide_client.json5", reg, override)
+    assert modid == "tide"
+    assert is_orphan is False
+
+
+def test_map_config_underscore_both_not_in_dst():
+    reg = _reg("other")
+    override = OverrideTable([])
+    modid, is_orphan = map_config_to_mod("config/ars_nouveau-client.toml", reg, override)
+    assert modid == "ars_nouveau"
+    assert is_orphan is True
+
+
+def test_map_config_override_table():
+    reg: ModRegistry = ModRegistry()  # 空 dst, xaerominimap 也不在
+    override = OverrideTable([("config/xaero/**", "xaerominimap", "test")])
+    modid, is_orphan = map_config_to_mod("config/xaero/minimap.json", reg, override)
+    assert modid == "xaerominimap"
+    assert is_orphan is True
+
+
+def test_map_config_override_mod_in_dst():
+    reg = _reg("xaerominimap")
+    override = OverrideTable([("config/xaero/**", "xaerominimap", "test")])
+    modid, is_orphan = map_config_to_mod("config/xaero/minimap.json", reg, override)
+    assert modid == "xaerominimap"
+    assert is_orphan is False
+
+
+def test_map_config_cannot_determine_returns_none():
+    reg = _reg("create")
+    override = OverrideTable([])
+    modid, is_orphan = map_config_to_mod("config/Vital Herbs Config.toml", reg, override)
+    assert modid is None
+    assert is_orphan is False
+
+
+# --- generate_orphan_rules ---
+
+
+def test_generate_orphan_rules_basic():
+    dst = _reg("create")  # jade 不在 dst
+    override = OverrideTable([])
+    src_entries = [
+        FileEntry("config/create-client.toml", 10, "a"),
+        FileEntry("config/jade/foo.json", 5, "b"),
+    ]
+    rules = generate_orphan_rules(src_entries, dst, override)
+    paths = [r.match for r in rules]
+    assert "config/jade/foo.json" in paths
+    assert "config/create-client.toml" not in paths
+    assert all(r.decide == Category.ORPHAN for r in rules)
+    assert all(r.source == "orphan" for r in rules)
+
+
+def test_generate_orphan_rules_skips_bak_files():
+    dst: ModRegistry = ModRegistry()  # 空
+    override = OverrideTable([])
+    src_entries = [
+        FileEntry("config/create.toml", 10, "a"),
+        FileEntry("config/create-1.toml.bak", 8, "b"),
+    ]
+    rules = generate_orphan_rules(src_entries, dst, override)
+    paths = [r.match for r in rules]
+    assert "config/create.toml" in paths
+    assert "config/create-1.toml.bak" not in paths  # .bak 不生成 orphan 规则
+
+
+def test_generate_orphan_rules_skips_non_config():
+    dst: ModRegistry = ModRegistry()
+    override = OverrideTable([])
+    src_entries = [
+        FileEntry("options.txt", 10, "a"),
+        FileEntry("config/jade/foo.json", 5, "b"),
+    ]
+    rules = generate_orphan_rules(src_entries, dst, override)
+    paths = [r.match for r in rules]
+    assert "options.txt" not in paths
+    assert "config/jade/foo.json" in paths
+
+
+def test_generate_orphan_rules_skips_indeterminate():
+    """无法确定 modid 的 config → 不生成 orphan 规则(保守)。"""
+    dst: ModRegistry = ModRegistry()
+    override = OverrideTable([])
+    src_entries = [
+        FileEntry("config/Vital Herbs Config.toml", 10, "a"),
+    ]
+    rules = generate_orphan_rules(src_entries, dst, override)
+    assert len(rules) == 0
+
+
+def test_generate_orphan_rules_override_not_in_dst():
+    dst: ModRegistry = ModRegistry()  # xaerominimap 不在 dst
+    override = OverrideTable([("config/xaero/**", "xaerominimap", "test")])
+    src_entries = [
+        FileEntry("config/xaero/minimap.json", 5, "b"),
+    ]
+    rules = generate_orphan_rules(src_entries, dst, override)
+    assert len(rules) == 1
+    assert rules[0].match == "config/xaero/minimap.json"
+    assert rules[0].decide == Category.ORPHAN

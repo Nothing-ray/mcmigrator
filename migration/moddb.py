@@ -7,10 +7,18 @@
 from __future__ import annotations
 
 import logging
+import re
 import tomllib
 import zipfile
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
+
+import pathspec
+import yaml
+
+from .rules import Category, Rule
+from .snapshot import FileEntry
 
 log = logging.getLogger(__name__)
 
@@ -147,3 +155,157 @@ def scan_mods(version_dir: Path) -> ModRegistry:
             registry.add(info)
 
     return registry
+
+
+# 核心配置前缀(mod 非管辖,rebuild 规则管)
+_CORE_PREFIXES = frozenset({"fml", "neoforge", "minecraft"})
+
+# 合法 modid 正则(小写字母开头,仅含小写字母/数字/下划线)
+_VALID_MODID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+# 已知扩展名(用于剥离)
+_CONFIG_EXTENSIONS = frozenset({
+    ".toml", ".json", ".cfg", ".snbt", ".properties",
+    ".jsonc", ".json5", ".yaml", ".txt", ".ini",
+})
+
+
+def extract_modid_candidate(path: str) -> str | None:
+    """从 config 路径提取 modid 候选(纯文件名约定,不查注册表)。
+
+    - 子目录: config/jade/foo.json → "jade"
+    - 顶层文件: config/create-client.toml → "create" (第一个 "-" 前)
+    - 核心配置(fml/neoforge/minecraft)→ None
+    - .bak 文件 → None
+    - 含空格/非合法 modid → None
+
+    Returns:
+        小写 modid 候选,或 None(无法确定)。
+    """
+    if not path.startswith("config/"):
+        return None
+    if path.endswith(".bak"):
+        return None
+    rest = path[len("config/"):]
+    parts = rest.split("/", 1)
+    if len(parts) == 2:
+        candidate = parts[0].lower()
+    else:
+        filename = parts[0]
+        dot = filename.rfind(".")
+        stem = filename[:dot] if dot != -1 else filename
+        candidate = stem.split("-")[0].lower()
+    if candidate in _CORE_PREFIXES:
+        return None
+    if not _VALID_MODID_RE.match(candidate):
+        return None
+    return candidate
+
+
+class OverrideTable:
+    """config→modid 覆盖表(路径 glob → modid)。"""
+
+    def __init__(self, entries: list[tuple[str, str, str]]) -> None:
+        """初始化覆盖表。
+
+        Args:
+            entries: (match_glob, modid, reason) 三元组列表。
+        """
+        self._entries = entries
+        self._specs: list[tuple[pathspec.PathSpec, str]] = [
+            (pathspec.PathSpec.from_lines("gitignore", [m]), mid)
+            for m, mid, _ in entries
+        ]
+
+    def lookup(self, path: str) -> str | None:
+        """按路径查找覆盖的 modid。"""
+        norm = path.replace("\\", "/")
+        for spec, modid in self._specs:
+            if spec.match_file(norm):
+                return modid
+        return None
+
+
+def load_mod_config_map() -> OverrideTable:
+    """加载打包在内的覆盖表(importlib.resources,PyInstaller 安全)。"""
+    try:
+        text = resources.files("migration").joinpath("data/mod_config_map.yaml").read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return OverrideTable([])
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return OverrideTable([])
+    if not isinstance(doc, dict):
+        return OverrideTable([])
+    entries: list[tuple[str, str, str]] = []
+    for m in doc.get("mappings") or []:
+        if not isinstance(m, dict):
+            continue
+        match = m.get("match")
+        modid = m.get("modid")
+        if not match or not modid:
+            continue
+        entries.append((match, modid, str(m.get("reason", ""))))
+    return OverrideTable(entries)
+
+
+def map_config_to_mod(
+    path: str, dst_mods: ModRegistry, override: OverrideTable
+) -> tuple[str | None, bool]:
+    """将 config 路径映射到 modid,并判断是否为孤儿。
+
+    Returns:
+        (modid, is_orphan): modid 为 None 表示无法确定(保守不判);
+        is_orphan=True 表示 mod 未安装在 dst。
+    """
+    mapped = override.lookup(path)
+    if mapped is not None:
+        return mapped, mapped not in dst_mods
+
+    candidate = extract_modid_candidate(path)
+    if candidate is None:
+        return None, False
+
+    if candidate in dst_mods:
+        return candidate, False
+
+    if "_" in candidate:
+        prefix = candidate.rsplit("_", 1)[0]
+        if prefix in dst_mods:
+            return prefix, False
+
+    return candidate, True
+
+
+def generate_orphan_rules(
+    src_entries: list[FileEntry],
+    dst_mods: ModRegistry,
+    override: OverrideTable,
+) -> list[Rule]:
+    """对 src 的 config 文件生成 orphan 规则(mod 不在 dst)。
+
+    - 仅处理 config/ 前缀的非 .bak 文件
+    - 无法确定 modid → 跳过(保守)
+    - mod 在 dst → 跳过
+    - mod 不在 dst → 生成精确路径 Rule(decide=ORPHAN)
+
+    Returns:
+        orphan 规则列表(精确路径 match)。
+    """
+    rules: list[Rule] = []
+    for entry in src_entries:
+        path = entry.path
+        modid, is_orphan = map_config_to_mod(path, dst_mods, override)
+        if modid is None:
+            continue
+        if is_orphan:
+            rules.append(
+                Rule(
+                    match=path,
+                    decide=Category.ORPHAN,
+                    reason=f"mod '{modid}' not installed in dst",
+                    source="orphan",
+                )
+            )
+    return rules
