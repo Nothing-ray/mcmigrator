@@ -345,3 +345,11 @@ def test_planner_actions_match_registry_behavior():
             f"{a.path}: origin={a.origin.value} 注册表={spec.behavior.value} "
             f"实际={a.behavior.value}"
         )
+
+
+def test_origin_orphan_exists():
+    from migration.plan import Origin, ORIGIN_REGISTRY
+    assert Origin.ORPHAN.value == "orphan"
+    spec = ORIGIN_REGISTRY["orphan"]
+    assert spec.behavior == Behavior.SKIP
+    assert spec.default_visible is False

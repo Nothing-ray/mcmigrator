@@ -20,6 +20,7 @@ class Category(Enum):
     NEVER = "never"
     MUST_MIGRATE = "must_migrate"
     REBUILD = "rebuild"  # 版本/硬件派生的高危文件,默认让目标重建
+    ORPHAN = "orphan"  # mod 未安装的孤儿 config
     UNKNOWN = "unknown"
     ASK = "ask"
 

@@ -63,6 +63,7 @@ class Origin(str, Enum):
     NEVER = "never"
     DEFAULT_CONFIG = "default_config"
     REBUILD = "rebuild"
+    ORPHAN = "orphan"
     MOD_SHARED = "mod_shared"
     MOD_TARGET_ONLY = "mod_target_only"
     NEEDS_REVIEW = "needs_review"
@@ -76,6 +77,7 @@ _ORIGIN_SEED: dict[str, OriginSpec] = {
     "mod_added":       OriginSpec("📦 补 Mod",          True,  False, Behavior.COPY),
     "needs_review":    OriginSpec("❓ 待确认",          True,  False, Behavior.ASK),
     "rebuild":         OriginSpec("🔒 版本敏感",        False, False, Behavior.SKIP),
+    "orphan":          OriginSpec("👻 孤儿数据",         False, False, Behavior.SKIP),
     "default_config":  OriginSpec("⚙️ 默认配置",        False, False, Behavior.SKIP),
     "never":           OriginSpec("⛔ 不迁",            False, False, Behavior.SKIP),
     "identical":       OriginSpec("⏭ 一致",            False, False, Behavior.SKIP),

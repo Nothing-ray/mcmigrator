@@ -263,3 +263,8 @@ def test_whitelist_yaml_loads_sodium_options():
     assert "config/jei/*.ini" in matches
     # 旧条目已被 *.ini 收编删除
     assert "config/jei/*sort-order*" not in matches
+
+
+def test_category_orphan_exists():
+    assert Category.ORPHAN.value == "orphan"
+    assert Category.ORPHAN in {c for c in Category}
