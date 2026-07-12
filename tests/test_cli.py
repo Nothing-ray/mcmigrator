@@ -1,5 +1,6 @@
 import io
 import json
+import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -7,6 +8,17 @@ import pytest
 
 from migration import cli
 from migration.snapshot import snapshot_path
+
+
+def _write_mod_jar(path: Path, modid: str) -> None:
+    """写一个含 META-INF/neoforge.mods.toml 的有效 jar(zip)。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    toml = (
+        f'modLoader="javafml"\nloaderVersion="[1,)"\n'
+        f'[[mods]]\nmodId="{modid}"\nversion="1.0"\n'
+    )
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", toml)
 
 
 def _build_version(root: Path, *, variant_b: bool = False) -> None:
@@ -24,12 +36,13 @@ def _build_version(root: Path, *, variant_b: bool = False) -> None:
     (root / "crash-reports" / "c1.txt").write_text("boom", encoding="utf-8")
     (root / "config").mkdir(exist_ok=True)
     (root / "config" / "create.toml").write_text(
-        "edited=true\n" if variant_b else "edited=false\n", encoding="utf-8"
+        "edited=true\n" if variant_b else "edited=false\n",
+        encoding="utf-8",
     )
     (root / "mods").mkdir(exist_ok=True)
-    (root / "mods" / "create.jar").write_bytes(b"")
+    _write_mod_jar(root / "mods" / "create.jar", "create")
     if variant_b:
-        (root / "mods" / "extra.jar").write_bytes(b"")
+        _write_mod_jar(root / "mods" / "extra.jar", "extra")
 
 
 def _setup_game(tmp_path: Path, names: list[str], variant_b_for: str | None = None) -> Path:
@@ -140,7 +153,7 @@ def test_plan_writes_plan_file(mini_version: Path, tmp_path: Path, monkeypatch):
     cli.main(["scan", "mini", "--game-root", str(game_root)])
     cli.main(["scan", "target", "--game-root", str(game_root)])
 
-    code = cli.main(["plan", "mini", "target"])
+    code = cli.main(["plan", "mini", "target", "--game-root", str(game_root)])
     assert code == 0
     assert plan_path(tmp_path, "mini", "target").exists()
 
@@ -170,7 +183,7 @@ def test_plan_json_output(tmp_path: Path, mini_version: Path, monkeypatch, capsy
     cli.main(["scan", "target", "--game-root", str(game_root)])
     capsys.readouterr()  # 清空 scan 输出,仅捕获 plan --json
 
-    code = cli.main(["plan", "mini", "target", "--json"])
+    code = cli.main(["plan", "mini", "target", "--json", "--game-root", str(game_root)])
     out = capsys.readouterr().out
     assert code == 0
     doc = json.loads(out)
@@ -192,7 +205,7 @@ def test_plan_no_save_skips_file(tmp_path: Path, mini_version: Path, monkeypatch
     cli.main(["scan", "mini", "--game-root", str(game_root)])
     cli.main(["scan", "target", "--game-root", str(game_root)])
 
-    cli.main(["plan", "mini", "target", "--no-save"])
+    cli.main(["plan", "mini", "target", "--no-save", "--game-root", str(game_root)])
     assert not plan_path(tmp_path, "mini", "target").exists()
 
 
@@ -209,7 +222,7 @@ def test_plan_show_skip_includes_skip_actions(tmp_path, mini_version, monkeypatc
     cli.main(["scan", "mini", "--game-root", str(game_root)])
     cli.main(["scan", "target", "--game-root", str(game_root)])
 
-    cli.main(["plan", "mini", "target", "--show-skip"])
+    cli.main(["plan", "mini", "target", "--show-skip", "--game-root", str(game_root)])
     out = capsys.readouterr().out
     assert "默认配置" in out or "不迁" in out or "一致" in out
 
@@ -271,7 +284,7 @@ def test_plan_rebuild_files_go_rebuild_origin(tmp_path: Path, monkeypatch, capsy
     cli.main(["scan", "mini", "--game-root", str(game_root)])
     cli.main(["scan", "target", "--game-root", str(game_root)])
     capsys.readouterr()
-    cli.main(["plan", "mini", "target", "--json"])
+    cli.main(["plan", "mini", "target", "--json", "--game-root", str(game_root)])
     doc = json.loads(capsys.readouterr().out)
     origins = {a["path"]: a["origin"] for a in doc["actions"]}
     assert origins.get("config/fml.toml") == "rebuild"
@@ -291,11 +304,13 @@ def test_plan_whitelist_sodium_options_goes_must_migrate(tmp_path: Path, monkeyp
     (mini / "config" / "sodium-options.json").write_text("{}", encoding="utf-8")
     (mini / "options.txt").write_text("v\n", encoding="utf-8")
     (versions / "target").mkdir()
+    # dst 装有 sodium mod → sodium-options.json 不是孤儿,白名单可生效
+    _write_mod_jar(versions / "target" / "mods" / "sodium.jar", "sodium")
     monkeypatch.chdir(tmp_path)
     cli.main(["scan", "mini", "--game-root", str(game_root)])
     cli.main(["scan", "target", "--game-root", str(game_root)])
     capsys.readouterr()
-    cli.main(["plan", "mini", "target", "--json"])
+    cli.main(["plan", "mini", "target", "--json", "--game-root", str(game_root)])
     doc = json.loads(capsys.readouterr().out)
     origins = {a["path"]: a["origin"] for a in doc["actions"]}
     assert origins.get("config/sodium-options.json") == "must_migrate"
@@ -324,7 +339,7 @@ def test_plan_rebuild_yields_to_user_rules(tmp_path: Path, monkeypatch, capsys):
     cli.main(["scan", "mini", "--game-root", str(game_root)])
     cli.main(["scan", "target", "--game-root", str(game_root)])
     capsys.readouterr()
-    cli.main(["plan", "mini", "target", "--json"])
+    cli.main(["plan", "mini", "target", "--json", "--game-root", str(game_root)])
     doc = json.loads(capsys.readouterr().out)
     origins = {a["path"]: a["origin"] for a in doc["actions"]}
     assert origins.get("config/fml.toml") == "must_migrate"

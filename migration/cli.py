@@ -11,7 +11,7 @@ from pathlib import Path
 from . import __version__, rules
 from .classifier import Classifier
 from .differ import Differ
-from .plan import plan_path
+from .plan import Behavior, Origin, plan_path
 from .planner import Planner
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
 from .scanner import Scanner
@@ -54,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan = sub.add_parser("plan", help="生成迁移计划(只读,产出 action 列表)")
     p_plan.add_argument("src", help="源版本名")
     p_plan.add_argument("dst", help="目标版本名")
+    p_plan.add_argument("--game-root", default=None, help="游戏根目录(含 versions/)")
     p_plan.add_argument("--exclude", action="append", default=[], metavar="GLOB")
     p_plan.add_argument("--include", action="append", default=[], metavar="GLOB")
     p_plan.add_argument("--rule", action="append", default=[], metavar="FILE")
@@ -111,10 +112,12 @@ def build_ruleset(
     mcmig_dir: Path,
     *,
     with_whitelist: bool = False,
+    orphan_rules: list[rules.Rule] | None = None,
 ) -> tuple[rules.RuleSet, list[str]]:
-    """按优先级(CLI > extra > user > REBUILD > whitelist > default)组装 RuleSet。
+    """按优先级(CLI > extra > user > ORPHAN > REBUILD > whitelist > default)组装 RuleSet。
 
-    rebuild 层对所有命令(scan/diff/plan)常开;whitelist 仅 plan 命令启用。
+    rebuild 层对所有命令(scan/diff/plan)常开;whitelist 仅 plan 命令启用;
+    orphan 规则仅 plan 命令启用(plan-only)。
     """
     from importlib import resources
 
@@ -128,6 +131,7 @@ def build_ruleset(
     user_path = mcmig_dir / "rules.yaml"
     user, ue = rules.load_user_rules(user_path)
     errors.extend(ue)
+    orphan = orphan_rules or []
     # rebuild 层:常开(scan/diff/plan 都需正确识别版本敏感文件)
     rb_text = resources.files("migration").joinpath("data/rebuild.yaml").read_text(encoding="utf-8")
     rebuild, rbe = rules.load_rebuild_rules_from_text(rb_text, "rebuild.yaml")
@@ -139,7 +143,7 @@ def build_ruleset(
         errors.extend(we)
     default, de = rules.load_default_rules(versions)
     errors.extend(de)
-    rs = rules.RuleSet.from_layers(cli_rules, extra, user, rebuild, whitelist, default)
+    rs = rules.RuleSet.from_layers(cli_rules, extra, user, orphan, rebuild, whitelist, default)
     return rs, errors
 
 
@@ -242,7 +246,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
-    """plan 子命令:load snapshots → diff → plan → 渲染 + 持久化。"""
+    """plan 子命令:load snapshots → scan mods → orphan rules → diff → plan → 兼容检查 → 渲染。"""
     cwd = Path.cwd()
     src_path = snapshot_path(cwd, args.src)
     dst_path = snapshot_path(cwd, args.dst)
@@ -257,8 +261,25 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     except Exception as e:  # noqa: BLE001
         _print(f"[错误] 快照读取失败: {e}")
         return 2
+    game_root = _resolve_game_root(args)
     mcmig_dir = cwd / ".mcmig"
-    rs, errs = build_ruleset([args.src, args.dst], args, mcmig_dir, with_whitelist=True)
+    # 扫描 src/dst mods → 建 mod 注册表 → 生成 orphan 规则
+    from .moddb import (
+        check_mod_compat,
+        generate_orphan_rules,
+        load_mod_config_map,
+        read_neoforge_version,
+        scan_mods,
+    )
+
+    src_dir = _version_dir(game_root, args.src)
+    dst_dir = _version_dir(game_root, args.dst)
+    dst_mods = scan_mods(dst_dir)
+    override = load_mod_config_map()
+    orphan_rules = generate_orphan_rules(src.files, dst_mods, override)
+    rs, errs = build_ruleset(
+        [args.src, args.dst], args, mcmig_dir, with_whitelist=True, orphan_rules=orphan_rules
+    )
     for e in errs:
         _print(f"[规则警告] {e}")
     clf = Classifier(rs)
@@ -266,11 +287,19 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     src_index = {e.path: e for e in src.files}
     plan = Planner(report, src_index).plan()
     plan.src, plan.dst = args.src, args.dst
+    # 版本兼容检查:对 mod_added 的 jar 检查 NeoForge 版本范围
+    src_mods = scan_mods(src_dir)
+    dst_nf_version = read_neoforge_version(dst_dir)
+    mod_added_paths = [
+        r.path for r in plan.actions if r.behavior == Behavior.COPY and r.origin == Origin.MOD_ADDED
+    ]
+    compat_warnings = check_mod_compat(mod_added_paths, src_mods, dst_nf_version)
     reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst)
     if args.json:
         _print(reporter.to_json())
     else:
         reporter.render(PlanOptions(show_skip=args.show_skip, category=args.category))
+        reporter.render_compat_warnings(compat_warnings)
     if not args.no_save:
         try:
             plan.save(plan_path(cwd, args.src, args.dst))

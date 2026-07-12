@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 import pytest
 
 OPTS = "version:I am a config\n"  # 固定内容
+
+
+def write_mod_jar(path: Path, modid: str, version: str = "1.0") -> None:
+    """写一个含 META-INF/neoforge.mods.toml 的有效 jar(zip),供 scan_mods 解析。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    toml = (
+        f'modLoader="javafml"\nloaderVersion="[1,)"\n'
+        f'[[mods]]\nmodId="{modid}"\nversion="{version}"\n'
+    )
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", toml)
 
 
 def build_mini_version(
@@ -38,11 +50,11 @@ def build_mini_version(
     (root / "config").mkdir(exist_ok=True)
     cfg = "edited=true\n" if variant_b else "edited=false\n"
     (root / "config" / "create.toml").write_text(cfg, encoding="utf-8")
-    # mods jar(空文件占位,仅看文件名)
+    # mods jar(有效 zip,含 mods.toml,供 scan_mods 解析)
     (root / "mods").mkdir(exist_ok=True)
-    (root / "mods" / "create.jar").write_bytes(b"")
+    write_mod_jar(root / "mods" / "create.jar", "create")
     if variant_b:
-        (root / "mods" / "extra.jar").write_bytes(b"")  # b 版额外 mod
+        write_mod_jar(root / "mods" / "extra.jar", "extra")  # b 版额外 mod
     # bulk size 代理
     (root / "Distant_Horizons_server_data").mkdir(exist_ok=True)
     (root / "Distant_Horizons_server_data" / "lod.sqlite").write_bytes(b"\x00" * 16)

@@ -3,6 +3,7 @@
 import io
 import json
 import shutil
+import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -14,6 +15,17 @@ def _run(argv: list[str], buf: io.StringIO | None = None) -> int:
         with redirect_stdout(buf):
             return cli.main(argv)
     return cli.main(argv)
+
+
+def _write_mod_jar(path: Path, modid: str) -> None:
+    """写一个含 META-INF/neoforge.mods.toml 的有效 jar(zip)。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    toml = (
+        f'modLoader="javafml"\nloaderVersion="[1,)"\n'
+        f'[[mods]]\nmodId="{modid}"\nversion="1.0"\n'
+    )
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", toml)
 
 
 def _setup_full_and_empty_target(mini_version: Path, tmp_path: Path) -> Path:
@@ -102,12 +114,14 @@ def test_e2e_plan_bak_judgment(mini_version_with_bak: Path, tmp_path: Path, monk
     versions.mkdir(parents=True)
     shutil.move(str(mini_version_with_bak), str(versions / "mini"))
     (versions / "target").mkdir()
+    # dst 装有 create mod → create.toml 不是孤儿,.bak 判定可生效
+    _write_mod_jar(versions / "target" / "mods" / "create.jar", "create")
     monkeypatch.chdir(tmp_path)
     _run(["scan", "mini", "--game-root", str(game_root)])
     _run(["scan", "target", "--game-root", str(game_root)])
 
     buf = io.StringIO()
-    _run(["plan", "mini", "target", "--json"], buf)
+    _run(["plan", "mini", "target", "--json", "--game-root", str(game_root)], buf)
     doc = json.loads(buf.getvalue())
     actions = {a["path"]: a["behavior"] for a in doc["actions"]}
     assert actions.get("config/create.toml") == "copy"
@@ -120,12 +134,15 @@ def test_e2e_plan_whitelist_upgrades_to_migrate(mini_version_with_whitelist: Pat
     versions.mkdir(parents=True)
     shutil.move(str(mini_version_with_whitelist), str(versions / "mini"))
     (versions / "target").mkdir()
+    # dst 装有 create+jade mod → 对应 config 不是孤儿,白名单可生效
+    _write_mod_jar(versions / "target" / "mods" / "create.jar", "create")
+    _write_mod_jar(versions / "target" / "mods" / "jade.jar", "jade")
     monkeypatch.chdir(tmp_path)
     _run(["scan", "mini", "--game-root", str(game_root)])
     _run(["scan", "target", "--game-root", str(game_root)])
 
     buf = io.StringIO()
-    _run(["plan", "mini", "target", "--json"], buf)
+    _run(["plan", "mini", "target", "--json", "--game-root", str(game_root)], buf)
     doc = json.loads(buf.getvalue())
     actions = {a["path"]: a["behavior"] for a in doc["actions"]}
     assert actions.get("iris.properties") == "copy"
@@ -144,7 +161,7 @@ def test_e2e_plan_no_write_to_game_dir(mini_version: Path, tmp_path: Path, monke
     _run(["scan", "target", "--game-root", str(game_root)])
 
     before = {p: p.stat().st_mtime_ns for p in game_root.rglob("*") if p.is_file()}
-    _run(["plan", "mini", "target"])
+    _run(["plan", "mini", "target", "--game-root", str(game_root)])
     after = {p: p.stat().st_mtime_ns for p in game_root.rglob("*") if p.is_file()}
     assert before == after
 
@@ -160,12 +177,14 @@ def test_e2e_plan_default_config_skipped(tmp_path: Path, monkeypatch):
     (mini / "config" / "default.toml").write_text("a=1\n", encoding="utf-8")
     (mini / "options.txt").write_text("v\n", encoding="utf-8")
     (versions / "target").mkdir()
+    # dst 装有 default mod → default.toml 不是孤儿,走 default_config 路径
+    _write_mod_jar(versions / "target" / "mods" / "default.jar", "default")
     monkeypatch.chdir(tmp_path)
     _run(["scan", "mini", "--game-root", str(game_root)])
     _run(["scan", "target", "--game-root", str(game_root)])
 
     buf = io.StringIO()
-    _run(["plan", "mini", "target", "--json"], buf)
+    _run(["plan", "mini", "target", "--json", "--game-root", str(game_root)], buf)
     doc = json.loads(buf.getvalue())
     origins = {a["path"]: a["origin"] for a in doc["actions"]}
     assert origins.get("config/default.toml") == "default_config"
@@ -191,6 +210,9 @@ def test_e2e_acceptance_plan_format_and_origins(tmp_path: Path, monkeypatch, cap
     # 必迁
     (mini / "options.txt").write_text("v\n", encoding="utf-8")
     (versions / "target").mkdir()
+    # dst 装有 create+sodium mod → 对应 config 不是孤儿,规则层可正确判定
+    _write_mod_jar(versions / "target" / "mods" / "create.jar", "create")
+    _write_mod_jar(versions / "target" / "mods" / "sodium.jar", "sodium")
     monkeypatch.chdir(tmp_path)
 
     # scan/diff 零回归:先 scan 再 diff 不报错
@@ -202,7 +224,7 @@ def test_e2e_acceptance_plan_format_and_origins(tmp_path: Path, monkeypatch, cap
 
     # plan
     capsys.readouterr()
-    assert _run(["plan", "mini", "target", "--json"]) == 0
+    assert _run(["plan", "mini", "target", "--json", "--game-root", str(game_root)]) == 0
     doc = json.loads(capsys.readouterr().out)
     # 验收 2:plan_format=2
     assert doc["plan_format"] == 2
@@ -230,3 +252,51 @@ def test_e2e_scan_zero_regression_snapshot_format_unchanged(tmp_path: Path, monk
     assert _run(["scan", "mini", "--game-root", str(game_root)]) == 0
     snap = Snapshot.load(snapshot_path(tmp_path, "mini"))  # 旧 snapshot 仍可读
     assert snap.file_count >= 1
+
+
+def test_plan_with_orphan_rules_applied(tmp_path, monkeypatch):
+    """plan 命令应用 orphan 规则:dst 无 jade mod → jade config 标为 orphan。"""
+    import zipfile
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    src_dir.mkdir(parents=True)
+    dst_dir.mkdir(parents=True)
+
+    # src 有 jade config 但 dst 无 jade mod
+    (src_dir / "config").mkdir()
+    (src_dir / "config" / "jade").mkdir()
+    (src_dir / "config" / "jade" / "presets.json").write_text("{}", encoding="utf-8")
+    (src_dir / "options.txt").write_text("fps:120", encoding="utf-8")
+
+    # dst 有 create mod(无 jade)
+    dst_mods = dst_dir / "mods"
+    dst_mods.mkdir()
+    toml = 'modLoader="javafml"\nloaderVersion="[1,)"\n[[mods]]\nmodId="create"\nversion="1.0"\n'
+    with zipfile.ZipFile(dst_mods / "create.jar", "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", toml)
+
+    # src 也有 create mod
+    src_mods = src_dir / "mods"
+    src_mods.mkdir()
+    with zipfile.ZipFile(src_mods / "create.jar", "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", toml)
+
+    # 配置 + scan + plan
+    mcmig_dir = tmp_path / ".mcmig"
+    mcmig_dir.mkdir()
+    (mcmig_dir / "config.yaml").write_text(f"game_root: '{game_root}'", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert _run(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert _run(["scan", "dst", "--game-root", str(game_root)]) == 0
+
+    buf = io.StringIO()
+    assert _run(["plan", "src", "dst", "--game-root", str(game_root), "--json"], buf) == 0
+    doc = json.loads(buf.getvalue())
+    origins = {a["path"]: a["origin"] for a in doc["actions"]}
+    behaviors = {a["path"]: a["behavior"] for a in doc["actions"]}
+    # dst 无 jade mod → jade config 被标为 orphan(skip)
+    assert origins.get("config/jade/presets.json") == "orphan"
+    assert behaviors.get("config/jade/presets.json") == "skip"
