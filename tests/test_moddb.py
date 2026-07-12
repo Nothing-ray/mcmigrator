@@ -3,13 +3,17 @@
 from pathlib import Path
 
 from migration.moddb import (
+    CompatWarning,
     ModInfo,
     ModRegistry,
     OverrideTable,
+    check_mod_compat,
+    check_version_range,
     extract_modid_candidate,
     generate_orphan_rules,
     load_mod_config_map,
     map_config_to_mod,
+    read_neoforge_version,
     scan_mods,
 )
 from migration.rules import Category
@@ -377,3 +381,119 @@ def test_generate_orphan_rules_override_not_in_dst():
     assert len(rules) == 1
     assert rules[0].match == "config/xaero/minimap.json"
     assert rules[0].decide == Category.ORPHAN
+
+
+# --- check_version_range ---
+
+
+def test_version_range_open_right():
+    assert check_version_range("21.1.233", "[21.1.219,)") is True
+    assert check_version_range("21.1.219", "[21.1.219,)") is True  # 边界:含下界
+    assert check_version_range("21.1.218", "[21.1.219,)") is False
+
+
+def test_version_range_closed_right():
+    assert check_version_range("21.1.228", "[21.1.0,21.1.228]") is True
+    assert check_version_range("21.1.229", "[21.1.0,21.1.228]") is False
+
+
+def test_version_range_exclusive_left():
+    assert check_version_range("21.1.1", "(21.1.0,)") is True
+    assert check_version_range("21.1.0", "(21.1.0,)") is False  # 排除下界
+
+
+def test_version_range_exact():
+    assert check_version_range("21.1.228", "[21.1.228]") is True
+    assert check_version_range("21.1.229", "[21.1.228]") is False
+
+
+def test_version_range_malformed_returns_true():
+    """格式异常 → 保守认为兼容(不阻断迁移)。"""
+    assert check_version_range("21.1.233", "garbage") is True
+    assert check_version_range("21.1.233", "") is True
+
+
+# --- read_neoforge_version ---
+
+
+def test_read_neoforge_version_from_json(tmp_path):
+    import json
+
+    version_name = "1.21.1-NeoForge_21.1.233"
+    ver_dir = tmp_path / version_name
+    ver_dir.mkdir()
+    json_data = {
+        "arguments": {
+            "game": ["--fml.neoforgeVersion", "21.1.233", "--fml.mcVersion", "1.21.1"],
+        }
+    }
+    (ver_dir / f"{version_name}.json").write_text(json.dumps(json_data), encoding="utf-8")
+    assert read_neoforge_version(ver_dir) == "21.1.233"
+
+
+def test_read_neoforge_version_missing_json(tmp_path):
+    ver_dir = tmp_path / "empty"
+    ver_dir.mkdir()
+    assert read_neoforge_version(ver_dir) is None
+
+
+def test_read_neoforge_version_no_arg(tmp_path):
+    import json
+
+    ver_dir = tmp_path / "noversion"
+    ver_dir.mkdir()
+    (ver_dir / "noversion.json").write_text(
+        json.dumps({"arguments": {"game": ["--fml.mcVersion", "1.21.1"]}}),
+        encoding="utf-8",
+    )
+    assert read_neoforge_version(ver_dir) is None
+
+
+# --- check_mod_compat ---
+
+
+def test_check_mod_compat_incompatible():
+    src_mods = ModRegistry()
+    src_mods.add(ModInfo("cp_lib", "5.0.18", "cp_lib.jar", "[21.1.233,)"))
+    warnings = check_mod_compat(
+        mod_added_paths=["mods/cp_lib.jar"],
+        src_mods=src_mods,
+        dst_neoforge="21.1.228",
+    )
+    assert len(warnings) == 1
+    assert isinstance(warnings[0], CompatWarning)
+    assert warnings[0].modid == "cp_lib"
+    assert warnings[0].required_range == "[21.1.233,)"
+    assert warnings[0].dst_neoforge == "21.1.228"
+
+
+def test_check_mod_compat_compatible():
+    src_mods = ModRegistry()
+    src_mods.add(ModInfo("create", "6.0.10", "create.jar", "[21.1.219,)"))
+    warnings = check_mod_compat(
+        mod_added_paths=["mods/create.jar"],
+        src_mods=src_mods,
+        dst_neoforge="21.1.233",
+    )
+    assert len(warnings) == 0
+
+
+def test_check_mod_compat_no_range():
+    src_mods = ModRegistry()
+    src_mods.add(ModInfo("simple", "1.0", "simple.jar", None))
+    warnings = check_mod_compat(
+        mod_added_paths=["mods/simple.jar"],
+        src_mods=src_mods,
+        dst_neoforge="21.1.228",
+    )
+    assert len(warnings) == 0  # 无 range → 不检查
+
+
+def test_check_mod_compat_empty():
+    src_mods = ModRegistry()
+    warnings = check_mod_compat(
+        mod_added_paths=[],
+        src_mods=src_mods,
+        dst_neoforge="21.1.228",
+    )
+    assert len(warnings) == 0

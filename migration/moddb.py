@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import tomllib
@@ -309,3 +310,161 @@ def generate_orphan_rules(
                 )
             )
     return rules
+
+
+@dataclass(frozen=True)
+class CompatWarning:
+    """mod 版本兼容性警告。
+
+    Attributes:
+        modid: mod 标识符。
+        jar_filename: jar 文件名。
+        mod_version: mod 版本号。
+        required_range: 要求的 NeoForge 版本范围。
+        dst_neoforge: 目标 NeoForge 版本号。
+    """
+
+    modid: str
+    jar_filename: str
+    mod_version: str
+    required_range: str
+    dst_neoforge: str
+
+
+def _parse_version_tuple(v: str) -> tuple[int, ...]:
+    """将版本字符串解析为整数元组(如 '21.1.233' → (21, 1, 233))。"""
+    parts: list[int] = []
+    for seg in v.split("."):
+        try:
+            parts.append(int(seg))
+        except ValueError:
+            # 非数字段 → 用 0 占底,保证不崩
+            parts.append(0)
+    return tuple(parts) if parts else (0,)
+
+
+def check_version_range(version: str, range_str: str) -> bool:
+    """检查版本是否在 Maven 版本范围内。
+
+    支持: [x,) / (x,) / [x,y) / [x,y] / (x,y) / (x,y] / [x] / [,y)
+
+    格式异常 → 返回 True(保守认为兼容,不阻断迁移)。
+
+    Args:
+        version: 待检查版本(如 "21.1.233")。
+        range_str: Maven 版本范围(如 "[21.1.219,)")。
+
+    Returns:
+        True = 在范围内(兼容); False = 不在范围内(不兼容)。
+    """
+    range_str = range_str.strip()
+    if not range_str:
+        return True
+    if len(range_str) < 2:
+        return True
+    # Maven 范围必须以 [/( 开头、]/) 结尾;否则视为格式异常 → 保守兼容
+    if range_str[0] not in "[(" or range_str[-1] not in "])":
+        return True
+    inclusive_start = range_str[0] == "["
+    inclusive_end = range_str[-1] == "]"
+    inner = range_str[1:-1]
+    parts = inner.split(",")
+    if len(parts) == 1:
+        # 无逗号 → 单版本精确匹配(如 [21.1.228]),上下界均为该值
+        start = parts[0].strip()
+        end = start
+    else:
+        start = parts[0].strip()
+        end = parts[1].strip() if len(parts) > 1 else ""
+
+    v = _parse_version_tuple(version)
+
+    if start:
+        sv = _parse_version_tuple(start)
+        if inclusive_start:
+            if v < sv:
+                return False
+        else:
+            if v <= sv:
+                return False
+
+    if end:
+        ev = _parse_version_tuple(end)
+        if inclusive_end:
+            if v > ev:
+                return False
+        else:
+            if v >= ev:
+                return False
+
+    return True
+
+
+def read_neoforge_version(version_dir: Path) -> str | None:
+    """从版本 json 读取 NeoForge 版本号(--fml.neoforgeVersion 参数)。
+
+    Args:
+        version_dir: 版本文件夹路径(含 <version_name>.json)。
+
+    Returns:
+        NeoForge 版本号字符串,或 None(文件缺失/无参数)。
+    """
+    version_name = version_dir.name
+    json_path = version_dir / f"{version_name}.json"
+    if not json_path.exists():
+        return None
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    args = data.get("arguments", {}).get("game", [])
+    if not isinstance(args, list):
+        return None
+    for i, arg in enumerate(args):
+        if arg == "--fml.neoforgeVersion" and i + 1 < len(args):
+            return str(args[i + 1])
+    return None
+
+
+def check_mod_compat(
+    mod_added_paths: list[str],
+    src_mods: ModRegistry,
+    dst_neoforge: str | None,
+) -> list[CompatWarning]:
+    """对 mod_added 检查 NeoForge 版本兼容性。
+
+    仅检查有 neoforge_range 的 mod。dst_neoforge 为 None 时跳过。
+
+    Args:
+        mod_added_paths: mod_added 的文件路径列表(如 ["mods/extra.jar"])。
+        src_mods: 源版本的 mod 注册表。
+        dst_neoforge: 目标 NeoForge 版本号(如 "21.1.228"),None 表示未知。
+
+    Returns:
+        不兼容的 mod 警告列表。
+    """
+    if dst_neoforge is None:
+        return []
+    warnings: list[CompatWarning] = []
+    for path in mod_added_paths:
+        # mod_added_paths 是文件路径(如 "mods/cp_lib.jar"),按 jar_filename 查找
+        jar_name = path.split("/")[-1]
+        for modid in src_mods.modids:
+            mi = src_mods.get(modid)
+            if mi is None:
+                continue
+            if mi.jar_filename != jar_name:
+                continue
+            if mi.neoforge_range is None:
+                continue
+            if not check_version_range(dst_neoforge, mi.neoforge_range):
+                warnings.append(
+                    CompatWarning(
+                        modid=mi.modid,
+                        jar_filename=mi.jar_filename,
+                        mod_version=mi.version,
+                        required_range=mi.neoforge_range,
+                        dst_neoforge=dst_neoforge,
+                    )
+                )
+    return warnings
