@@ -67,6 +67,44 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 
 `--strict` forces full hashing as an escape hatch.
 
+## Classification System
+
+`mcmig plan` assigns each file an **origin** (semantic source) that determines the migration behavior:
+
+| Origin | Behavior | Meaning | Example |
+|--------|----------|---------|---------|
+| ✅ Must-migrate | Copy | Core player data, irreversible if lost | `options.txt`, `saves/`, `local/ftbchunks/` |
+| ✏️ Modified config | Copy | Has `.bak` with different content = player edited in-game | `config/create-client.toml` |
+| 📋 Backup file | Copy | `.bak` file, follows its parent config | `config/create-1.toml.bak` |
+| 📦 Add mod | Copy | Source-only mod (player-added) | `mods/extra.jar` |
+| ❓ Needs review | Ask | No reliable auto-detection, needs manual confirmation | `kubejs/**`, `resourcepacks/*.zip` |
+| 👻 Orphan data | Skip | Corresponding mod not installed in target; migrating is pointless | `config/jade/**` (Jade removed) |
+| 🔒 Version-sensitive | Skip | Version/hardware-derived, high-risk across versions, let target rebuild | `config/fml.toml` |
+| ⚙️ Default config | Skip | No `.bak` (mod default), or `.bak` content identical to config (auto-generated) | `config/patchouli-client.toml` |
+| ⛔ Never | Skip | Temp artifacts / version binaries / caches | `logs/`, `<ver>.jar` |
+| ⏭ Identical | Skip | Both sides have identical content | Files with matching MD5 |
+| 📦 Shared mod | Skip | Mod present in both source and target | — |
+| 📦 Target-only mod | Skip | Mod present in target but not source | — |
+
+### Priority
+
+Rules match first-match-wins, from highest to lowest priority:
+
+```
+CLI (--include/--exclude) > Extra rule files > User rules.yaml > Orphan detection > Version-sensitive > Whitelist > Built-in default
+```
+
+- **User explicit rules > Orphan detection**: Writing `config/jade/** → must_migrate` in `.mcmig/rules.yaml` forces migration of orphan configs.
+- **Orphan detection > Whitelist**: Whitelist entries whose corresponding mod has been removed are automatically voided.
+- **Orphan detection = factual judgment**: Mod physically absent from target's `mods/` directory → config has no owner → migrating is pointless.
+
+### .bak Heuristic
+
+NeoForge auto-generates `.bak` backups when a player edits a config in-game. The tool compares the MD5 of the config and its `.bak`:
+
+- **MD5 differs** → `.bak` stores the pre-edit version → player did modify → migrate
+- **MD5 identical** → `.bak` backup matches current → mod auto-generated (not player-edited) → skip
+
 ## Project Structure
 
 ```

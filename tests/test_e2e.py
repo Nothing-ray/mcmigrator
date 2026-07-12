@@ -300,3 +300,88 @@ def test_plan_with_orphan_rules_applied(tmp_path, monkeypatch):
     # dst 无 jade mod → jade config 被标为 orphan(skip)
     assert origins.get("config/jade/presets.json") == "orphan"
     assert behaviors.get("config/jade/presets.json") == "skip"
+
+
+def test_plan_full_mod_awareness_e2e(tmp_path, monkeypatch):
+    """端到端:orphan config 标记 + .bak MD5 降级 + 兼容检查。"""
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    src_dir.mkdir(parents=True)
+    dst_dir.mkdir(parents=True)
+
+    # dst 有 create mod + royal mod(royal 须在 dst,否则 royal.toml 被判孤儿,无法测 .bak 降级)
+    dst_mods = dst_dir / "mods"
+    dst_mods.mkdir()
+    create_toml = (
+        'modLoader="javafml"\nloaderVersion="[1,)"\n'
+        '[[mods]]\nmodId="create"\nversion="6.0.10"\n'
+        '[[dependencies.create]]\nmodId="neoforge"\n'
+        'type="required"\nversionRange="[21.1.0,)"\n'
+    )
+    with zipfile.ZipFile(dst_mods / "create.jar", "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", create_toml)
+    royal_toml = (
+        'modLoader="javafml"\nloaderVersion="[1,)"\n'
+        '[[mods]]\nmodId="royal"\nversion="1.0"\n'
+    )
+    with zipfile.ZipFile(dst_mods / "royal.jar", "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", royal_toml)
+
+    # src 有 create mod + jade config(孤儿) + royal config(.bak MD5 相同)
+    src_mods = src_dir / "mods"
+    src_mods.mkdir()
+    with zipfile.ZipFile(src_mods / "create.jar", "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", create_toml)
+
+    src_config = src_dir / "config"
+    src_config.mkdir()
+    # 孤儿 config(jade 不在 dst mods)
+    (src_config / "jade").mkdir()
+    (src_config / "jade" / "presets.json").write_text("{}", encoding="utf-8")
+    # .bak MD5 相同(自动生成 → 降级)
+    (src_config / "royal.toml").write_text("default=true\n", encoding="utf-8")
+    (src_config / "royal-1.toml.bak").write_text("default=true\n", encoding="utf-8")
+    # .bak MD5 不同(玩家改过 → 保持 config_modified)
+    # .bak 命名须为 <stem>-<N>.<suffix>.bak:create-client-1.toml.bak(非 create-1.toml.bak)
+    (src_config / "create-client.toml").write_text("edited=true\n", encoding="utf-8")
+    (src_config / "create-client-1.toml.bak").write_text("edited=false\n", encoding="utf-8")
+
+    # options.txt
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "options.txt").write_text("fps:60\n", encoding="utf-8")
+
+    mcmig_dir = tmp_path / ".mcmig"
+    mcmig_dir.mkdir()
+    (mcmig_dir / "config.yaml").write_text(f"game_root: '{game_root}'", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert _run(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert _run(["scan", "dst", "--game-root", str(game_root)]) == 0
+
+    # 捕获 JSON plan 输出
+    buf = io.StringIO()
+    rc = _run(["plan", "src", "dst", "--game-root", str(game_root), "--json"], buf)
+    output = buf.getvalue()
+    assert rc == 0
+
+    plan_data = json.loads(output)
+    actions = {a["path"]: a for a in plan_data["actions"]}
+
+    # 孤儿 config 标为 orphan
+    jade = actions.get("config/jade/presets.json")
+    assert jade is not None
+    assert jade["origin"] == "orphan"
+    assert jade["behavior"] == "skip"
+
+    # .bak MD5 相同 → 降级 default_config
+    royal = actions.get("config/royal.toml")
+    assert royal is not None
+    assert royal["origin"] == "default_config"
+    assert royal["behavior"] == "skip"
+
+    # .bak MD5 不同 → 保持 config_modified
+    create = actions.get("config/create-client.toml")
+    assert create is not None
+    assert create["origin"] == "config_modified"
+    assert create["behavior"] == "copy"
