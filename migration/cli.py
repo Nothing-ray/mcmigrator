@@ -296,7 +296,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     compat_warnings = check_mod_compat(mod_added_paths, src_mods, dst_nf_version)
     reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst)
     if args.json:
-        _print(reporter.to_json())
+        _print(reporter.to_json(compat_warnings))
     else:
         reporter.render(PlanOptions(show_skip=args.show_skip, category=args.category))
         reporter.render_compat_warnings(compat_warnings)

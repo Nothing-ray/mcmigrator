@@ -165,6 +165,8 @@ def test_plan_reporter_render_orphan_group(capsys):
     )
     out = capsys.readouterr().out
     assert "孤儿" in out
+    assert "迁移无意义" in out
+    assert "rules.yaml" in out
 
 
 def test_plan_reporter_compat_warnings_render(capsys):
@@ -203,3 +205,56 @@ def test_plan_reporter_compat_warnings_empty_no_output(capsys):
     reporter.render_compat_warnings([])
     out = capsys.readouterr().out
     assert out == ""
+
+
+def test_plan_reporter_to_json_includes_compat_warnings():
+    """to_json(compat_warnings) 输出含 compat_warnings 数组(I3:JSON 消费者可见)。"""
+    from datetime import datetime, timezone
+
+    from migration.moddb import CompatWarning
+    from migration.plan import MigrationPlan
+    from migration.reporter import PlanReporter
+
+    plan = MigrationPlan(
+        src="228", dst="233",
+        generated_at=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        actions=[],
+    )
+    reporter = PlanReporter(plan, src_version="228", dst_version="233")
+    warnings = [
+        CompatWarning(
+            modid="cp_lib",
+            jar_filename="cp_lib.jar",
+            mod_version="5.0.18",
+            required_range="[21.1.233,)",
+            dst_neoforge="21.1.228",
+        )
+    ]
+    doc = json.loads(reporter.to_json(warnings))
+    assert "compat_warnings" in doc
+    assert len(doc["compat_warnings"]) == 1
+    w = doc["compat_warnings"][0]
+    assert w["modid"] == "cp_lib"
+    assert w["jar_filename"] == "cp_lib.jar"
+    assert w["mod_version"] == "5.0.18"
+    assert w["required_range"] == "[21.1.233,)"
+    assert w["dst_neoforge"] == "21.1.228"
+
+
+def test_plan_reporter_to_json_omits_compat_warnings_when_empty():
+    """to_json() 无参/空列表 → compat_warnings 字段不出现(向后兼容)。"""
+    from migration.plan import MigrationPlan
+    from migration.reporter import PlanReporter
+
+    plan = MigrationPlan(
+        src="228", dst="233",
+        generated_at="2026-01-01T00:00:00+00:00",
+        actions=[],
+    )
+    reporter = PlanReporter(plan, src_version="228", dst_version="233")
+    # 无参数调用(老调用方)
+    doc_no_arg = json.loads(reporter.to_json())
+    assert "compat_warnings" not in doc_no_arg
+    # 显式空列表
+    doc_empty = json.loads(reporter.to_json([]))
+    assert "compat_warnings" not in doc_empty

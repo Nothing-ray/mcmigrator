@@ -44,12 +44,14 @@ class OriginSpec:
         show_backup: 是否在该 origin 分组表里显示 backup_target 列。
         behavior: 该 origin 对应的操作(2D 模型 1:1 不变量,spec §2 表);
             reporter 据此判定是否显示 new/modified 子计数,Executor/Planner 不读。
+        footnote: 该 origin 分组下方显示的注脚文本(仅 orphan 需要),None 表示无注脚。
     """
 
     title: str
     default_visible: bool
     show_backup: bool
     behavior: Behavior
+    footnote: str | None = None
 
 
 class Origin(str, Enum):
@@ -77,7 +79,8 @@ _ORIGIN_SEED: dict[str, OriginSpec] = {
     "mod_added":       OriginSpec("📦 补 Mod",          True,  False, Behavior.COPY),
     "needs_review":    OriginSpec("❓ 待确认",          True,  False, Behavior.ASK),
     "rebuild":         OriginSpec("🔒 版本敏感",        False, False, Behavior.SKIP),
-    "orphan":          OriginSpec("👻 孤儿数据",         False, False, Behavior.SKIP),
+    "orphan":          OriginSpec("👻 孤儿数据",         False, False, Behavior.SKIP,
+                                    footnote="对应的 mod 未安装在目标版本中,迁移无意义。如需强制迁移,请在 rules.yaml 中显式指定。"),
     "default_config":  OriginSpec("⚙️ 默认配置",        False, False, Behavior.SKIP),
     "never":           OriginSpec("⛔ 不迁",            False, False, Behavior.SKIP),
     "identical":       OriginSpec("⏭ 一致",            False, False, Behavior.SKIP),

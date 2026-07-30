@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .differ import DiffItem, DiffReport
+from .moddb import CompatWarning
 from .plan import Behavior, MigrationPlan, ORIGIN_REGISTRY
 
 BUCKETS = ["to_migrate", "candidate", "mods", "only_in_dst", "identical", "never"]
@@ -112,8 +113,15 @@ class PlanReporter:
         self.src_version = src_version
         self.dst_version = dst_version
 
-    def to_json(self) -> str:
-        """JSON 输出 = plan 文件内容。"""
+    def to_json(
+        self, compat_warnings: list[CompatWarning] | None = None
+    ) -> str:
+        """JSON 输出 = plan 文件内容(+ 可选兼容警告段)。
+
+        Args:
+            compat_warnings: mod 版本兼容警告列表;非空时作为顶层
+                ``compat_warnings`` 数组输出,空/None 时字段不出现(向后兼容)。
+        """
         payload = {
             "tool_version": self.plan.tool_version,
             "plan_format": self.plan.plan_format,
@@ -123,6 +131,17 @@ class PlanReporter:
             "summary": self.plan.summary(),
             "actions": [r.to_dict() for r in self.plan.actions],
         }
+        if compat_warnings:
+            payload["compat_warnings"] = [
+                {
+                    "modid": w.modid,
+                    "jar_filename": w.jar_filename,
+                    "mod_version": w.mod_version,
+                    "required_range": w.required_range,
+                    "dst_neoforge": w.dst_neoforge,
+                }
+                for w in compat_warnings
+            ]
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     def _visible_origins(self, opts: PlanOptions) -> list[str]:
@@ -173,11 +192,13 @@ class PlanReporter:
                     row.append(r.backup_target or "")
                 tbl.add_row(*row)
             console.print(tbl)
+            if meta.footnote:
+                console.print(f"[dim]{meta.footnote}[/]")
         if not opts.show_skip and not opts.category:
             console.print("[dim]默认隐藏 skip 类 origin,用 --show-skip 查看[/]")
 
     def render_compat_warnings(
-        self, warnings: list, console: Console | None = None
+        self, warnings: list[CompatWarning], console: Console | None = None
     ) -> None:
         """渲染 mod 版本兼容警告段(如有)。"""
         if not warnings:
