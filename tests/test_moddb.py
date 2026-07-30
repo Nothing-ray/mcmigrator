@@ -52,10 +52,8 @@ version="{version}"
     return jar_path
 
 
-def test_scan_mods_single_jar():
-    import tempfile
-
-    tmp = Path(tempfile.mkdtemp())
+def test_scan_mods_single_jar(tmp_path):
+    tmp = tmp_path
     make_fake_jar(tmp / "mods", "create-1.21.1-6.0.10.jar", "create", "6.0.10", "[21.1.219,)")
     reg = scan_mods(tmp)
     assert "create" in reg
@@ -66,10 +64,8 @@ def test_scan_mods_single_jar():
     assert info.neoforge_range == "[21.1.219,)"
 
 
-def test_scan_mods_multiple_jars():
-    import tempfile
-
-    tmp = Path(tempfile.mkdtemp())
+def test_scan_mods_multiple_jars(tmp_path):
+    tmp = tmp_path
     make_fake_jar(tmp / "mods", "create.jar", "create")
     make_fake_jar(tmp / "mods", "waystones.jar", "waystones", "21.1.36")
     reg = scan_mods(tmp)
@@ -78,10 +74,8 @@ def test_scan_mods_multiple_jars():
     assert len(reg.modids) == 2
 
 
-def test_scan_mods_case_insensitive_lookup():
-    import tempfile
-
-    tmp = Path(tempfile.mkdtemp())
+def test_scan_mods_case_insensitive_lookup(tmp_path):
+    tmp = tmp_path
     make_fake_jar(tmp / "mods", "x.jar", "CSC")
     reg = scan_mods(tmp)
     assert "csc" in reg  # 小写查询
@@ -89,11 +83,10 @@ def test_scan_mods_case_insensitive_lookup():
     assert reg.get("csc").modid == "CSC"
 
 
-def test_scan_mods_jar_without_toml_skipped():
-    import tempfile
+def test_scan_mods_jar_without_toml_skipped(tmp_path):
     import zipfile
 
-    tmp = Path(tempfile.mkdtemp())
+    tmp = tmp_path
     mods = tmp / "mods"
     mods.mkdir(parents=True)
     # 无 mods.toml 的 jar
@@ -103,11 +96,8 @@ def test_scan_mods_jar_without_toml_skipped():
     assert len(reg.modids) == 0
 
 
-def test_scan_mods_multiple_mods_in_one_jar():
-    import tempfile
-
-    tmp = Path(tempfile.mkdtemp())
-    mods = tmp / "mods"
+def test_scan_mods_multiple_mods_in_one_jar(tmp_path):
+    mods = tmp_path / "mods"
     mods.mkdir(parents=True)
     import zipfile
 
@@ -122,15 +112,13 @@ version="2.0"
 '''
     with zipfile.ZipFile(mods / "bundle.jar", "w") as z:
         z.writestr("META-INF/neoforge.mods.toml", toml)
-    reg = scan_mods(tmp)
+    reg = scan_mods(tmp_path)
     assert "lib" in reg
     assert "addon" in reg
 
 
-def test_scan_mods_no_neoforge_dependency():
-    import tempfile
-
-    tmp = Path(tempfile.mkdtemp())
+def test_scan_mods_no_neoforge_dependency(tmp_path):
+    tmp = tmp_path
     # nf_range=None → mods.toml 无 dependencies 段
     make_fake_jar(tmp / "mods", "simple.jar", "simple", "1.0", nf_range=None)
     reg = scan_mods(tmp)
@@ -138,12 +126,11 @@ def test_scan_mods_no_neoforge_dependency():
     assert info.neoforge_range is None
 
 
-def test_scan_mods_fallback_to_mods_toml():
+def test_scan_mods_fallback_to_mods_toml(tmp_path):
     """旧 Forge 格式: META-INF/mods.toml (无 neoforge 前缀)。"""
-    import tempfile
     import zipfile
 
-    tmp = Path(tempfile.mkdtemp())
+    tmp = tmp_path
     mods = tmp / "mods"
     mods.mkdir(parents=True)
     toml = '''modLoader="javafml"
@@ -158,20 +145,45 @@ version="0.1"
     assert "oldmod" in reg
 
 
-def test_scan_mods_empty_mods_dir():
-    import tempfile
-
-    tmp = Path(tempfile.mkdtemp())
+def test_scan_mods_empty_mods_dir(tmp_path):
+    tmp = tmp_path
     (tmp / "mods").mkdir(parents=True)
     reg = scan_mods(tmp)
     assert len(reg.modids) == 0
 
 
-def test_scan_mods_no_mods_dir():
-    import tempfile
-
-    tmp = Path(tempfile.mkdtemp())
+def test_scan_mods_no_mods_dir(tmp_path):
+    tmp = tmp_path
     reg = scan_mods(tmp)
+    assert len(reg.modids) == 0
+
+
+def test_scan_mods_zlib_error_skipped(tmp_path, monkeypatch):
+    """jar entry 的 deflate 流损坏(zlib.error)→ 跳过不崩溃(spec §5.3)。"""
+    import zipfile
+    import zlib
+
+    from migration import moddb
+
+    mods = tmp_path / "mods"
+    mods.mkdir(parents=True)
+    # 先建一个合法 jar
+    with zipfile.ZipFile(mods / "x.jar", "w") as z:
+        z.writestr(
+            "META-INF/neoforge.mods.toml",
+            'modLoader="javafml"\n[[mods]]\nmodId="x"\nversion="1"\n',
+        )
+
+    # 模拟 z.read 抛 zlib.error(独立异常树,不被 OSError 捕获)
+    real_zipfile = zipfile.ZipFile
+
+    class FakeZipFile(real_zipfile):
+        def read(self, name, pwd=None):  # noqa: ANN001, ARG002
+            raise zlib.error("simulated deflate corruption")
+
+    monkeypatch.setattr(moddb.zipfile, "ZipFile", FakeZipFile)
+    # 不应抛出异常,返回空注册表
+    reg = scan_mods(tmp_path)
     assert len(reg.modids) == 0
 
 
@@ -444,6 +456,43 @@ def test_read_neoforge_version_no_arg(tmp_path):
     ver_dir.mkdir()
     (ver_dir / "noversion.json").write_text(
         json.dumps({"arguments": {"game": ["--fml.mcVersion", "1.21.1"]}}),
+        encoding="utf-8",
+    )
+    assert read_neoforge_version(ver_dir) is None
+
+
+def test_read_neoforge_version_arguments_is_string(tmp_path):
+    """arguments 是字符串而非 dict → 返回 None(不崩溃,spec §5.4)。"""
+    import json
+
+    ver_dir = tmp_path / "broken"
+    ver_dir.mkdir()
+    (ver_dir / "broken.json").write_text(
+        json.dumps({"arguments": "oops"}), encoding="utf-8"
+    )
+    assert read_neoforge_version(ver_dir) is None
+
+
+def test_read_neoforge_version_top_level_is_list(tmp_path):
+    """JSON 顶层非 dict(如数组)→ 返回 None(不崩溃)。"""
+    import json
+
+    ver_dir = tmp_path / "array"
+    ver_dir.mkdir()
+    (ver_dir / "array.json").write_text(
+        json.dumps([1, 2, 3]), encoding="utf-8"
+    )
+    assert read_neoforge_version(ver_dir) is None
+
+
+def test_read_neoforge_version_game_is_not_list(tmp_path):
+    """arguments.game 是字符串而非 list → 返回 None(不崩溃)。"""
+    import json
+
+    ver_dir = tmp_path / "gamestr"
+    ver_dir.mkdir()
+    (ver_dir / "gamestr.json").write_text(
+        json.dumps({"arguments": {"game": "--fml.neoforgeVersion"}}),
         encoding="utf-8",
     )
     assert read_neoforge_version(ver_dir) is None

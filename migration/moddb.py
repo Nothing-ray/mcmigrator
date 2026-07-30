@@ -11,6 +11,7 @@ import logging
 import re
 import tomllib
 import zipfile
+import zlib
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -147,7 +148,7 @@ def scan_mods(version_dir: Path) -> ModRegistry:
                 if toml_entry is None:
                     continue
                 content = z.read(toml_entry).decode("utf-8")
-        except (zipfile.BadZipFile, OSError, UnicodeDecodeError) as e:
+        except (zipfile.BadZipFile, OSError, UnicodeDecodeError, zlib.error) as e:
             log.warning("jar %s 读取失败: %s", jar_path.name, e)
             continue
 
@@ -163,12 +164,6 @@ _CORE_PREFIXES = frozenset({"fml", "neoforge", "minecraft"})
 
 # 合法 modid 正则(小写字母开头,仅含小写字母/数字/下划线)
 _VALID_MODID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-
-# 已知扩展名(用于剥离)
-_CONFIG_EXTENSIONS = frozenset({
-    ".toml", ".json", ".cfg", ".snbt", ".properties",
-    ".jsonc", ".json5", ".yaml", ".txt", ".ini",
-})
 
 
 def extract_modid_candidate(path: str) -> str | None:
@@ -417,7 +412,12 @@ def read_neoforge_version(version_dir: Path) -> str | None:
         data = json.loads(json_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
-    args = data.get("arguments", {}).get("game", [])
+    if not isinstance(data, dict):
+        return None
+    args_section = data.get("arguments", {})
+    if not isinstance(args_section, dict):
+        return None
+    args = args_section.get("game", [])
     if not isinstance(args, list):
         return None
     for i, arg in enumerate(args):
