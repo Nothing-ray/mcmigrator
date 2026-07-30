@@ -385,3 +385,82 @@ def test_plan_full_mod_awareness_e2e(tmp_path, monkeypatch):
     assert create is not None
     assert create["origin"] == "config_modified"
     assert create["behavior"] == "copy"
+
+
+def test_plan_compat_warnings_e2e(tmp_path, monkeypatch):
+    """端到端:不兼容 mod 的兼容警告在 --json 和 rich 输出中都出现(spec #5)。
+
+    场景:dst 版本 json 声明 NeoForge 21.1.228,src 玩家额外加 cp_lib.jar
+    声明 versionRange [21.1.233,) → cp_lib 不兼容 dst。
+    """
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    src_dir.mkdir(parents=True)
+    dst_dir.mkdir(parents=True)
+
+    # dst 版本 json:声明 NeoForge 21.1.228
+    dst_json = {
+        "arguments": {
+            "game": ["--fml.neoforgeVersion", "21.1.228", "--fml.mcVersion", "1.21.1"],
+        }
+    }
+    (dst_dir / "dst.json").write_text(json.dumps(dst_json), encoding="utf-8")
+
+    # dst 有 create mod(无 cp_lib)
+    dst_mods = dst_dir / "mods"
+    dst_mods.mkdir()
+    create_toml = (
+        'modLoader="javafml"\nloaderVersion="[1,)"\n'
+        '[[mods]]\nmodId="create"\nversion="6.0.10"\n'
+        '[[dependencies.create]]\nmodId="neoforge"\n'
+        'type="required"\nversionRange="[21.1.0,)"\n'
+    )
+    with zipfile.ZipFile(dst_mods / "create.jar", "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", create_toml)
+
+    # src 有 create(兼容)+ cp_lib(不兼容,versionRange 要求 21.1.233+)
+    src_mods = src_dir / "mods"
+    src_mods.mkdir()
+    with zipfile.ZipFile(src_mods / "create.jar", "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", create_toml)
+    cp_lib_toml = (
+        'modLoader="javafml"\nloaderVersion="[1,)"\n'
+        '[[mods]]\nmodId="cp_lib"\nversion="5.0.18"\n'
+        '[[dependencies.cp_lib]]\nmodId="neoforge"\n'
+        'type="required"\nversionRange="[21.1.233,)"\n'
+    )
+    with zipfile.ZipFile(src_mods / "cp_lib.jar", "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", cp_lib_toml)
+
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "options.txt").write_text("fps:60\n", encoding="utf-8")
+
+    mcmig_dir = tmp_path / ".mcmig"
+    mcmig_dir.mkdir()
+    (mcmig_dir / "config.yaml").write_text(f"game_root: '{game_root}'", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert _run(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert _run(["scan", "dst", "--game-root", str(game_root)]) == 0
+
+    # Run A: --json 模式 → compat_warnings 字段含 cp_lib(I3 + I2)
+    buf = io.StringIO()
+    rc = _run(["plan", "src", "dst", "--game-root", str(game_root), "--json"], buf)
+    assert rc == 0
+    doc = json.loads(buf.getvalue())
+    assert "compat_warnings" in doc, "JSON 输出应含 compat_warnings 字段"
+    cw = doc["compat_warnings"]
+    assert len(cw) == 1
+    assert cw[0]["modid"] == "cp_lib"
+    assert cw[0]["required_range"] == "[21.1.233,)"
+    assert cw[0]["dst_neoforge"] == "21.1.228"
+
+    # Run B: 非 JSON 模式 → rich 渲染含 cp_lib / 21.1.233(I2)
+    buf2 = io.StringIO()
+    rc2 = _run(["plan", "src", "dst", "--game-root", str(game_root)], buf2)
+    assert rc2 == 0
+    rendered = buf2.getvalue()
+    assert "cp_lib" in rendered
+    assert "21.1.233" in rendered
+    assert "21.1.228" in rendered

@@ -343,3 +343,56 @@ def test_plan_rebuild_yields_to_user_rules(tmp_path: Path, monkeypatch, capsys):
     doc = json.loads(capsys.readouterr().out)
     origins = {a["path"]: a["origin"] for a in doc["actions"]}
     assert origins.get("config/fml.toml") == "must_migrate"
+
+
+def test_plan_user_rule_overrides_orphan(tmp_path: Path, monkeypatch, capsys):
+    """user rules.yaml 写 config/jade/**→must_migrate 时压过 orphan(P2 用户主权)。
+
+    spec 验收 #2/#8:dst 无 jade mod → 默认 jade 应是 orphan;但用户显式写规则
+    时,jade config 应落 must_migrate(orphan 让位于用户意图)。
+    """
+    import json
+    import zipfile
+
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    # src 有 jade config,jade 不在 dst mods
+    mini = versions / "mini"
+    mini.mkdir()
+    (mini / "config").mkdir()
+    (mini / "config" / "jade").mkdir()
+    (mini / "config" / "jade" / "presets.json").write_text("{}", encoding="utf-8")
+    (mini / "options.txt").write_text("v\n", encoding="utf-8")
+    (mini / "mods").mkdir()
+    target = versions / "target"
+    target.mkdir()
+    (target / "mods").mkdir()
+    # dst 只装 create(无 jade)→ 默认 jade 应是 orphan
+    with zipfile.ZipFile(target / "mods" / "create.jar", "w") as z:
+        z.writestr(
+            "META-INF/neoforge.mods.toml",
+            'modLoader="javafml"\nloaderVersion="[1,)"\n'
+            '[[mods]]\nmodId="create"\nversion="1.0"\n',
+        )
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".mcmig").mkdir()
+    # 用户显式规则:强制迁移 jade
+    (tmp_path / ".mcmig" / "rules.yaml").write_text(
+        "version: 1\nrules:\n"
+        "  - match: 'config/jade/**'\n"
+        "    decide: must_migrate\n"
+        "    reason: 'user override'\n",
+        encoding="utf-8",
+    )
+    cli.main(["scan", "mini", "--game-root", str(game_root)])
+    cli.main(["scan", "target", "--game-root", str(game_root)])
+    capsys.readouterr()
+    cli.main(["plan", "mini", "target", "--json", "--game-root", str(game_root)])
+    doc = json.loads(capsys.readouterr().out)
+    origins = {a["path"]: a["origin"] for a in doc["actions"]}
+    # 用户规则压过 orphan:jade 落 must_migrate 而非 orphan
+    assert origins.get("config/jade/presets.json") == "must_migrate"
