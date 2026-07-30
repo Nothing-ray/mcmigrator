@@ -12,3 +12,6 @@ mappings:
   - match: "config/xaeropatreon.txt"
     modid: "xaerominimap"
     reason: "同上"
+  - match: "config/dragon-survival/**"
+    modid: "dragonsurvival"
+    reason: "目录名 dragon-survival 含连字符,正则拒绝 → extract 返回 None;真实 modid 为 dragonsurvival(无分隔符)"

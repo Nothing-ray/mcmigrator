@@ -6,6 +6,7 @@ __pycache__/
 /game_data/
 /modpack_docs/
 /Reference/discussions/
+/Reference/observations/
 *.egg-info/
 build/
 dist/

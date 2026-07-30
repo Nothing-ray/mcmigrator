@@ -2,7 +2,7 @@
 # 这些文件由 mod 直接写入玩家设置,不经过 NeoForge 的 .bak 机制,
 # 故 .bak 判定法无法识别,需显式列入。
 # 来源:AGENTS.md「config 玩家改动判定法」+ 实测 227 vs 228 + spec §5
-# 优先级:user rules > rebuild > whitelist > default rules
+# 优先级:cli > extra > user > orphan > rebuild > WHITELIST > default
 # 语义:每条强制 decide=must_migrate(yaml 不写 decide)
 
 version: 1

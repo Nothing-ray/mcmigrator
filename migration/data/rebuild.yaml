@@ -1,6 +1,6 @@
 # 版本/硬件派生的高危文件:跨版本/跨机器迁移会崩溃或指纹错乱。
 # 默认让目标版本自行重建。用户可用 .mcmig/rules.yaml 强制覆盖(P2:用户主权)。
-# 优先级:cli > extra > user > REBUILD > whitelist > default
+# 优先级:cli > extra > user > orphan > REBUILD > whitelist > default
 # 语义:每条强制 decide=rebuild(yaml 不写 decide),source="rebuild"
 
 version: 1

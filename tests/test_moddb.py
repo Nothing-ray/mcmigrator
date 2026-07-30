@@ -262,6 +262,28 @@ def test_load_mod_config_map_has_xaero():
     assert table.lookup("config/xaerohud.txt") == "xaerominimap"
 
 
+def test_load_mod_config_map_has_dragon_survival():
+    """目录名 dragon-survival ≠ modid dragonsurvival(无分隔符),靠覆盖表修正。
+
+    子目录 config/dragon-survival/** 的目录名含连字符,extract_modid_candidate
+    正则 ^[a-z][a-z0-9_]*$ 拒绝 'dragon-survival' → 返回 None(无法确定)。
+    没有覆盖表则 orphan 规则不会生成,这些 config 会落到默认行为(可能误迁或
+    漏判)。覆盖表显式映射到真实 modid dragonsurvival,orphan 判定才能正确。
+    """
+    table = load_mod_config_map()
+    assert table.lookup("config/dragon-survival/preset.nbt") == "dragonsurvival"
+    assert table.lookup("config/dragon-survival/sub/foo.json") == "dragonsurvival"
+
+
+def test_extract_candidate_hyphen_subdir_returns_none():
+    """已知限制:含 `-` 的子目录名 → 正则拒绝 → None(无法确定)。
+
+    spec §2.1 规则 6 合法性检查 `^[a-z][a-z0-9_]*$` 拒绝含连字符的候选。
+    此场景靠 mod_config_map.yaml 覆盖表兜底(见 test_load_mod_config_map_has_dragon_survival)。
+    """
+    assert extract_modid_candidate("config/dragon-survival/foo.nbt") is None
+
+
 # --- map_config_to_mod ---
 
 
