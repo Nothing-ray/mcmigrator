@@ -68,6 +68,7 @@ class Origin(str, Enum):
     ORPHAN = "orphan"
     MOD_SHARED = "mod_shared"
     MOD_TARGET_ONLY = "mod_target_only"
+    MOD_SWAPPED_OUT = "mod_swapped_out"
     NEEDS_REVIEW = "needs_review"
 
 
@@ -86,6 +87,8 @@ _ORIGIN_SEED: dict[str, OriginSpec] = {
     "identical":       OriginSpec("⏭ 一致",            False, False, Behavior.SKIP),
     "mod_shared":      OriginSpec("📦 共有 Mod",        False, False, Behavior.SKIP),
     "mod_target_only": OriginSpec("📦 目标独有 Mod",    False, False, Behavior.SKIP),
+    "mod_swapped_out": OriginSpec("📦 换包排除",        False, False, Behavior.SKIP,
+                                   footnote="整合包替换模式(--modpack-swap):源独有 mod 视为旧包自带,不回迁。要带走的个别 mod 请在 rules.yaml 中显式指定 must_migrate。"),
 }
 
 

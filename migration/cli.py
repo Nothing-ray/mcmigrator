@@ -61,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--show-skip", action="store_true", help="显示 skip 类 origin(never/default_config/identical/mod_shared/mod_target_only/rebuild)")
     p_plan.add_argument("--category", default=None, help="仅显示某 origin")
     p_plan.add_argument("--json", action="store_true")
+    p_plan.add_argument("--modpack-swap", action="store_true",
+                        help="整合包替换模式:源独有 mod 视为旧包自带,不回迁(用户 rules.yaml 显式 must_migrate 仍放行)")
     p_plan.add_argument("--no-save", action="store_true", help="不持久化 plan 文件")
     p_plan.add_argument("-q", "--quiet", action="store_true")
     return parser
@@ -160,6 +162,11 @@ def _list_versions(game_root: Path) -> list[str]:
 
 def _print(text: str) -> None:
     print(text)
+
+
+def _print_err(text: str) -> None:
+    """打到 stderr(--json 模式下保持 stdout 纯 JSON 可解析)。"""
+    print(text, file=sys.stderr)
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
@@ -283,7 +290,18 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     for e in errs:
         _print(f"[规则警告] {e}")
     clf = Classifier(rs)
-    report = Differ(src.files, dst.files, clf).diff()
+    # 换包提示:src 独有 mod jar 数量大(≥20)时提醒用户(正常版本升级只有个位数)
+    src_only_mods = sum(
+        1 for p in src.files
+        if p.path.startswith("mods/") and p.path.endswith(".jar")
+        and not any(d.path == p.path for d in dst.files)
+    )
+    if not args.modpack_swap and src_only_mods >= 20:
+        _print_err(
+            f"[提示] 检测到 {src_only_mods} 个源独有 mod。若这是一次整合包替换,"
+            "请加 --modpack-swap 避免旧包 mod 被搬入新包。"
+        )
+    report = Differ(src.files, dst.files, clf, modpack_swap=args.modpack_swap).diff()
     src_index = {e.path: e for e in src.files}
     plan = Planner(report, src_index).plan()
     plan.src, plan.dst = args.src, args.dst

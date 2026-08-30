@@ -56,7 +56,7 @@ def test_origin_values_count():
     assert {o.value for o in Origin} == {
         "must_migrate", "config_modified", "bak_file", "mod_added",
         "identical", "never", "default_config", "rebuild", "orphan",
-        "mod_shared", "mod_target_only", "needs_review",
+        "mod_shared", "mod_target_only", "mod_swapped_out", "needs_review",
     }
 
 

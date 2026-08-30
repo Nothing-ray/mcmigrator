@@ -460,3 +460,20 @@ def test_bak_no_md5_keeps_old_behavior():
     a = next(a for a in actions if a.path == "config/big.toml")
     assert a.behavior == Behavior.COPY
     assert a.origin == Origin.CONFIG_MODIFIED
+
+
+def test_modpack_swap_note_maps_to_swapped_out_origin():
+    """never 桶 note=modpack_swap → SKIP + Origin.MOD_SWAPPED_OUT。"""
+    report = DiffReport(
+        never=[DiffItem("mods/old-pack.jar", _e("mods/old-pack.jar", 10), None, "modpack_swap")]
+    )
+    actions = _plan(report)
+    a = next(a for a in actions if a.path == "mods/old-pack.jar")
+    assert a.behavior == Behavior.SKIP
+    assert a.origin == Origin.MOD_SWAPPED_OUT
+
+
+def test_origin_mod_swapped_out_registered():
+    from migration.plan import ORIGIN_REGISTRY
+
+    assert ORIGIN_REGISTRY["mod_swapped_out"].behavior == Behavior.SKIP

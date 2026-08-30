@@ -464,3 +464,48 @@ def test_plan_compat_warnings_e2e(tmp_path, monkeypatch):
     assert "cp_lib" in rendered
     assert "21.1.233" in rendered
     assert "21.1.228" in rendered
+
+
+def test_plan_modpack_swap_flag(tmp_path, monkeypatch, capsys):
+    """--modpack-swap:src 独有 mod 不回迁(mod_swapped_out);无 flag 时提示。"""
+    import json
+    from migration.cli import main
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+        (d / "mods").mkdir()
+    # src 有 1 个共有 + 21 个独有 jar(超过提示阈值 20)
+    for i in range(21):
+        (src_dir / "mods" / f"old-only-{i}.jar").write_bytes(b"j")
+    (src_dir / "mods" / "shared.jar").write_bytes(b"s")
+    (dst_dir / "mods" / "shared.jar").write_bytes(b"s")
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+
+    mcmig_dir = tmp_path / ".mcmig"
+    mcmig_dir.mkdir()
+    (mcmig_dir / "config.yaml").write_text(f"game_root: '{game_root}'", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert main(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert main(["scan", "dst", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()  # 排空 scan 输出
+
+    # 无 flag:src 独有 mod 走 mod_added(回迁),且输出换包提示
+    rc = main(["plan", "src", "dst", "--game-root", str(game_root), "--json"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    acts = {a["path"]: a for a in doc["actions"]}
+    assert acts["mods/old-only-0.jar"]["origin"] == "mod_added"
+    assert "--modpack-swap" in captured.err  # 提示走 stderr,stdout 保持纯 JSON
+
+    # 有 flag:src 独有 mod → mod_swapped_out(skip),共有不受影响
+    rc = main(["plan", "src", "dst", "--game-root", str(game_root), "--json", "--modpack-swap"])
+    assert rc == 0
+    doc = json.loads(capsys.readouterr().out)
+    acts = {a["path"]: a for a in doc["actions"]}
+    assert acts["mods/old-only-0.jar"]["origin"] == "mod_swapped_out"
+    assert acts["mods/old-only-0.jar"]["behavior"] == "skip"
+    assert acts["mods/shared.jar"]["origin"] == "mod_shared"

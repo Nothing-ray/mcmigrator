@@ -122,3 +122,55 @@ def test_orphan_classified_goes_never_bucket_with_orphan_note():
     assert len(matches) == 1
     assert matches[0].note == "orphan"
     assert not any(i.path == "config/jade/foo.json" for i in d.candidate)
+
+
+# --- modpack-swap 模式 ---
+
+
+def test_modpack_swap_src_only_mod_goes_never_bucket():
+    """换包模式:src 独有 mod → never 桶(note=modpack_swap),不进 mods 桶回迁。"""
+    rs = rules.RuleSet(rules=[])
+    clf = Classifier(rs)
+    d = Differ(
+        [_e("mods/old-pack-mod.jar", 10)],
+        [_e("mods/shared.jar", 10)],
+        clf,
+        modpack_swap=True,
+    ).diff()
+    assert all(i.path != "mods/old-pack-mod.jar" for i in d.mods)
+    m = next(i for i in d.never if i.path == "mods/old-pack-mod.jar")
+    assert m.note == "modpack_swap"
+
+
+def test_modpack_swap_shared_mod_unaffected():
+    """换包模式:两边共有的 mod 不受影响(仍 mods 桶 shared)。"""
+    clf = Classifier(rules.RuleSet(rules=[]))
+    d = Differ(
+        [_e("mods/shared.jar", 10)], [_e("mods/shared.jar", 10)], clf, modpack_swap=True
+    ).diff()
+    assert any(i.path == "mods/shared.jar" and i.note == "shared" for i in d.mods)
+
+
+def test_modpack_swap_off_keeps_old_behavior():
+    """未开换包模式:src 独有 mod 仍进 mods 桶 to_add(默认回迁)。"""
+    clf = Classifier(rules.RuleSet(rules=[]))
+    d = Differ(
+        [_e("mods/extra.jar", 10)], [], clf
+    ).diff()
+    assert any(i.path == "mods/extra.jar" and i.note == "to_add" for i in d.mods)
+
+
+def test_modpack_swap_user_rule_rescues_specific_jar():
+    """换包模式:用户显式 must_migrate 规则命中的 jar 仍进 to_migrate(用户主权)。"""
+    from migration.rules import Rule, RuleSet
+
+    rs = RuleSet(rules=[Rule(match="mods/my-keep.jar", decide=Category.MUST_MIGRATE)])
+    clf = Classifier(rs)
+    d = Differ(
+        [_e("mods/my-keep.jar", 10), _e("mods/old-pack.jar", 10)],
+        [],
+        clf,
+        modpack_swap=True,
+    ).diff()
+    assert any(i.path == "mods/my-keep.jar" and i.note == "to_add" for i in d.mods)
+    assert any(i.path == "mods/old-pack.jar" and i.note == "modpack_swap" for i in d.never)

@@ -72,6 +72,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 | ✏️ 改过的 config | 复制 | 有 `.bak` 且内容不同=玩家游戏内改过 | `config/create-client.toml` |
 | 📋 备份文件 | 复制 | `.bak` 文件,跟随父 config 迁移 | `config/create-1.toml.bak` |
 | 📦 补 Mod | 复制 | 源独有 mod(玩家额外添加的) | `mods/extra.jar` |
+| 📦 换包排除 | 跳过 | `--modpack-swap` 下源独有 mod 视为旧包自带,不回迁;rules.yaml 显式 must_migrate 仍放行 | 旧整合包的 `mods/old-pack.jar` |
 | ❓ 待确认 | 询问 | 无可靠自动判定,需人工确认 | `kubejs/**`、`resourcepacks/*.zip` |
 | 👻 孤儿数据 | 跳过 | 对应的 mod 未安装在目标版本,迁移无意义 | `config/jade/**`(Jade 已移除) |
 | 🔒 版本敏感 | 跳过 | 版本/硬件派生,跨版本迁移高危,让目标重建 | `config/fml.toml` |
@@ -92,6 +93,10 @@ CLI(--include/--exclude) > 额外规则文件 > 用户 rules.yaml > 孤儿检测
 - **用户显式规则 > 孤儿检测**:在 `.mcmig/rules.yaml` 中写 `config/jade/** → must_migrate` 可强制迁移孤儿 config
 - **孤儿检测 > 白名单**:白名单中对应 mod 已删除的条目自动失效
 - **孤儿检测 = 事实判断**:mod 物理上不在目标 `mods/` 目录 → config 无人认领 → 迁移无意义
+
+### 整合包替换
+
+更换整个整合包(而非同包升级版本)时加 `--modpack-swap`:源独有 mod 不再回迁(旧包自带,非玩家私货),但用户 `rules.yaml` 中显式 `must_migrate` 的 jar 仍会放行。不加 flag 时,若检测到源独有 mod ≥ 20 个,工具会在 stderr 提示。
 
 ### .bak 判定法
 

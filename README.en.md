@@ -77,6 +77,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 | ✏️ Modified config | Copy | Has `.bak` with different content = player edited in-game | `config/create-client.toml` |
 | 📋 Backup file | Copy | `.bak` file, follows its parent config | `config/create-1.toml.bak` |
 | 📦 Add mod | Copy | Source-only mod (player-added) | `mods/extra.jar` |
+| 📦 Swapped out | Skip | With `--modpack-swap`, source-only mods are treated as old-pack built-ins, not migrated back; explicit `must_migrate` in rules.yaml still passes | Old modpack's `mods/old-pack.jar` |
 | ❓ Needs review | Ask | No reliable auto-detection, needs manual confirmation | `kubejs/**`, `resourcepacks/*.zip` |
 | 👻 Orphan data | Skip | Corresponding mod not installed in target; migrating is pointless | `config/jade/**` (Jade removed) |
 | 🔒 Version-sensitive | Skip | Version/hardware-derived, high-risk across versions, let target rebuild | `config/fml.toml` |
@@ -97,6 +98,10 @@ CLI (--include/--exclude) > Extra rule files > User rules.yaml > Orphan detectio
 - **User explicit rules > Orphan detection**: Writing `config/jade/** → must_migrate` in `.mcmig/rules.yaml` forces migration of orphan configs.
 - **Orphan detection > Whitelist**: Whitelist entries whose corresponding mod has been removed are automatically voided.
 - **Orphan detection = factual judgment**: Mod physically absent from target's `mods/` directory → config has no owner → migrating is pointless.
+
+### Modpack Swap
+
+When replacing the entire modpack (not upgrading within the same pack), add `--modpack-swap`: source-only mods are no longer migrated back (old-pack built-ins, not player extras), though jars explicitly marked `must_migrate` in user `rules.yaml` still pass. Without the flag, the tool prints a hint to stderr when it detects ≥ 20 source-only mods.
 
 ### .bak Heuristic
 

@@ -170,6 +170,8 @@ class Planner:
             origin = Origin.ORPHAN
         elif item.note == "rebuild":
             origin = Origin.REBUILD
+        elif item.note == "modpack_swap":
+            origin = Origin.MOD_SWAPPED_OUT
         else:
             origin = Origin.NEVER
         return ActionRecord(

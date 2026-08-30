@@ -54,10 +54,12 @@ class Differ:
         src_entries: list[FileEntry],
         dst_entries: list[FileEntry],
         classifier: Classifier,
+        modpack_swap: bool = False,
     ) -> None:
         self.src = {e.path: e for e in src_entries}
         self.dst = {e.path: e for e in dst_entries}
         self.classifier = classifier
+        self.modpack_swap = modpack_swap
 
     @staticmethod
     def _same_content(s: FileEntry, d: FileEntry) -> tuple[bool, str]:
@@ -91,6 +93,16 @@ class Differ:
             s = self.src.get(path)
             d = self.dst.get(path)
             if _is_mod(path):
+                # 换包模式:src 独有 mod 不回迁(旧 modpack 自带,非玩家私货),
+                # 但用户显式 must_migrate 规则命中的 jar 仍放行(用户主权)
+                if (
+                    self.modpack_swap
+                    and s is not None
+                    and d is None
+                    and self.classifier.classify_path(path) != Category.MUST_MIGRATE
+                ):
+                    report.never.append(DiffItem(path, s, d, note="modpack_swap"))
+                    continue
                 report.mods.append(self._mod_item(path, s, d))
                 continue
             cat = self.classifier.classify_path(path)
