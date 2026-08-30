@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import re
@@ -34,12 +35,14 @@ class ModInfo:
         version: mod 版本号(如 "6.0.10")。
         jar_filename: jar 文件名(如 "create-1.21.1-6.0.10.jar")。
         neoforge_range: NeoForge 版本范围要求(如 "[21.1.219,)"),无要求时 None。
+        embedded_in: 内嵌(jar-in-jar)时宿主 jar 的文件名,顶层 jar 为 None。
     """
 
     modid: str
     version: str
     jar_filename: str
     neoforge_range: str | None
+    embedded_in: str | None = None
 
 
 class ModRegistry:
@@ -71,7 +74,7 @@ class ModRegistry:
         return len(self._mods)
 
 
-def _parse_mods_toml(content: str, jar_filename: str) -> list[ModInfo]:
+def _parse_mods_toml(content: str, jar_filename: str, embedded_in: str | None = None) -> list[ModInfo]:
     """解析 mods.toml 内容,返回 ModInfo 列表。
 
     一个 jar 可含多个 [[mods]] 条目(捆绑 mod)。
@@ -111,9 +114,22 @@ def _parse_mods_toml(content: str, jar_filename: str) -> list[ModInfo]:
                 version=version,
                 jar_filename=jar_filename,
                 neoforge_range=neoforge_range,
+                embedded_in=embedded_in,
             )
         )
     return results
+
+
+def _read_toml_from_zip(zf: zipfile.ZipFile) -> str | None:
+    """从已打开的 zip 中读取 mods.toml 内容,无则返回 None。
+
+    优先 META-INF/neoforge.mods.toml,fallback 到 META-INF/mods.toml。
+    """
+    names = zf.namelist()
+    for candidate in ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"):
+        if candidate in names:
+            return zf.read(candidate).decode("utf-8")
+    return None
 
 
 def scan_mods(version_dir: Path) -> ModRegistry:
@@ -136,25 +152,37 @@ def scan_mods(version_dir: Path) -> ModRegistry:
     for jar_path in sorted(mods_dir.glob("*.jar")):
         try:
             with zipfile.ZipFile(jar_path) as z:
-                names = z.namelist()
-                toml_entry = None
-                for candidate in (
-                    "META-INF/neoforge.mods.toml",
-                    "META-INF/mods.toml",
+                content = _read_toml_from_zip(z)
+                if content is not None:
+                    mods = _parse_mods_toml(content, jar_path.name)
+                    for info in mods:
+                        registry.add(info)
+                # jar-in-jar:内嵌依赖的 modid 也登记(孤儿判定需要),
+                # 顶层已注册的 modid 优先,内层同名跳过
+                for inner_name in (
+                    n for n in z.namelist()
+                    if n.startswith("META-INF/jarjar/") and n.endswith(".jar")
                 ):
-                    if candidate in names:
-                        toml_entry = candidate
-                        break
-                if toml_entry is None:
-                    continue
-                content = z.read(toml_entry).decode("utf-8")
+                    try:
+                        with zipfile.ZipFile(io.BytesIO(z.read(inner_name))) as iz:
+                            inner_content = _read_toml_from_zip(iz)
+                            if inner_content is None:
+                                continue
+                            inner_mods = _parse_mods_toml(
+                                inner_content, inner_name.rsplit("/", 1)[-1],
+                                embedded_in=jar_path.name,
+                            )
+                    except (
+                        zipfile.BadZipFile, OSError, UnicodeDecodeError, zlib.error,
+                    ) as e:
+                        log.warning("jar %s 的内嵌 %s 读取失败: %s", jar_path.name, inner_name, e)
+                        continue
+                    for info in inner_mods:
+                        if info.modid not in registry:
+                            registry.add(info)
         except (zipfile.BadZipFile, OSError, UnicodeDecodeError, zlib.error) as e:
             log.warning("jar %s 读取失败: %s", jar_path.name, e)
             continue
-
-        mods = _parse_mods_toml(content, jar_path.name)
-        for info in mods:
-            registry.add(info)
 
     return registry
 

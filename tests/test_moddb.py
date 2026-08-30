@@ -568,3 +568,75 @@ def test_check_mod_compat_empty():
         dst_neoforge="21.1.228",
     )
     assert len(warnings) == 0
+
+
+# --- jar-in-jar 内嵌解析 ---
+
+
+def make_jarjar_outer(mods_dir: Path, outer_name: str, inner_name: str, inner_modid: str) -> Path:
+    """创建含 META-INF/jarjar/<inner> 内嵌 jar 的合成外层 jar(外层自身无 mods.toml)。"""
+    import io
+    import zipfile
+
+    mods_dir.mkdir(parents=True, exist_ok=True)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as inner:
+        toml = f'modLoader="javafml"\nloaderVersion="[1,)"\n[[mods]]\nmodId="{inner_modid}"\nversion="1.0"\n'
+        inner.writestr("META-INF/neoforge.mods.toml", toml)
+    jar_path = mods_dir / outer_name
+    with zipfile.ZipFile(jar_path, "w") as z:
+        z.writestr(f"META-INF/jarjar/{inner_name}", buf.getvalue())
+    return jar_path
+
+
+def test_scan_mods_embedded_jar_registered(tmp_path):
+    """内嵌 jar(jar-in-jar)的 modid 应进注册表,embedded_in 记宿主 jar 名。"""
+    make_jarjar_outer(tmp_path / "mods", "create-6.0.10.jar", "flywheel-1.0.6.jar", "flywheel")
+    reg = scan_mods(tmp_path)
+    assert "flywheel" in reg
+    info = reg.get("flywheel")
+    assert info is not None
+    assert info.embedded_in == "create-6.0.10.jar"
+
+
+def test_scan_mods_top_level_wins_over_embedded_same_modid(tmp_path):
+    """顶层 jar 与内嵌 jar 同 modid → 顶层信息优先(版本/来源)。"""
+    import io
+    import zipfile
+
+    mods = tmp_path / "mods"
+    mods.mkdir(parents=True)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as inner:
+        inner.writestr(
+            "META-INF/neoforge.mods.toml",
+            'modLoader="javafml"\nloaderVersion="[1,)"\n[[mods]]\nmodId="flywheel"\nversion="1.0"\n',
+        )
+    with zipfile.ZipFile(mods / "host.jar", "w") as z:
+        z.writestr(
+            "META-INF/neoforge.mods.toml",
+            'modLoader="javafml"\nloaderVersion="[1,)"\n[[mods]]\nmodId="flywheel"\nversion="2.0"\n',
+        )
+        z.writestr("META-INF/jarjar/flywheel-1.0.jar", buf.getvalue())
+    reg = scan_mods(tmp_path)
+    info = reg.get("flywheel")
+    assert info is not None
+    assert info.version == "2.0"
+    assert info.embedded_in is None
+
+
+def test_scan_mods_corrupted_embedded_jar_skipped(tmp_path):
+    """内嵌 jar 内容损坏(非 zip)→ 跳过不崩,宿主 mod 正常注册。"""
+    import zipfile
+
+    mods = tmp_path / "mods"
+    mods.mkdir(parents=True)
+    with zipfile.ZipFile(mods / "host.jar", "w") as z:
+        z.writestr(
+            "META-INF/neoforge.mods.toml",
+            'modLoader="javafml"\nloaderVersion="[1,)"\n[[mods]]\nmodId="hostmod"\nversion="1.0"\n',
+        )
+        z.writestr("META-INF/jarjar/broken-1.0.jar", b"this is not a zip file")
+    reg = scan_mods(tmp_path)
+    assert "hostmod" in reg
+    assert "brokemod" not in reg
