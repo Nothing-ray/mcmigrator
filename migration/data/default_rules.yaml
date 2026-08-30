@@ -12,6 +12,7 @@ never:
   - usercache.json
   - observable_announce
   - command_history.txt
+  - createcinema/**                   # Create Cinema 的 ffmpeg native-cache(可重建;modswap-830 观察)
   - defaultconfigs/**
   - "**/cache/**"
   - config/jei/world/**                    # JEI 查询历史(运行时可重建)

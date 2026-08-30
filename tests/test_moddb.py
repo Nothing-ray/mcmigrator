@@ -640,3 +640,12 @@ def test_scan_mods_corrupted_embedded_jar_skipped(tmp_path):
     reg = scan_mods(tmp_path)
     assert "hostmod" in reg
     assert "brokemod" not in reg
+
+
+def test_load_mod_config_map_b_class_mappings():
+    """modswap-830 观察实测的 B 类映射(文件名≠modid)应在覆盖表中。"""
+    table = load_mod_config_map()
+    assert table.lookup("config/fetzis_displays/fetzis-displays-config.json") == "fetzisdisplays"
+    assert table.lookup("config/gun_scaling/main.toml") == "scguns"
+    assert table.lookup("config/resourceful-config-web.json") == "resourcefulconfig"
+    assert table.lookup("config/l2configs/l2core-client.toml") == "l2core"
