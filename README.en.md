@@ -3,7 +3,7 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.1.0 / 2026-07-07
+> Last synced: v0.5.0 / 2026-09-01
 
 > A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
 
@@ -116,7 +116,7 @@ When replacing the entire modpack (not upgrading within the same pack), add `--m
 Full swap workflow:
 
 ```bash
-mcmig swap <old-version> <new-version> <new-pack-dir>   # precheck + install + plan (aborts if NeoForge requirement unmet; follow the hint)
+mcmig swap <old-version> <new-version> <new-pack-dir>   # precheck + install + plan (aborts if NeoForge requirement unmet; follow the hint; dry-run does not generate a migration plan)
 mcmig migrate <old-version> <new-version>               # review the plan, then execute the copy
 ```
 
@@ -169,8 +169,8 @@ Contributions welcome (in Chinese or English):
 ## Roadmap
 
 - ✅ v0: `scan`/`diff` read-only comparison (done)
-- 🚧 v1 Phase 1: `plan` subcommand + config player-edit detection (`.bak` heuristic + whitelist) (in design)
-- 📋 v1 Phase 2: `migrate` actual writes + rollback
+- ✅ v1 Phase 1: `plan` subcommand + config player-edit detection (`.bak` heuristic + whitelist) (implemented)
+- ✅ v1 Phase 2: `migrate` actual writes + `swap` modpack orchestration (implemented; rollback see Future)
 - 📋 v1 Phase 3: Manifest decision persistence (auto-remember migration decisions)
 - 📋 Future: Mod Profile (META-INF parsing) + content detection + GUI
 

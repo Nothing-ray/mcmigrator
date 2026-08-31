@@ -723,6 +723,24 @@ def test_swap_missing_dst_json_exit_2(tmp_path, monkeypatch, capsys):
     assert not (dst_dir / "mods").exists()
 
 
+def test_swap_missing_src_snapshot_exit_2(tmp_path, monkeypatch, capsys):
+    """src 快照缺失 → 预检错误码 2,dry-run 下同样生效且 dst/mods 零写入。"""
+    from migration.cli import main
+
+    game_root, dst_dir, new_mods = _setup_swap_env(tmp_path, monkeypatch)
+    _mk_jar(new_mods / "create.jar", "create", "[21.1.0,)")
+    # 删除 _setup_swap_env 生成的 src 快照
+    (tmp_path / ".mcmig" / "snapshots" / "src.snapshot.json").unlink()
+    capsys.readouterr()
+
+    rc = main(["swap", "src", "dst", str(new_mods.parent),
+               "--game-root", str(game_root), "--force", "--dry-run"])
+    assert rc == 2
+    out = capsys.readouterr().out
+    assert "mcmig scan src" in out
+    assert not (dst_dir / "mods").exists()  # 预检失败,未装包
+
+
 def test_swap_full_flow_generates_plan(tmp_path, monkeypatch, capsys):
     """--force 全流程: 装包 → 自动生成含 mod_swapped_out 的 plan → 提示 migrate。"""
     import json

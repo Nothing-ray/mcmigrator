@@ -111,7 +111,7 @@ CLI(--include/--exclude) > 额外规则文件 > 用户 rules.yaml > 孤儿检测
 完整换包流程:
 
 ```bash
-mcmig swap <旧版本> <新版本> <新包目录>   # 预检+装包+出计划(会因 NeoForge 不满足而中止,按提示处理)
+mcmig swap <旧版本> <新版本> <新包目录>   # 预检+装包+出计划(会因 NeoForge 不满足而中止,按提示处理;dry-run 不生成迁移计划)
 mcmig migrate <旧版本> <新版本>           # 审阅计划后执行复制
 ```
 
@@ -164,8 +164,8 @@ mcmigrator/
 ## 路线图
 
 - ✅ v0:`scan`/`diff` 只读对比(已完成)
-- 🚧 v1 Phase 1:`plan` 子命令 + config 玩家改动判定(`.bak` 法 + 白名单)(设计中)
-- 📋 v1 Phase 2:`migrate` 实际写盘 + 回滚
+- ✅ v1 Phase 1:`plan` 子命令 + config 玩家改动判定(`.bak` 法 + 白名单)(已实现)
+- ✅ v1 Phase 2:`migrate` 实际写盘 + `swap` 换包编排(已实现;回滚见未来)
 - 📋 v1 Phase 3:Manifest 决策沉淀(自动记忆迁移决策)
 - 📋 未来:Mod Profile(META-INF 解析)+ 内容检测 + GUI
 

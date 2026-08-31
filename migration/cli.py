@@ -506,6 +506,12 @@ def _cmd_swap(args: argparse.Namespace) -> int:
     if err is not None:
         _print(f"[错误] {err}")
         return 2
+    # 预检:src 快照必须已存在(规划步依赖;装包前检查,dry-run 同样生效)
+    src_snap = snapshot_path(Path.cwd(), args.src)
+    if not src_snap.exists():
+        _print(f"[错误] 缺少源版本快照 {src_snap}")
+        _print(f"请先运行: mcmig scan {args.src}")
+        return 2
     if bad:
         console.print("[red]以下 mod 与目标 NeoForge 版本不兼容:[/red]")
         for line in bad:
