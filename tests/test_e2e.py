@@ -567,3 +567,48 @@ def test_migrate_missing_plan_exit_2(tmp_path, monkeypatch, capsys):
     rc = main(["migrate", "src", "dst", "--game-root", str(game_root)])
     assert rc == 2
     assert "plan" in capsys.readouterr().out
+
+
+def _mk_jar(path: Path, modid: str, nf_range: str | None = None) -> None:
+    """合成含 neoforge.mods.toml 的 jar。"""
+    import zipfile
+    deps = ""
+    if nf_range:
+        deps = (f'[[dependencies.{modid}]]\nmodId="neoforge"\ntype="required"\n'
+                f'versionRange="{nf_range}"\n')
+    toml = (f'modLoader="javafml"\nloaderVersion="[1,)"\n[[mods]]\n'
+            f'modId="{modid}"\nversion="1.0"\n{deps}')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", toml)
+
+
+def test_swap_preflight_blocks_incompatible(tmp_path, monkeypatch, capsys):
+    """新包 mod 要求 NF≥25x、目标 233 → 默认中止列出 mod;--force 后装包。"""
+    from migration.cli import main
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    src_dir.mkdir(parents=True)
+    dst_dir.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    # 目标版本 json:声明 NeoForge 21.1.233
+    import json
+    (dst_dir / "dst.json").write_text(json.dumps(
+        {"arguments": {"game": ["--fml.neoforgeVersion", "21.1.233"]}}), encoding="utf-8")
+
+    new_mods = tmp_path / "newpack" / "mods"
+    _mk_jar(new_mods / "create.jar", "create", "[21.1.0,)")
+    _mk_jar(new_mods / "cp_lib.jar", "cp_lib", "[21.1.248,)")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["scan", "src", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+
+    # 默认中止(码 2),列出 cp_lib
+    rc = main(["swap", "src", "dst", str(new_mods.parent), "--game-root", str(game_root)])
+    assert rc == 2
+    out = capsys.readouterr().out
+    assert "cp_lib" in out and "21.1.248" in out
+    assert not (dst_dir / "mods").exists()  # 中止时未装包

@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shutil
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from . import __version__, rules
@@ -68,6 +70,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="整合包替换模式:源独有 mod 视为旧包自带,不回迁(用户 rules.yaml 显式 must_migrate 仍放行)")
     p_plan.add_argument("--no-save", action="store_true", help="不持久化 plan 文件")
     p_plan.add_argument("-q", "--quiet", action="store_true")
+
+    p_swap = sub.add_parser("swap", help="整合包替换:预检→装包→生成迁移计划")
+    p_swap.add_argument("src", help="源版本名(玩家数据来源)")
+    p_swap.add_argument("dst", help="目标版本名(须先用 PCL2 建好)")
+    p_swap.add_argument("new_pack", help="新整合包目录(含 mods/ 子目录)")
+    p_swap.add_argument("--game-root", default=None, help="游戏根目录(含 versions/)")
+    p_swap.add_argument("--dry-run", action="store_true", help="彩排:装包步骤零写盘")
+    p_swap.add_argument("--force", action="store_true", help="忽略兼容不满足与目标非空")
 
     p_mig = sub.add_parser("migrate", help="执行已保存的迁移计划(先 plan 后 migrate)")
     p_mig.add_argument("src", help="源版本名")
@@ -352,6 +362,129 @@ def _game_running(dst_root: Path) -> bool:
     return False
 
 
+def _md5(path: Path) -> str:
+    """计算文件 MD5(装包阶段同名冲突判定用)。"""
+    import hashlib
+
+    h = hashlib.md5()
+    h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def _swap_preflight(dst_dir: Path, new_pack: Path) -> tuple[str | None, list[str]]:
+    """预检:返回 (dst 的 NeoForge 版本或 None 错误描述, 不满足清单)。"""
+    from .moddb import check_version_range, read_neoforge_version, scan_mods
+
+    nf = read_neoforge_version(dst_dir)
+    if nf is None:
+        return ("目标版本缺少 <版本名>.json(无法读取 NeoForge 版本)。"
+                "请先用 PCL2 安装目标 NeoForge 版本。"), []
+    reg = scan_mods(new_pack)
+    bad = []
+    for modid in sorted(reg.modids):
+        mi = reg.get(modid)
+        if mi is None or mi.neoforge_range is None:
+            continue
+        if not check_version_range(nf, mi.neoforge_range):
+            bad.append(f"  {modid}({mi.jar_filename}) 要求 {mi.neoforge_range},目标为 {nf}")
+    return None, bad
+
+
+def _swap_install(
+    dst_mods: Path,
+    new_mods_dir: Path,
+    resolver: Callable[[str], bool],
+    dry_run: bool,
+) -> tuple[int, int, int]:
+    """将新包 mods/*.jar 装入目标 mods/。
+
+    Returns:
+        (copied, skipped_identical, conflicted):复制数 / 同名同 MD5 跳过数 /
+        同名不同内容经 resolver 决策数(resolver True=覆盖,False=保留目标)。
+    """
+    copied = skipped = conflicted = 0
+    if not new_mods_dir.is_dir():
+        return 0, 0, 0
+    for jar in sorted(new_mods_dir.glob("*.jar")):
+        target = dst_mods / jar.name
+        if target.exists():
+            if _md5(target) == _md5(jar):
+                skipped += 1
+                continue
+            conflicted += 1
+            if not resolver(jar.name):
+                continue  # 保留目标
+        if not dry_run:
+            dst_mods.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(jar, target)
+        copied += 1
+    return copied, skipped, conflicted
+
+
+def _cmd_swap(args: argparse.Namespace) -> int:
+    """swap 子命令(整合包替换):预检→装包→(Task 5 规划)。"""
+    from rich.console import Console
+
+    console = Console()
+    game_root = _resolve_game_root(args)
+    src_dir = _version_dir(game_root, args.src)
+    dst_dir = _version_dir(game_root, args.dst)
+    if not src_dir.is_dir() or not dst_dir.is_dir():
+        _print("[错误] 源/目标版本文件夹不存在")
+        return 2
+    new_pack = Path(args.new_pack)
+    if not (new_pack / "mods").is_dir():
+        _print(f"[错误] 新整合包目录缺少 mods/ 子目录: {new_pack}")
+        return 2
+
+    # 第一步:预检(NeoForge 兼容)
+    err, bad = _swap_preflight(dst_dir, new_pack)
+    if err is not None:
+        _print(f"[错误] {err}")
+        return 2
+    if bad:
+        console.print("[red]以下 mod 与目标 NeoForge 版本不兼容:[/red]")
+        for line in bad:
+            _print(line)
+        if not args.force:
+            _print("中止。确认可忽略请加 --force 继续。")
+            return 2
+        _print("[警告] --force 已指定,忽略上述不兼容继续。")
+
+    # 第二步:装包
+    dst_mods = dst_dir / "mods"
+    new_names = {p.name for p in (new_pack / "mods").glob("*.jar")}
+    existing = {p.name for p in dst_mods.glob("*.jar")} if dst_mods.is_dir() else set()
+    extras = sorted(existing - new_names)
+    if extras and not args.force:
+        _print(f"[警告] 目标 mods/ 存在 {len(extras)} 个不在新包中的 jar,将被新包替换后残留:")
+        for name in extras[:10]:
+            _print(f"  {name}")
+        if len(extras) > 10:
+            _print(f"  ... 共 {len(extras)} 个")
+        if not Confirm.ask("继续装包?(建议先清理目标 mods/)", default=False):
+            _print("已取消。")
+            return 0
+    elif extras:
+        _print(f"[警告] --force:目标 mods/ 有 {len(extras)} 个新包外 jar,保留不动。")
+
+    def resolver(jar_name: str) -> bool:
+        """同名冲突决策:默认保留目标(保守)。"""
+        return Confirm.ask(f"  {jar_name} 与目标同名但内容不同,覆盖目标?", default=False)
+
+    copied, skipped, conflicted = _swap_install(
+        dst_mods, new_pack / "mods", resolver, dry_run=args.dry_run
+    )
+    _print(
+        f"[装包] 复制 {copied} / 相同跳过 {skipped} / 冲突 {conflicted}"
+        f"{' (dry-run)' if args.dry_run else ''}"
+    )
+
+    # 第三/四步(Task 5):规划与执行
+    _print("[错误] swap 的规划步骤尚未实现(见 plan 命令),本次到装包为止。")
+    return 3
+
+
 def _cmd_migrate(args: argparse.Namespace) -> int:
     """migrate 子命令:加载 plan → 防护校验 → 确认 → Executor 执行 → 回写状态 → PCL 提醒。"""
     cwd = Path.cwd()
@@ -446,6 +579,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_diff(args)
     if args.command == "plan":
         return _cmd_plan(args)
+    if args.command == "swap":
+        return _cmd_swap(args)
     if args.command == "migrate":
         return _cmd_migrate(args)
     build_parser().print_help()
