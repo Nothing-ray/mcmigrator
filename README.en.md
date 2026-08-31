@@ -49,6 +49,16 @@ mcmig diff <src> <dst> --exclude "logs/**"                        # ad-hoc treat
 mcmig diff <src> <dst> --show-identical --show-never              # show hidden buckets
 ```
 
+### Command Overview
+
+| Command | Purpose |
+|---------|---------|
+| `mcmig scan <ver>` | Scan a version folder, producing a snapshot + classification summary |
+| `mcmig diff <src> <dst>` | Compare two snapshots into a 6-bucket report |
+| `mcmig plan <src> <dst>` | Generate a migration plan (read-only, produces an action list) |
+| `mcmig migrate <src> <dst>` | Execute the saved migration plan (plan first, then migrate; overwrites are auto-backed up to `_conflict_backup/`) |
+| `mcmig swap <src> <dst> <new-pack-dir>` | Modpack swap: compatibility precheck → install pack → generate swap migration plan |
+
 > `<version>` = `versions/` subfolder name (MC + loader, e.g. `1.21.1-NeoForge_21.1.227` = Minecraft 1.21.1 + NeoForge 21.1.227).
 
 ## How It Works
@@ -102,6 +112,15 @@ CLI (--include/--exclude) > Extra rule files > User rules.yaml > Orphan detectio
 ### Modpack Swap
 
 When replacing the entire modpack (not upgrading within the same pack), add `--modpack-swap`: source-only mods are no longer migrated back (old-pack built-ins, not player extras), though jars explicitly marked `must_migrate` in user `rules.yaml` still pass. Without the flag, the tool prints a hint to stderr when it detects ≥ 20 source-only mods.
+
+Full swap workflow:
+
+```bash
+mcmig swap <old-version> <new-version> <new-pack-dir>   # precheck + install + plan (aborts if NeoForge requirement unmet; follow the hint)
+mcmig migrate <old-version> <new-version>               # review the plan, then execute the copy
+```
+
+Create the new version folder and install its NeoForge via PCL2 first. `migrate` is resumable (re-run after an interruption continues where it left off).
 
 ### .bak Heuristic
 

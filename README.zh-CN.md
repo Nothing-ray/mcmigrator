@@ -46,6 +46,16 @@ mcmig diff <src> <dst> --exclude "logs/**"                        # 临时按 ne
 mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏桶
 ```
 
+### 命令总览
+
+| 命令 | 用途 |
+|------|------|
+| `mcmig scan <ver>` | 扫描版本文件夹,生成快照 + 分类汇总 |
+| `mcmig diff <src> <dst>` | 对比两份快照,产出 6 桶报告 |
+| `mcmig plan <src> <dst>` | 生成迁移计划(只读,产出 action 列表) |
+| `mcmig migrate <src> <dst>` | 执行已保存的迁移计划(先 plan 后 migrate;覆盖自动备份到 `_conflict_backup/`) |
+| `mcmig swap <src> <dst> <新包目录>` | 整合包替换:兼容预检→装包→生成换包迁移计划 |
+
 ## 工作方式
 
 1. `scan` 遍历版本文件夹,按分层策略哈希,生成**原始清单快照**(`.mcmig/snapshots/<ver>.snapshot.json`,**不含分类**)。
@@ -97,6 +107,15 @@ CLI(--include/--exclude) > 额外规则文件 > 用户 rules.yaml > 孤儿检测
 ### 整合包替换
 
 更换整个整合包(而非同包升级版本)时加 `--modpack-swap`:源独有 mod 不再回迁(旧包自带,非玩家私货),但用户 `rules.yaml` 中显式 `must_migrate` 的 jar 仍会放行。不加 flag 时,若检测到源独有 mod ≥ 20 个,工具会在 stderr 提示。
+
+完整换包流程:
+
+```bash
+mcmig swap <旧版本> <新版本> <新包目录>   # 预检+装包+出计划(会因 NeoForge 不满足而中止,按提示处理)
+mcmig migrate <旧版本> <新版本>           # 审阅计划后执行复制
+```
+
+新版本文件夹请先用 PCL2 安装好对应 NeoForge。migrate 可重入(中断后重跑自动续传)。
 
 ### .bak 判定法
 
