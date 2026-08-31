@@ -162,3 +162,32 @@ def test_md5_match_three_states_roundtrip(tmp_path: Path):
     assert doc["actions"][0]["md5_match"] is None
     assert doc["actions"][1]["md5_match"] is True
     assert doc["actions"][2]["md5_match"] is False
+
+
+def test_plan_mark_executed_roundtrip(tmp_path):
+    """mark_executed 写入执行状态,save/load 往返保留。"""
+    plan = MigrationPlan(src="a", dst="b", generated_at="2026-09-01T00:00:00", actions=[])
+    assert plan.executed_at is None
+    plan.mark_executed({"copied": 3, "failed": 0})
+    assert plan.executed_at is not None
+    assert plan.execution_summary == {"copied": 3, "failed": 0}
+    p = tmp_path / "x.plan.json"
+    plan.save(p)
+    loaded = MigrationPlan.load(p)
+    assert loaded.executed_at == plan.executed_at
+    assert loaded.execution_summary == {"copied": 3, "failed": 0}
+
+
+def test_plan_load_old_format_without_executed(tmp_path):
+    """旧 plan(无 executed_at 字段)仍可加载,executed_at 为 None。"""
+    import json as _json
+
+    payload = {
+        "tool_version": "0.4.0", "plan_format": 2, "src": "a", "dst": "b",
+        "generated_at": "t", "summary": {}, "actions": [],
+    }
+    p = tmp_path / "old.plan.json"
+    p.write_text(_json.dumps(payload), encoding="utf-8")
+    loaded = MigrationPlan.load(p)
+    assert loaded.executed_at is None
+    assert loaded.execution_summary is None

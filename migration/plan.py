@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -167,6 +168,13 @@ class MigrationPlan:
     actions: list[ActionRecord]
     tool_version: str = TOOL_VERSION
     plan_format: int = PLAN_FORMAT
+    executed_at: str | None = None
+    execution_summary: dict[str, int] | None = None
+
+    def mark_executed(self, summary: dict[str, int]) -> None:
+        """记录执行状态(防重复执行;summary 为结果计数)。"""
+        self.executed_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        self.execution_summary = summary
 
     def summary(self) -> dict[str, int]:
         """按 origin 统计计数。"""
@@ -186,6 +194,8 @@ class MigrationPlan:
             "generated_at": self.generated_at,
             "summary": self.summary(),
             "actions": [r.to_dict() for r in self.actions],
+            "executed_at": self.executed_at,
+            "execution_summary": self.execution_summary,
         }
         with path.open("w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -212,6 +222,8 @@ class MigrationPlan:
                 dst=payload["dst"],
                 generated_at=payload["generated_at"],
                 actions=actions,
+                executed_at=payload.get("executed_at"),
+                execution_summary=payload.get("execution_summary"),
             )
         except (KeyError, TypeError, ValueError) as e:
             raise PlanFormatError(f"plan 内容字段缺失或类型错误: {e}") from e
