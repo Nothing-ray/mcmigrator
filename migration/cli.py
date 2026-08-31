@@ -11,10 +11,13 @@ from pathlib import Path
 from . import __version__, rules
 from .classifier import Classifier
 from .differ import Differ
-from .plan import Behavior, Origin, plan_path
+from .executor import Executor
+from .plan import Behavior, MigrationPlan, Origin, plan_path
 from .planner import Planner
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
 from .scanner import Scanner
+from rich.prompt import Confirm
+
 from .snapshot import Snapshot, snapshot_path
 
 
@@ -65,6 +68,16 @@ def build_parser() -> argparse.ArgumentParser:
                         help="整合包替换模式:源独有 mod 视为旧包自带,不回迁(用户 rules.yaml 显式 must_migrate 仍放行)")
     p_plan.add_argument("--no-save", action="store_true", help="不持久化 plan 文件")
     p_plan.add_argument("-q", "--quiet", action="store_true")
+
+    p_mig = sub.add_parser("migrate", help="执行已保存的迁移计划(先 plan 后 migrate)")
+    p_mig.add_argument("src", help="源版本名")
+    p_mig.add_argument("dst", help="目标版本名")
+    p_mig.add_argument("--game-root", default=None, help="游戏根目录(含 versions/)")
+    p_mig.add_argument("--dry-run", action="store_true", help="彩排:零写盘")
+    p_mig.add_argument("--skip-ask", action="store_true", help="needs_review 全部跳过")
+    p_mig.add_argument("--yes-ask", action="store_true", help="needs_review 全部迁移")
+    p_mig.add_argument("-y", action="store_true", help="跳过执行前确认")
+    p_mig.add_argument("--force", action="store_true", help="忽略已执行/过期防护")
     return parser
 
 
@@ -326,6 +339,102 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _game_running(dst_root: Path) -> bool:
+    """探测目标版本是否被运行中的游戏占用(Windows 文件锁)。"""
+    for name in ("usercache.json", "options.txt"):
+        p = dst_root / name
+        if p.exists():
+            try:
+                with p.open("r+b"):
+                    pass
+            except OSError:
+                return True
+    return False
+
+
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    """migrate 子命令:加载 plan → 防护校验 → 确认 → Executor 执行 → 回写状态 → PCL 提醒。"""
+    cwd = Path.cwd()
+    game_root = _resolve_game_root(args)
+    p_path = plan_path(cwd, args.src, args.dst)
+    if not p_path.exists():
+        _print(f"[错误] 缺少计划文件 {p_path}")
+        _print("请先运行: mcmig plan <源> <目标>")
+        return 2
+    plan = MigrationPlan.load(p_path)
+    if plan.executed_at and not args.force:
+        _print(
+            f"[错误] 该计划已执行(时间 {plan.executed_at})。重跑请加 --force"
+            "(可重入:已完成文件会自动跳过)。"
+        )
+        return 2
+    src_snap = snapshot_path(cwd, args.src)
+    dst_snap = snapshot_path(cwd, args.dst)
+    stale = any(
+        p.exists() and p.stat().st_mtime > p_path.stat().st_mtime for p in (src_snap, dst_snap)
+    )
+    if stale and not args.force:
+        _print("[错误] 快照比计划新,计划可能过期。请重跑 plan,或 --force 强制执行。")
+        return 2
+    src_root = _version_dir(game_root, args.src)
+    dst_root = _version_dir(game_root, args.dst)
+    if not src_root.is_dir() or not dst_root.is_dir():
+        _print("[错误] 源/目标版本文件夹不存在")
+        return 2
+    if _game_running(dst_root):
+        _print("[警告] 目标版本文件被占用,游戏可能仍在运行;继续可能损坏存档。")
+        if not args.force:
+            return 2
+    # ASK 处理器
+    if args.skip_ask:
+        ask = lambda _a: False  # noqa: E731
+    elif args.yes_ask:
+        ask = lambda _a: True  # noqa: E731
+    else:
+        from rich.console import Console
+
+        _console = Console()
+
+        def ask(a) -> bool:  # noqa: E731
+            # 逐文件确认:显示路径与判定原因,由用户决定是否迁移
+            _console.print(f"  ❓ {a.path} — {a.reason}")
+            return Confirm.ask("  迁移此文件?", default=False)
+
+    copy_n = sum(1 for a in plan.actions if a.behavior == Behavior.COPY)
+    ask_n = sum(1 for a in plan.actions if a.behavior == Behavior.ASK)
+    _print(
+        f"将执行: 复制 {copy_n} / 待确认 {ask_n} / 其余跳过"
+        f"{' (dry-run)' if args.dry_run else ''}"
+    )
+    if not args.y and not args.dry_run:
+        if not Confirm.ask("确认执行?", default=False):
+            _print("已取消。")
+            return 0
+    results = Executor(plan, src_root, dst_root, ask).execute(dry_run=args.dry_run)
+    from collections import Counter
+
+    stat = Counter(r.status for r in results)
+    failed = [r for r in results if r.failed]
+    _print(f"结果: {dict(stat)};失败 {len(failed)}")
+    for r in failed:
+        _print(f"  [失败] {r.path}: {r.error}")
+    if not args.dry_run and not failed:
+        plan.mark_executed(
+            {
+                "copied": stat.get("copied", 0),
+                "identical": stat.get("identical", 0),
+                "asked_no": stat.get("asked_no", 0),
+                "failed": 0,
+            }
+        )
+        plan.save(p_path)
+        _print("[提醒] 迁移完成。若要让启动器默认打开新版本,需同步两处配置:")
+        _print(f"  1. {game_root / 'PCL.ini'} 的 Version: 行 → 改为 {args.dst}")
+        _print(f"  2. {game_root / 'PCL' / 'Setup.ini'} 的 LaunchVersionSelect: 行 → 改为 {args.dst}")
+        _print("工具不代改启动器配置(改错会导致无法启动任何版本),请手动确认后修改。")
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。"""
     _safe_reconfigure_streams()
@@ -337,5 +446,7 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_diff(args)
     if args.command == "plan":
         return _cmd_plan(args)
+    if args.command == "migrate":
+        return _cmd_migrate(args)
     build_parser().print_help()
     return 1

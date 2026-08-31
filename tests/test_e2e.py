@@ -509,3 +509,61 @@ def test_plan_modpack_swap_flag(tmp_path, monkeypatch, capsys):
     assert acts["mods/old-only-0.jar"]["origin"] == "mod_swapped_out"
     assert acts["mods/old-only-0.jar"]["behavior"] == "skip"
     assert acts["mods/shared.jar"]["origin"] == "mod_shared"
+
+
+def test_migrate_full_chain(tmp_path, monkeypatch, capsys):
+    """scan→plan→migrate 全链路:复制/冲突备份/重入全 identical/执行状态回写。"""
+    import json
+    from migration.cli import main
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "options.txt").write_text("fps:60\n", encoding="utf-8")
+    (src_dir / "saves").mkdir()
+    (src_dir / "saves" / "w.dat").write_bytes(b"world")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert main(["scan", "dst", "--game-root", str(game_root)]) == 0
+    assert main(["plan", "src", "dst", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+
+    # 执行(-y 跳过确认;确认输入用 stdin 隔离)
+    assert main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"]) == 0
+    out = capsys.readouterr().out
+    assert (dst_dir / "options.txt").read_text(encoding="utf-8") == "fps:120\n"
+    assert (dst_dir / "_conflict_backup" / "options.txt").read_text(encoding="utf-8") == "fps:60\n"
+    assert (dst_dir / "saves" / "w.dat").exists()
+    assert "PCL.ini" in out and "LaunchVersionSelect" in out  # PCL 提醒文案
+
+    # plan 已回写执行状态
+    plan_file = tmp_path / ".mcmig" / "plans" / "src__dst.plan.json"
+    doc = json.loads(plan_file.read_text(encoding="utf-8"))
+    assert doc.get("executed_at")
+
+    # 重跑:不加 --force 应拒绝(码 2);提示已执行
+    rc = main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    assert rc == 2
+    assert "已执行" in capsys.readouterr().out
+
+    # --force 重跑:全部 identical,无新增备份
+    assert main(["migrate", "src", "dst", "--game-root", str(game_root), "-y", "--force"]) == 0
+    out = capsys.readouterr().out
+    assert "identical" in out
+    backups = list((dst_dir / "_conflict_backup").rglob("*"))
+    assert len([b for b in backups if b.is_file()]) == 1
+
+
+def test_migrate_missing_plan_exit_2(tmp_path, monkeypatch, capsys):
+    from migration.cli import main
+
+    game_root = tmp_path / "game"
+    (game_root / "versions" / "src").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    rc = main(["migrate", "src", "dst", "--game-root", str(game_root)])
+    assert rc == 2
+    assert "plan" in capsys.readouterr().out
