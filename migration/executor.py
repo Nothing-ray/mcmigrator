@@ -85,24 +85,29 @@ class Executor:
         return True
 
     def _copy_one(self, rel: str, dry_run: bool) -> FileResult:
-        """执行单个 COPY:identical 短路 → 备份 → 复制 → 校验。"""
+        """执行单个 COPY:identical 短路 → 备份 → 复制 → 校验(逐文件容错)。"""
         src_file = self.src_root / rel
         dst_file = self.dst_root / rel
-        if not src_file.is_file():
-            return FileResult(rel, "copied", failed=True, error="源文件不存在")
-        src_md5 = _md5_of(src_file)
-        if dst_file.is_file() and _md5_of(dst_file) == src_md5:
-            return FileResult(rel, "identical")
-        backed_up = False
-        if not dry_run:
-            if dst_file.is_file():
-                backed_up = self._backup(rel, dst_file)
-            dst_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_file, dst_file)
-            if _md5_of(dst_file) != src_md5:
-                return FileResult(rel, "copied", backed_up=backed_up, failed=True,
-                                  error="复制后 MD5 校验不一致")
-        return FileResult(rel, "copied", backed_up=backed_up)
+        try:
+            if not src_file.is_file():
+                return FileResult(rel, "copied", failed=True, error="源文件不存在")
+            src_md5 = _md5_of(src_file)
+            if dst_file.is_file() and _md5_of(dst_file) == src_md5:
+                return FileResult(rel, "identical")
+            backed_up = False
+            if not dry_run:
+                if dst_file.is_file():
+                    backed_up = self._backup(rel, dst_file)
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, dst_file)
+                if _md5_of(dst_file) != src_md5:
+                    return FileResult(rel, "copied", backed_up=backed_up, failed=True,
+                                      error="复制后 MD5 校验不一致")
+            return FileResult(rel, "copied", backed_up=backed_up)
+        except OSError as e:
+            # 逐文件容错:单个文件复制/备份失败不中断整个计划(spec §2.1)
+            log.warning("复制失败 %s: %s", rel, e)
+            return FileResult(rel, "copied", failed=True, error=f"复制失败: {e}")
 
     def execute(self, dry_run: bool = False) -> list[FileResult]:
         """执行计划,返回逐文件结果(按 plan.actions 顺序)。

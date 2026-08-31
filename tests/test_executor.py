@@ -122,3 +122,25 @@ def test_execute_dry_run_writes_nothing(tmp_path):
     assert (dst / "options.txt").read_text(encoding="utf-8") == "OLD"
     assert not (dst / "_conflict_backup").exists()
     assert results[0].status == "copied"  # 预演:将会复制
+
+
+def test_execute_oserror_on_one_file_continues(tmp_path, monkeypatch):
+    """逐文件容错:某文件复制抛 OSError → 该条 failed,后续文件仍被复制。"""
+    import migration.executor as executor_mod
+
+    src, dst = _setup(tmp_path)
+    real_copy2 = executor_mod.shutil.copy2
+
+    def flaky_copy2(s, d, **kw):
+        if Path(s).name == "options.txt":
+            raise OSError("文件被游戏进程占用")
+        return real_copy2(s, d, **kw)
+
+    monkeypatch.setattr(executor_mod.shutil, "copy2", flaky_copy2)
+    plan = _plan(_action("options.txt"), _action("config/a.toml"))
+    results = Executor(plan, src, dst, yes).execute()
+    assert results[0].failed is True
+    assert results[0].error is not None and "复制失败" in results[0].error
+    assert not results[1].failed
+    assert (dst / "config" / "a.toml").read_text(encoding="utf-8") == "x=1\n"
+    assert not (dst / "options.txt").exists()
