@@ -633,7 +633,7 @@ def _setup_swap_env(tmp_path, monkeypatch) -> tuple[Path, Path, Path]:
 
 
 def test_swap_force_installs_despite_incompat(tmp_path, monkeypatch, capsys):
-    """--force 越过兼容中止并完成装包(占位规划步骤返回 3,但 jar 已装入)。"""
+    """--force 越过兼容中止,装包并自动完成规划(rc 0)。"""
     from migration.cli import main
 
     game_root, dst_dir, new_mods = _setup_swap_env(tmp_path, monkeypatch)
@@ -642,7 +642,7 @@ def test_swap_force_installs_despite_incompat(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
 
     rc = main(["swap", "src", "dst", str(new_mods.parent), "--game-root", str(game_root), "--force"])
-    assert rc == 3  # 占位:装包完成但规划步骤未实现(Task 5 替换)
+    assert rc == 0  # Task 5:装包后自动完成规划
     assert (dst_dir / "mods" / "create.jar").exists()
     assert (dst_dir / "mods" / "cp_lib.jar").exists()
 
@@ -657,21 +657,21 @@ def test_swap_install_identical_skip_and_dry_run(tmp_path, monkeypatch, capsys):
 
     # 第一次正常装包
     assert main(["swap", "src", "dst", str(new_mods.parent),
-                 "--game-root", str(game_root), "--force"]) == 3
+                 "--game-root", str(game_root), "--force"]) == 0
     out = capsys.readouterr().out
     assert "复制 1" in out
     assert (dst_dir / "mods" / "create.jar").exists()
 
     # 第二次:同名同 MD5 → skipped_identical=1
     assert main(["swap", "src", "dst", str(new_mods.parent),
-                 "--game-root", str(game_root), "--force"]) == 3
+                 "--game-root", str(game_root), "--force"]) == 0
     out = capsys.readouterr().out
     assert "复制 0" in out and "相同跳过 1" in out
 
     # --dry-run:新 jar 只计数不写盘
     _mk_jar(new_mods / "extra.jar", "extra", "[21.1.0,)")
     assert main(["swap", "src", "dst", str(new_mods.parent),
-                 "--game-root", str(game_root), "--force", "--dry-run"]) == 3
+                 "--game-root", str(game_root), "--force", "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "复制 1" in out and "dry-run" in out
     assert not (dst_dir / "mods" / "extra.jar").exists()
@@ -721,3 +721,38 @@ def test_swap_missing_dst_json_exit_2(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "PCL2" in out
     assert not (dst_dir / "mods").exists()
+
+
+def test_swap_full_flow_generates_plan(tmp_path, monkeypatch, capsys):
+    """--force 全流程: 装包 → 自动生成含 mod_swapped_out 的 plan → 提示 migrate。"""
+    import json
+    from migration.cli import main
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    src_dir.mkdir(parents=True)
+    dst_dir.mkdir(parents=True)
+    (src_dir / "mods").mkdir()
+    (src_dir / "mods" / "old-pack.jar").write_bytes(b"old")
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "dst.json").write_text(json.dumps(
+        {"arguments": {"game": ["--fml.neoforgeVersion", "21.1.248"]}}), encoding="utf-8")
+
+    new_mods = tmp_path / "newpack" / "mods"
+    _mk_jar(new_mods / "cp_lib.jar", "cp_lib", "[21.1.248,)")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["scan", "src", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+
+    rc = main(["swap", "src", "dst", str(new_mods.parent), "--game-root", str(game_root), "--force"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "mcmig migrate" in out          # 下一步提示
+    assert (dst_dir / "mods" / "cp_lib.jar").exists()  # 装包完成
+    plan_file = tmp_path / ".mcmig" / "plans" / "src__dst.plan.json"
+    doc = json.loads(plan_file.read_text(encoding="utf-8"))
+    acts = {a["path"]: a for a in doc["actions"]}
+    assert acts["mods/old-pack.jar"]["origin"] == "mod_swapped_out"  # 换包排除生效
+    assert acts["options.txt"]["behavior"] == "copy"

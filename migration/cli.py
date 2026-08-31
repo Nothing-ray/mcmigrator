@@ -275,23 +275,65 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_plan(args: argparse.Namespace) -> int:
-    """plan 子命令:load snapshots → scan mods → orphan rules → diff → plan → 兼容检查 → 渲染。"""
-    cwd = Path.cwd()
-    src_path = snapshot_path(cwd, args.src)
-    dst_path = snapshot_path(cwd, args.dst)
-    missing = [n for n, p in ((args.src, src_path), (args.dst, dst_path)) if not p.exists()]
-    if missing:
-        _print("[错误] 缺少快照: " + ", ".join(missing))
-        _print("请先运行: mcmig scan <版本名>")
-        return 2
+def _run_plan_pipeline(
+    cwd: Path,
+    src: str,
+    dst: str,
+    game_root: Path,
+    args: argparse.Namespace,
+    *,
+    modpack_swap: bool = False,
+    rescan_dst: bool = False,
+    save: bool = True,
+) -> tuple[MigrationPlan, list[str]]:
+    """plan 公共管线(plan 子命令与 swap 第三步共用)。
+
+    流程:载入 src 快照 → dst 快照(rescan_dst=True 时现场重扫并落盘,否则载入已有)
+    → orphan 规则 → ruleset → diff(modpack_swap) → planner → mod 兼容检查 → 保存 plan。
+
+    Args:
+        cwd: 工作目录(.mcmig 所在)。
+        src/dst: 源/目标版本名。
+        game_root: 游戏根目录。
+        args: 命令参数(仅用 exclude/include/rule,plan 之外的命令可传缺省 Namespace)。
+        modpack_swap: 换包模式(源独有 mod 视为旧包自带,不回迁)。
+        rescan_dst: True 时重扫 dst 生成最新快照并写入 .mcmig/snapshots(swap 装包后必开)。
+        save: 是否持久化 plan 文件。
+
+    Returns:
+        (plan, compat_warnings)。
+
+    Raises:
+        FileNotFoundError: src 快照不存在,或 rescan_dst=False 且 dst 快照不存在。
+    """
+    src_path = snapshot_path(cwd, src)
+    if not src_path.exists():
+        raise FileNotFoundError(f"缺少 {src} 快照")
     try:
-        src = Snapshot.load(src_path)
-        dst = Snapshot.load(dst_path)
+        src_snap = Snapshot.load(src_path)
+    except FileNotFoundError:
+        raise
     except Exception as e:  # noqa: BLE001
-        _print(f"[错误] 快照读取失败: {e}")
-        return 2
-    game_root = _resolve_game_root(args)
+        raise ValueError(f"{src} 快照读取失败: {e}") from e
+    dst_snap_path = snapshot_path(cwd, dst)
+    if rescan_dst:
+        # swap 装包刚改写 dst/mods,必须现场重扫以保证 dst 快照反映最新状态
+        dst_dir = _version_dir(game_root, dst)
+        dst_snap, scan_errors = Scanner(dst_dir, dst, strict=False).build_snapshot(
+            str(game_root)
+        )
+        dst_snap.save(dst_snap_path)
+        for e in scan_errors:
+            _print(f"[警告] 扫描 {dst} 时无法读取: {e}")
+    elif not dst_snap_path.exists():
+        raise FileNotFoundError(f"缺少 {dst} 快照")
+    else:
+        try:
+            dst_snap = Snapshot.load(dst_snap_path)
+        except FileNotFoundError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            raise ValueError(f"{dst} 快照读取失败: {e}") from e
     mcmig_dir = cwd / ".mcmig"
     # 扫描 src/dst mods → 建 mod 注册表 → 生成 orphan 规则
     from .moddb import (
@@ -302,32 +344,32 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         scan_mods,
     )
 
-    src_dir = _version_dir(game_root, args.src)
-    dst_dir = _version_dir(game_root, args.dst)
+    src_dir = _version_dir(game_root, src)
+    dst_dir = _version_dir(game_root, dst)
     dst_mods = scan_mods(dst_dir)
     override = load_mod_config_map()
-    orphan_rules = generate_orphan_rules(src.files, dst_mods, override)
+    orphan_rules = generate_orphan_rules(src_snap.files, dst_mods, override)
     rs, errs = build_ruleset(
-        [args.src, args.dst], args, mcmig_dir, with_whitelist=True, orphan_rules=orphan_rules
+        [src, dst], args, mcmig_dir, with_whitelist=True, orphan_rules=orphan_rules
     )
     for e in errs:
         _print(f"[规则警告] {e}")
     clf = Classifier(rs)
     # 换包提示:src 独有 mod jar 数量大(≥20)时提醒用户(正常版本升级只有个位数)
     src_only_mods = sum(
-        1 for p in src.files
+        1 for p in src_snap.files
         if p.path.startswith("mods/") and p.path.endswith(".jar")
-        and not any(d.path == p.path for d in dst.files)
+        and not any(d.path == p.path for d in dst_snap.files)
     )
-    if not args.modpack_swap and src_only_mods >= 20:
+    if not modpack_swap and src_only_mods >= 20:
         _print_err(
             f"[提示] 检测到 {src_only_mods} 个源独有 mod。若这是一次整合包替换,"
             "请加 --modpack-swap 避免旧包 mod 被搬入新包。"
         )
-    report = Differ(src.files, dst.files, clf, modpack_swap=args.modpack_swap).diff()
-    src_index = {e.path: e for e in src.files}
+    report = Differ(src_snap.files, dst_snap.files, clf, modpack_swap=modpack_swap).diff()
+    src_index = {e.path: e for e in src_snap.files}
     plan = Planner(report, src_index).plan()
-    plan.src, plan.dst = args.src, args.dst
+    plan.src, plan.dst = src, dst
     # 版本兼容检查:对 mod_added 的 jar 检查 NeoForge 版本范围
     src_mods = scan_mods(src_dir)
     dst_nf_version = read_neoforge_version(dst_dir)
@@ -335,17 +377,39 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         r.path for r in plan.actions if r.behavior == Behavior.COPY and r.origin == Origin.MOD_ADDED
     ]
     compat_warnings = check_mod_compat(mod_added_paths, src_mods, dst_nf_version)
+    if save:
+        try:
+            plan.save(plan_path(cwd, src, dst))
+        except OSError as e:
+            _print(f"[警告] plan 文件写入失败(已忽略,stdout 仍有效): {e}")
+    return plan, compat_warnings
+
+
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """plan 子命令:load snapshots → scan mods → orphan rules → diff → plan → 兼容检查 → 渲染。"""
+    cwd = Path.cwd()
+    src_path = snapshot_path(cwd, args.src)
+    dst_path = snapshot_path(cwd, args.dst)
+    missing = [n for n, p in ((args.src, src_path), (args.dst, dst_path)) if not p.exists()]
+    if missing:
+        _print("[错误] 缺少快照: " + ", ".join(missing))
+        _print("请先运行: mcmig scan <版本名>")
+        return 2
+    game_root = _resolve_game_root(args)
+    try:
+        plan, compat_warnings = _run_plan_pipeline(
+            cwd, args.src, args.dst, game_root, args,
+            modpack_swap=args.modpack_swap, rescan_dst=False, save=not args.no_save,
+        )
+    except ValueError as e:
+        _print(f"[错误] {e}")
+        return 2
     reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst)
     if args.json:
         _print(reporter.to_json(compat_warnings))
     else:
         reporter.render(PlanOptions(show_skip=args.show_skip, category=args.category))
         reporter.render_compat_warnings(compat_warnings)
-    if not args.no_save:
-        try:
-            plan.save(plan_path(cwd, args.src, args.dst))
-        except OSError as e:
-            _print(f"[警告] plan 文件写入失败(已忽略,stdout 仍有效): {e}")
     return 0
 
 
@@ -480,9 +544,30 @@ def _cmd_swap(args: argparse.Namespace) -> int:
         f"{' (dry-run)' if args.dry_run else ''}"
     )
 
-    # 第三/四步(Task 5):规划与执行
-    _print("[错误] swap 的规划步骤尚未实现(见 plan 命令),本次到装包为止。")
-    return 3
+    # 第三步:重扫 dst(装包刚改写 mods/)→ 规划(modpack_swap 内置)
+    if args.dry_run:
+        # 彩排模式未真正写盘,规划会基于旧状态误导用户,故跳过规划
+        _print("[提示] dry-run 未写盘,跳过规划步骤。去掉 --dry-run 将自动生成迁移计划。")
+        return 0
+    plan_args = argparse.Namespace(exclude=[], include=[], rule=[])
+    try:
+        plan, compat_warnings = _run_plan_pipeline(
+            Path.cwd(), args.src, args.dst, game_root, plan_args,
+            modpack_swap=True, rescan_dst=True,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        _print(f"[错误] 规划失败: {e}")
+        return 2
+    for w in compat_warnings:
+        _print(f"[兼容警告] {w}")
+    # 第四步:摘要 + 下一步提示
+    _print("[规划] 迁移计划已生成,按来源分类计数:")
+    _print(
+        "  " + ", ".join(f"{k}={v}" for k, v in sorted(plan.summary().items()) if v > 0)
+    )
+    p_path = plan_path(Path.cwd(), args.src, args.dst)
+    _print(f"审阅 {p_path} 后运行: mcmig migrate {args.src} {args.dst}")
+    return 0
 
 
 def _cmd_migrate(args: argparse.Namespace) -> int:
