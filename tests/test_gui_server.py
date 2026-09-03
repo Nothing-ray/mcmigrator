@@ -74,6 +74,84 @@ def test_index_placeholder(tmp_path, monkeypatch):
     assert "text/html" in resp.headers["content-type"]
 
 
+def test_index_fallback_logs_error(tmp_path, monkeypatch, caplog):
+    """I-2:index.html 读取失败时 GET / 仍 200 占位页,但必须留 error 日志(可观测性)。"""
+    def _boom(pkg):
+        raise FileNotFoundError(pkg)
+
+    monkeypatch.setattr(server_module.resources, "files", _boom)
+    _game, client = _make_client(tmp_path, monkeypatch)
+    with caplog.at_level("ERROR", logger="migration.gui.server"):
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert "mcmig" in resp.text  # 占位页兜底,不 500
+    assert "页面资源缺失" in caplog.text
+
+
+def test_config_get_returns_saved_root(tmp_path, monkeypatch):
+    """GET /api/config:返回 config 中持久化的 game_root(步①输入框预填数据源)。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    resp = client.get("/api/config")
+    assert resp.status_code == 200
+    assert resp.json() == {"game_root": str(game)}
+
+
+def test_config_get_null_when_unconfigured(tmp_path, monkeypatch):
+    """GET /api/config:未配置时 game_root 为 null(而非 422,预填需要可空)。"""
+    import migration.workdir as wd
+
+    monkeypatch.setattr(wd, "_is_frozen", lambda: False)
+    monkeypatch.chdir(tmp_path)
+    w = wd.resolve_workdir()  # 兼容模式不依赖 game_root,可未配置起服务
+    client = TestClient(create_app(workdir=w), base_url="http://127.0.0.1")
+    resp = client.get("/api/config")
+    assert resp.status_code == 200
+    assert resp.json() == {"game_root": None}
+
+
+def test_config_set_saves_and_takes_effect(tmp_path, monkeypatch):
+    """POST /api/config:合法路径(存在 + 含 versions/)→ 落盘且 GET/versions 立即反映。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    game2 = tmp_path / "game2"
+    (game2 / "versions" / "v1").mkdir(parents=True)
+
+    r = client.post("/api/config", json={"game_root": str(game2)})
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+    # game_root() 每次从 config 现读:frozen workdir 未变,新根即时生效
+    assert client.get("/api/config").json()["game_root"] == str(game2)
+    assert client.get("/api/versions").json()["versions"] == ["v1"]
+    # 落盘证据:.mcmig/config.yaml 内容已切换(重跑工具后仍生效)
+    import migration.workdir as wd
+
+    assert wd.resolve_workdir().game_root() == game2
+    assert game != game2
+
+
+def test_config_set_rejects_invalid_root(tmp_path, monkeypatch):
+    """POST /api/config:路径不存在/缺 versions/ 子目录/空串 → 422 三段式,不落盘。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+
+    r1 = client.post("/api/config", json={"game_root": str(tmp_path / "nope")})
+    assert r1.status_code == 422
+    assert {"what", "why", "details"} <= set(r1.json().keys())
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    r2 = client.post("/api/config", json={"game_root": str(bare)})
+    assert r2.status_code == 422
+    assert {"what", "why", "details"} <= set(r2.json().keys())
+
+    # 空串被 min_length 拦下,走请求校验三段式(与非法路径同一呈现口径)
+    r3 = client.post("/api/config", json={"game_root": ""})
+    assert r3.status_code == 422
+    assert {"what", "why", "details"} <= set(r3.json().keys())
+
+    # 三次拒绝均未写盘:GET 仍返回原值
+    assert client.get("/api/config").json()["game_root"] == str(game)
+
+
 def test_plan_and_migrate_job_flow(tmp_path, monkeypatch):
     game, client = _make_client(tmp_path, monkeypatch)
     r = client.post("/api/plan", json={"src": "src", "dst": "dst"})

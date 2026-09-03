@@ -24,8 +24,10 @@ include = ["migration*"]
 
 [tool.setuptools.package-data]
 # manifest.sha256(数据完整性清单)须随包分发,doctor 校验依赖它;
-# README.txt 为数据目录说明(不参与清单校验),一并随包分发
-migration = ["data/*.yaml", "data/*.sha256", "data/*.txt"]
+# README.txt 为数据目录说明(不参与清单校验),一并随包分发;
+# gui/index.html 为向导页面(终审 I-2:不入 package-data 时非 editable 安装
+# GET / 会静默降级占位页),模式相对 migration 包根匹配 gui/ 子目录
+migration = ["data/*.yaml", "data/*.sha256", "data/*.txt", "gui/*.html"]
 
 [tool.ruff]
 line-length = 100

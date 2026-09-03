@@ -646,7 +646,7 @@ def _cmd_gui(args: argparse.Namespace) -> int:
         wdir = resolve_workdir()
     except WorkdirError as e:
         _print(f"[错误] {e.what}:{e.why}")
-        _print("可运行 mcmig doctor 逐项体检,按提示修复后再启动界面。")
+        _print("未配置游戏根目录时按上一行指引设置即可;目录不可写等其他环境问题可运行 mcmig doctor 逐项体检。")
         return 2
     findings = doctor.verify_data_manifest()
     if findings:

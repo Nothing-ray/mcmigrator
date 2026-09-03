@@ -174,6 +174,11 @@
 <!-- ============ 步① 选择版本 ============ -->
 <section class="step" id="step1">
   <h2>① 选择源版本与目标版本</h2>
+  <label class="field"><b>游戏根目录(整合包客户端根目录,含 versions/ 子目录)</b>
+    <input type="text" id="game-root-input" placeholder="例如 H:\MC\龙窝客户端\冒险活动客户端">
+  </label>
+  <p><button id="btn-save-root" type="button">保存并刷新版本列表</button></p>
+  <div id="config-error" class="error" hidden></div>
   <p id="active-hint" class="hint">正在读取版本列表…</p>
   <div id="versions-error" class="error" hidden></div>
   <label class="field"><b>源版本(玩家原始状态,从它迁出)</b>
@@ -262,7 +267,7 @@
 /* ======================================================================
  * mcmig 三步迁移向导(Task 7)
  * - 单文件页面:零外部资源(无 CDN/字体/图片),离线可用
- * - 仅消费 Task 6 契约:/api/versions、/api/plan、/api/migrate、SSE 事件流
+ * - 仅消费 Task 6 契约:/api/config、/api/versions、/api/plan、/api/migrate、SSE 事件流
  * - 全部 API 用相对路径,127.0.0.1 与 localhost 访问行为一致(Host 无关)
  * ==================================================================== */
 
@@ -432,10 +437,45 @@ function showStep(n) {
 }
 
 /* ======================================================================
- * 步①:版本下拉(/api/versions)
+ * 步①:游戏根目录(GET/POST /api/config)+ 版本下拉(/api/versions)
  * ==================================================================== */
 
 var activeVersion = null; // 服务端读到的 PCL.ini 活跃版本(null=未读到)
+
+// 预填:GET /api/config 读已保存的游戏根目录(未配置为 null → 输入框留空)
+function loadConfig() {
+  fetch("/api/config").then(function (resp) {
+    if (!resp.ok) { return {}; } // 读取失败不阻断页面,版本列表自会按同口径报错
+    return resp.json().catch(function () { return {}; });
+  }).then(function (body) {
+    if (body.game_root) { $("game-root-input").value = body.game_root; }
+  }).catch(function () { /* 网络层失败留给 loadVersions 的断线横幅统一提示 */ });
+}
+
+// 保存:POST /api/config;成功后重拉 /api/versions,失败渲染三段式错误
+function saveConfig() {
+  var path = $("game-root-input").value.trim();
+  $("config-error").hidden = true;
+  if (!path) {
+    renderError($("config-error"), "游戏根目录不可用",
+      "请先填写整合包客户端根目录(含 versions/ 子目录)", {});
+    return;
+  }
+  var btn = $("btn-save-root");
+  btn.disabled = true;
+  postJson("/api/config", { game_root: path }).then(function () {
+    btn.disabled = false;
+    $("versions-error").hidden = true; // 清掉旧根目录可能留下的过期错误
+    loadVersions();
+  }).catch(function (err) {
+    btn.disabled = false;
+    if (err instanceof TypeError) {
+      $("banner-disconnect").hidden = false;
+      return;
+    }
+    renderError($("config-error"), err.what, err.why, err.details || {});
+  });
+}
 
 function fillSelect(sel, versions, active) {
   sel.innerHTML = "";
@@ -476,6 +516,7 @@ function loadVersions() {
   }).then(function (body) {
     var versions = body.versions || [];
     activeVersion = body.active || null;
+    $("versions-error").hidden = true; // 成功即清旧错误(改根目录后重拉的场景)
     if (versions.length === 0) {
       renderError($("versions-error"), "没有可选版本",
         "游戏根目录的 versions/ 下没有版本文件夹,请检查配置后刷新页面", {});
@@ -853,6 +894,7 @@ function startMigrate() {
 function init() {
   $("src-select").addEventListener("change", refreshStartButton);
   $("dst-select").addEventListener("change", refreshStartButton);
+  $("btn-save-root").addEventListener("click", saveConfig);
   $("btn-plan").addEventListener("click", startPlan);
   $("btn-migrate").addEventListener("click", startMigrate);
   $("btn-back1").addEventListener("click", function () {
@@ -870,6 +912,7 @@ function init() {
   $("btn-copy-failed").addEventListener("click", copyFailedList);
   $("search").addEventListener("input", applyFilter);
   showStep(1);
+  loadConfig();   // 预填游戏根目录(未配置留空,由用户在输入框填写)
   loadVersions();
 }
 

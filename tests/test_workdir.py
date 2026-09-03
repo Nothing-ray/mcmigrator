@@ -51,6 +51,10 @@ def test_green_mode_unconfigured_raises(tmp_path, monkeypatch):
     with pytest.raises(WorkdirError) as ei:
         resolve_workdir()
     assert "游戏目录" in ei.value.what
+    # 终审 I-1:未配置指引须指向真实入口——界面设置或手动 data/config.toml
+    assert "图形界面" in ei.value.why
+    assert "data/config.toml" in ei.value.why
+    assert "game_root" in ei.value.why
 
 
 def test_unwritable_exe_dir_raises(tmp_path, monkeypatch):

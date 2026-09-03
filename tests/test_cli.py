@@ -397,18 +397,23 @@ def test_gui_manifest_tamper_exits_2(tmp_path, monkeypatch, capsys):
 
 
 def test_gui_workdir_error_exits_2(tmp_path, monkeypatch, capsys):
-    """启动自检 ①:工作目录解析失败(绿色模式未配置)→ doctor 引导文案退 2。"""
+    """启动自检 ①:工作目录解析失败(绿色模式未配置)→ 真实指引文案退 2(终审 I-1)。"""
     from migration import cli
     from migration.workdir import WorkdirError
 
     def _boom():
-        raise WorkdirError("未配置游戏目录", "请先在界面中选择游戏根目录")
+        # 与 workdir._resolve_green 未配置分支同文案(指引指向真实入口)
+        raise WorkdirError(
+            "未配置游戏目录", '启动图形界面后设置,或手动创建 data/config.toml 写入 game_root = "路径"'
+        )
 
     monkeypatch.setattr(cli, "resolve_workdir", _boom)
     rc = cli.main(["gui", "--no-browser"])
     assert rc == 2
     out = capsys.readouterr().out
     assert "未配置游戏目录" in out and "doctor" in out
+    # 指引内容完整可见(界面入口 + 手动 config.toml 两条路径)
+    assert "data/config.toml" in out and "game_root" in out
 
 
 def test_migrate_fsops_error_friendly_exit_2(tmp_path, monkeypatch, capsys):

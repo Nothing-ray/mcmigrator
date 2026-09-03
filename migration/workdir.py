@@ -175,9 +175,11 @@ def _resolve_green(game_root: Path | None) -> WorkDir:
     if game_root is None:
         game_root = _load_game_root_toml(root / "config.toml")
         if game_root is None:
+            # 指引须指向真实入口:图形界面步①有「游戏根目录」输入框(终审 I-1),
+            # 绿色 exe 首跑界面起不来时则手动建 data/config.toml
             raise WorkdirError(
                 what="未配置游戏目录",
-                why="请先在界面中选择游戏根目录(将保存到 data/config.toml)",
+                why='启动图形界面后设置,或手动创建 data/config.toml 写入 game_root = "路径"',
             )
     # slug=游戏根目录名,不做 sanitize:目录名本身即合法文件夹名
     slug = game_root.name

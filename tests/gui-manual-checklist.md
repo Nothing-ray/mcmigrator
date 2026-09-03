@@ -6,18 +6,24 @@
 
 ## 启动方式
 
-Task 8 落地 `mcmig gui` 前,用以下方式在仓库根目录临时启动页面(需先在 `.mcmig/config.yaml` 写好 `game_root`,与 `mcmig scan` 的前置一致):
-
 ```powershell
 .venv\Scripts\python -c "import uvicorn; from migration.gui.server import create_app; uvicorn.run(create_app(), host='127.0.0.1', port=8765)"
 # 浏览器打开 http://127.0.0.1:8765/
 ```
+
+> 游戏根目录可直接在页面步①「游戏根目录」输入框中填写并保存(终审 I-1),
+> 也可预先在 `.mcmig/config.yaml` 写好 `game_root`(页面打开时自动预填)。
 
 > 推荐的测试数据:两个版本文件夹,源含 `options.txt`(与目标内容不同)、若干 `config/*.toml`(部分带 `.bak`、部分不带)、`mods/` 里比目标多一个 jar、源里再放一个目标未安装 mod 的 config(出 👻 组)与一个顶层未知文件(出 ❓ 组)。
 
 ---
 
 ## A. 三步走通
+
+- [ ] **A0 步①游戏根目录设置(终审 I-1)**
+  前置:清空 `.mcmig/config.yaml`(或整个删除)后启动页面。
+  操作:①观察输入框(应为空,版本列表报「未配置游戏目录」错误);②填写合法游戏根目录(含 `versions/`),点「保存并刷新版本列表」;③再填一个不存在的路径保存。
+  预期:①输入框空且 versions 错误条指引到输入框;②保存后版本下拉自动加载出全部版本;③出现三段式错误条「游戏根目录不可用(路径不存在或缺少 versions/ 子目录)」,版本列表保持不变;刷新页面后输入框仍预填②保存的合法路径。
 
 - [ ] **A1 步①版本下拉加载**
   前置:游戏根目录 `versions/` 下有两个以上版本文件夹,`PCL.ini` 有 `Version:` 行。

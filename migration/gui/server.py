@@ -1,8 +1,8 @@
 """FastAPI 薄翻译层:本地 Web GUI 服务(job 模型 + SSE + 单任务锁 + Host 校验)。
 
 职责边界(spec §2/§4):
-- 「薄翻译」:4 个 API 只做参数校验与 job 编排,管线一律调 ``migration.pipeline``,
-  绝不 import cli 的私有函数;核心模块不感知 HTTP。
+- 「薄翻译」:各 API(versions/config/plan/migrate/SSE)只做参数校验与 job 编排,
+  管线一律调 ``migration.pipeline``,绝不 import cli 的私有函数;核心模块不感知 HTTP。
 - 安全:绑定 127.0.0.1 由 uvicorn 启动方负责,本层加 Host 头校验中间件
   (防 DNS rebinding),仅放行本机回环主机名;无任何外部请求。
 - 单任务锁:同一时刻至多一个 job(防双标签页并发写盘),第二个请求 409。
@@ -444,14 +444,19 @@ def _sse_gen(job: Job) -> Iterator[str]:
 
 
 def _read_index_html() -> str:
-    """读取包内 index.html(Task 7 创建;缺失时退化为占位片段,不外联任何资源)。"""
+    """读取包内 index.html(缺失时记 error 日志后退化为占位片段,不外联任何资源)。
+
+    缺失属打包事故(html 未入 package-data / 文件被杀软误删),静默降级会让
+    玩家看到无功能占位页却无任何线索——故必须留 log.error 可观测性(I-2)。
+    """
     try:
         return (
             resources.files("migration.gui")
             .joinpath("index.html")
             .read_text(encoding="utf-8")
         )
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError) as e:
+        log.error("页面资源缺失:migration/gui/index.html 读取失败(%s),GET / 已降级为占位页", e)
         return _INDEX_FALLBACK
 
 
@@ -465,6 +470,15 @@ class PlanRequest(BaseModel):
 
     src: str
     dst: str
+
+
+class ConfigRequest(BaseModel):
+    """POST /api/config 请求体(步①「游戏根目录」输入框保存)。
+
+    ``min_length=1`` 拒空串:空输入走 422 三段式,与非法路径同一呈现口径。
+    """
+
+    game_root: str = Field(min_length=1)
 
 
 class MigrateRequest(BaseModel):
@@ -557,6 +571,32 @@ def create_app(workdir: WorkDir | None = None) -> FastAPI:
     def index() -> HTMLResponse:
         """返回向导页面(Task 7 的 index.html;当前为占位)。"""
         return HTMLResponse(_read_index_html())
+
+    @app.get("/api/config")
+    def api_config_get() -> dict[str, object]:
+        """读当前配置:游戏根目录未配置时 game_root 为 null(步①输入框预填用)。"""
+        root = wdir.game_root()
+        return {"game_root": str(root) if root is not None else None}
+
+    @app.post("/api/config")
+    def api_config_set(req: ConfigRequest) -> dict[str, bool]:
+        """设置游戏根目录:校验(存在 + 含 versions/)→ save_game_root 落盘。
+
+        workdir 是 create_app 时注入的 frozen dataclass,不随保存变更——
+        ``game_root()`` 每次调用都从 config 文件现读,保存后各 API 立即反映
+        新值(兼容模式路径本就与 game_root 无关;绿色模式 slug 派生目录
+        仍指向启动时解析的根,属最小实现已接受的边界,见终审 I-1 裁定)。
+        """
+        path = Path(req.game_root.strip())
+        if not path.is_dir() or not (path / "versions").is_dir():
+            raise ApiError(
+                422,
+                "err_bad_game_root.what",
+                "err_bad_game_root.why",
+                {"game_root": req.game_root},
+            )
+        wdir.save_game_root(path)
+        return {"ok": True}
 
     @app.get("/api/versions")
     def api_versions() -> dict[str, object]:
