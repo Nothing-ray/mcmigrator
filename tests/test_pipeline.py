@@ -7,6 +7,7 @@ from pathlib import Path
 
 from migration.pipeline import build_plan, execute_migration, scan_version
 from migration.plan import ActionRecord, Behavior, MigrationPlan, Origin
+from migration.snapshot import Snapshot
 
 
 def _mk_version(root: Path, name: str, options: str = "fps:60\n") -> Path:
@@ -50,6 +51,37 @@ def test_scan_version_writes_snapshot(tmp_path):
     snap = scan_version(game, "src", snaps)
     assert (snaps / "src.snapshot.json").exists()
     assert any(f.path == "options.txt" for f in snap.files)
+
+
+def test_scan_version_on_error_collects_unreadable_paths(tmp_path, monkeypatch):
+    """回归(v0 spec §7 unreadable 契约):不可读文件经 on_error 上报相对路径,快照照常返回落盘。
+
+    用注入 ScanError 的桩 Scanner 稳定触发(真实「文件占用」在 CI/Windows 上不稳定)。
+    """
+    from migration import pipeline
+    from migration.scanner import ScanError, Scanner
+
+    game = tmp_path / "game"
+    _mk_version(game, "src", "fps:120\n")
+
+    class _StubScanner:
+        """包装真 Scanner,额外注入 1 条模拟扫描错误(文件被占用不可读)。"""
+
+        def __init__(self, version_dir: Path, version_name: str, *, strict: bool = False) -> None:
+            self._inner = Scanner(version_dir, version_name, strict=strict)
+
+        def build_snapshot(self, game_root: str) -> tuple[Snapshot, list[ScanError]]:
+            snap, errors = self._inner.build_snapshot(game_root)
+            errors.append(ScanError(path="saves/locked.dat", reason="模拟占用"))
+            return snap, errors
+
+    monkeypatch.setattr(pipeline, "Scanner", _StubScanner)
+    seen: list[str] = []
+    snap = pipeline.scan_version(game, "src", tmp_path / "snapshots", on_error=seen.append)
+    assert seen == ["saves/locked.dat"]  # 每条扫描错误回调一次,传相对路径
+    assert snap.file_count >= 1
+    assert (tmp_path / "snapshots" / "src.snapshot.json").exists()
+    # 不传 on_error(None 默认)不崩,由 test_scan_version_writes_snapshot 覆盖
 
 
 def test_build_plan_returns_plan_and_saves(tmp_path):

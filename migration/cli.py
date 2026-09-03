@@ -222,8 +222,16 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     )
     for e in errs:
         _print(f"[规则警告] {e}")
-    # 扫描构建逻辑已下沉 pipeline(快照仍写 .mcmig/snapshots/,与 snapshot_path 同构)
-    snap = scan_version(game_root, args.version, mcmig_dir / "snapshots", strict=args.strict)
+    # 扫描构建逻辑已下沉 pipeline(快照仍写 .mcmig/snapshots/,与 snapshot_path 同构);
+    # 不可读文件经 on_error 收集,恢复 unreadable 计数(v0 spec §7 报告契约)
+    unreadable: list[str] = []
+    snap = scan_version(
+        game_root,
+        args.version,
+        mcmig_dir / "snapshots",
+        strict=args.strict,
+        on_error=unreadable.append,
+    )
     spath = snapshot_path(cwd, args.version)
     clf = Classifier(rs)
     classified = clf.classify_all(snap.files)
@@ -239,6 +247,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
                     "version": args.version,
                     "file_count": snap.file_count,
                     "by_category": counts,
+                    "unreadable": len(unreadable),
                     "snapshot": str(spath),
                 },
                 ensure_ascii=False,
@@ -248,6 +257,8 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     else:
         _print(f"[完成] 扫描 {args.version}: {snap.file_count} 个文件 → {spath}")
         _print("分类汇总: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+        if unreadable:
+            _print(f"[警告] {len(unreadable)} 个文件无法读取(已跳过)")
     return 0
 
 

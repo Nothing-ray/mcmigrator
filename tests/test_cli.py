@@ -106,6 +106,34 @@ def test_scan_json_output(tmp_path: Path, monkeypatch):
     assert "by_category" in doc
 
 
+def test_scan_unreadable_reporting_restored(tmp_path, monkeypatch, capsys):
+    """回归(v0 spec §7「报告单列 unreadable」):不可读文件经 on_error 收集后,
+    --json 输出含 unreadable 计数字段,非 JSON 模式含汇总警告行(与重构前一致)。"""
+    from migration.pipeline import scan_version as real_scan_version
+
+    game_root = _setup_game(tmp_path, ["mini"])
+    monkeypatch.chdir(tmp_path)
+
+    def fake_scan_version(game_root_, version, workdir_snapshots, *, strict=False, on_error=None):
+        # 模拟 1 个不可读文件:真扫描照常执行,额外触发一次 on_error 上报
+        snap = real_scan_version(game_root_, version, workdir_snapshots, strict=strict)
+        if on_error is not None:
+            on_error("saves/locked.dat")
+        return snap
+
+    monkeypatch.setattr(cli, "scan_version", fake_scan_version)
+
+    # --json:unreadable 字段(与重构前同 shape)
+    assert cli.main(["scan", "mini", "--game-root", str(game_root), "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["unreadable"] == 1
+
+    # 非 JSON:汇总警告行(位置/文案与重构前一致)
+    assert cli.main(["scan", "mini", "--game-root", str(game_root)]) == 0
+    assert "[警告] 1 个文件无法读取(已跳过)" in capsys.readouterr().out
+
+
+
 def test_resolve_game_root_flag_wins(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("MCMIG_GAME_ROOT", "/from/env")  # 设 env 以证明 flag 压过它
     args = cli.build_parser().parse_args(["scan", "v", "--game-root", "/from/flag"])

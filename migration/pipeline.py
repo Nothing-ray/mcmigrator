@@ -49,7 +49,12 @@ def _snapshot_file(mcmig_dir: Path, version: str) -> Path:
 
 
 def scan_version(
-    game_root: Path, version: str, workdir_snapshots: Path, *, strict: bool = False
+    game_root: Path,
+    version: str,
+    workdir_snapshots: Path,
+    *,
+    strict: bool = False,
+    on_error: Callable[[str], None] | None = None,
 ) -> Snapshot:
     """扫描一个版本文件夹,构建快照并写入快照文件。
 
@@ -58,6 +63,8 @@ def scan_version(
         version: 版本名(versions/ 下的文件夹名)。
         workdir_snapshots: 快照目录,快照写为 <workdir_snapshots>/<version>.snapshot.json。
         strict: True 时强制全量哈希(对应 scan --strict)。
+        on_error: 单个不可读文件的回调(传相对路径,每条扫描错误调用一次);
+            与 log.warning 并行触发,供调用方统计 unreadable(v0 spec §7 报告契约)。
 
     Returns:
         已构建并落盘的快照。无法读取的文件会被跳过并逐条记 warning 日志。
@@ -69,6 +76,8 @@ def scan_version(
     snap.save(workdir_snapshots / f"{version}.snapshot.json")
     for e in scan_errors:
         log.warning("[警告] 扫描 %s 时无法读取: %s", version, e)
+        if on_error is not None:
+            on_error(e.path)
     return snap
 
 
