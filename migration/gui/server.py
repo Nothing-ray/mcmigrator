@@ -47,12 +47,13 @@ from .STRINGS import STRINGS
 
 log = logging.getLogger(__name__)
 
-# Host 校验白名单:仅本机回环主机名(端口不校验,启动侧绑定 127.0.0.1)。
-# "testserver" 是 fastapi TestClient 的伪 Host,纳入白名单使测试直连可用。
-_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "testserver"}
+# Host 校验白名单:仅本机回环主机名(端口不校验,启动侧绑定 127.0.0.1);
+# 测试侧用 TestClient(app, base_url="http://127.0.0.1") 直连,无需白名单额外项。
+_ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
 # job 线程启动后的最小存活时长:保证单任务锁语义对「连续两次请求」确定
-# (第二个请求到来时第一个 job 必然未完成,从而稳定 409;见 task-6 brief 实现者注意)
+# (第二个请求到来时第一个 job 必然未完成,从而稳定 409;见 task-6 brief 实现者注意)。
+# 测试通过 monkeypatch 本常量(如 0.5s)放大窗口换取完全确定性。
 _JOB_MIN_ALIVE_SECONDS = 0.005
 
 # index.html 缺失时的占位片段(Task 7 创建真页面前 GET / 的兜底)
@@ -290,7 +291,12 @@ def _run_plan_job(job: Job, workdir: WorkDir, game_root: Path, src: str, dst: st
             game_root,
             src,
             dst,
-            mcmig_dir=workdir.root,
+            # mcmig_dir 必须取 snapshots 的「父目录」:build_plan 内部按
+            # <mcmig_dir>/snapshots 读快照、<mcmig_dir>/rules.yaml 读规则——
+            # 兼容布局(=.mcmig)与绿色布局(=data/<slug>)下 snapshots.parent
+            # 都与 workdir.rules/plans 同层;若误传 workdir.root,绿色模式下
+            # 会错位到 data/snapshots/(C1 回归点,有绿色 smoke 测试守护)
+            mcmig_dir=workdir.snapshots.parent,
             plans_dir=workdir.plans,
         )
         for w in compat_warnings:
@@ -387,8 +393,17 @@ def _run_migrate_job(
             progress_cb=on_file,
         )
         failed = [r for r in results if r.failed]
-        # 各 status 计数(copied 计数含失败文件,failed 另列——与 CLI 展示口径一致)
-        summary: dict[str, int] = dict(Counter(r.status for r in results))
+        # 五键恒存在(缺省 0,页面按固定键渲染不会取到 undefined,I1);
+        # copied 计数含失败文件,failed 另列——与 CLI 展示口径一致
+        summary: dict[str, int] = {
+            "copied": 0,
+            "identical": 0,
+            "asked_no": 0,
+            "skipped": 0,
+            "failed": 0,
+        }
+        for status, count in Counter(r.status for r in results).items():
+            summary[status] = count
         summary["failed"] = len(failed)
         for r in failed:
             log.warning("[失败] %s: %s", r.path, r.error)

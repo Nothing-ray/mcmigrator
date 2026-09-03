@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import migration.gui.server as server_module
 from fastapi.testclient import TestClient
 
 from migration.gui.server import create_app
@@ -27,7 +28,10 @@ def _make_game(tmp: Path) -> Path:
 
 
 def _make_client(tmp_path: Path, monkeypatch, game: Path | None = None) -> tuple[Path, TestClient]:
-    """构建注入临时 workdir 的 TestClient(game_root 已持久化到 config)。"""
+    """构建注入临时 workdir 的 TestClient(game_root 已持久化到 config)。
+
+    base_url 用 127.0.0.1 直连,Host 白名单无需为 TestClient 留后门(M1)。
+    """
     import migration.workdir as wd
 
     monkeypatch.setattr(wd, "_is_frozen", lambda: False)
@@ -35,7 +39,7 @@ def _make_client(tmp_path: Path, monkeypatch, game: Path | None = None) -> tuple
     game = game if game is not None else _make_game(tmp_path)
     w = wd.resolve_workdir(game_root=game)
     w.save_game_root(game)
-    return game, TestClient(create_app(workdir=w))
+    return game, TestClient(create_app(workdir=w), base_url="http://127.0.0.1")
 
 
 def _wait_job_done(client: TestClient, job_id: str) -> list[dict]:
@@ -97,6 +101,8 @@ def test_plan_and_migrate_job_flow(tmp_path, monkeypatch):
     # migrate done 事件带 summary(各 status 计数)与 PCL 提醒文案
     done2 = events2[-1]
     assert done2["job_kind"] == "migrate"
+    # summary 五键恒存在(I1:缺席 status 补 0,页面按固定键渲染)
+    assert set(done2["summary"]) == {"copied", "identical", "asked_no", "skipped", "failed"}
     assert done2["summary"]["copied"] >= 1
     assert done2["summary"]["failed"] == 0
     assert isinstance(done2["reminder"], list) and len(done2["reminder"]) >= 3
@@ -110,6 +116,9 @@ def test_plan_and_migrate_job_flow(tmp_path, monkeypatch):
 
 def test_single_job_lock(tmp_path, monkeypatch):
     _game, client = _make_client(tmp_path, monkeypatch)
+    # 放大 job 最小存活窗口(0.005s→0.5s):第二个请求必然落在第一个
+    # job 运行期内,409 结论确定(不依赖机器速度的时序碰运气)
+    monkeypatch.setattr(server_module, "_JOB_MIN_ALIVE_SECONDS", 0.5)
     client.post("/api/plan", json={"src": "src", "dst": "dst"})
     r = client.post("/api/plan", json={"src": "src", "dst": "dst"})
     assert r.status_code == 409
@@ -151,3 +160,40 @@ def test_unknown_job_sse_404(tmp_path, monkeypatch):
     r = client.get("/api/jobs/ghost/events")
     assert r.status_code == 404
     assert {"what", "why", "details"} <= set(r.json().keys())
+
+
+def test_green_mode_plan_job_smoke(tmp_path, monkeypatch):
+    """绿色模式(frozen)smoke:versions → plan job 全程无 error 事件。
+
+    回归 C1:绿色布局下 snapshots/rules/plans 按 slug 隔离在 data/<slug>/ 内,
+    server 传给 build_plan 的 mcmig_dir 必须取 snapshots 父目录(=data/<slug>);
+    若误传 workdir.root(=data/),build_plan 会去 data/snapshots/ 找快照,
+    plan job 必以「缺少 src 快照」error 收场。
+    """
+    import migration.workdir as wd
+
+    monkeypatch.setattr(wd, "_is_frozen", lambda: True)
+    monkeypatch.setattr(wd, "_exe_dir", lambda: tmp_path)
+    game = _make_game(tmp_path)
+    w = wd.resolve_workdir(game_root=game)
+    w.save_game_root(game)
+    client = TestClient(create_app(workdir=w), base_url="http://127.0.0.1")
+
+    resp = client.get("/api/versions")
+    assert resp.status_code == 200
+    assert set(resp.json()["versions"]) >= {"src", "dst"}
+
+    r = client.post("/api/plan", json={"src": "src", "dst": "dst"})
+    assert r.status_code == 200
+    events = _wait_job_done(client, r.json()["job_id"])
+    assert "error" not in [e["type"] for e in events]
+    assert events[-1]["type"] == "done"
+    groups = events[-1]["plan"]
+    assert groups["must_migrate"]["count"] >= 1
+    assert {"path", "reason", "behavior", "origin"} <= set(
+        groups["must_migrate"]["actions"][0]
+    )
+    # 快照/plan 均落在 slug 隔离目录(绿色布局落盘位置断言)
+    assert (w.snapshots / "src.snapshot.json").exists()
+    assert (w.snapshots / "dst.snapshot.json").exists()
+    assert (w.plans / "src__dst.plan.json").exists()
