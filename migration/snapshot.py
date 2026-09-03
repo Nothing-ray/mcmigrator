@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .fsops import write_json_atomic
 
-TOOL_VERSION = "0.5.0"
+TOOL_VERSION = "0.6.0"
 SNAPSHOT_FORMAT = 1
 
 

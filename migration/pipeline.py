@@ -44,6 +44,43 @@ def _version_dir(game_root: Path, version: str) -> Path:
     return game_root / "versions" / version
 
 
+def list_versions(game_root: Path) -> list[str]:
+    """列出游戏根目录下全部版本文件夹名(升序);versions/ 不存在时返回空列表。
+
+    M3 收口:CLI(错误提示列可用版本)与 GUI(/api/versions)共用的唯一实现。
+    """
+    vdir = game_root / "versions"
+    if not vdir.is_dir():
+        return []
+    return sorted(p.name for p in vdir.iterdir() if p.is_dir())
+
+
+def read_active_version(game_root: Path) -> str | None:
+    """读取 PCL.ini 的活跃版本(``Version:`` 行);文件缺失/不可解析返回 None。
+
+    M3 收口:自 gui/server 原样提取(CLI 与 GUI 共用)。PCL2 写出的 ini 可能为
+    UTF-8(可带 BOM)或 ANSI(GBK 系),按序尝试解码。
+    """
+    ini = game_root / "PCL.ini"
+    if not ini.is_file():
+        return None
+    text: str | None = None
+    for enc in ("utf-8-sig", "gb18030"):
+        try:
+            text = ini.read_text(encoding=enc)
+            break
+        except (UnicodeDecodeError, OSError):
+            continue
+    if text is None:
+        return None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Version:"):
+            value = stripped.split(":", 1)[1].strip()
+            return value or None
+    return None
+
+
 def _snapshot_file(mcmig_dir: Path, version: str) -> Path:
     """返回快照文件路径:<mcmig_dir>/snapshots/<version>.snapshot.json(文件名规则不变)。"""
     return mcmig_dir / "snapshots" / f"{version}.snapshot.json"

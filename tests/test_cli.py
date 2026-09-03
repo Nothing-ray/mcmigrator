@@ -373,6 +373,73 @@ def test_plan_rebuild_yields_to_user_rules(tmp_path: Path, monkeypatch, capsys):
     assert origins.get("config/fml.toml") == "must_migrate"
 
 
+def test_gui_subcommand_registered():
+    from migration.cli import build_parser
+
+    p = build_parser()
+    args = p.parse_args(["gui"])
+    assert args.no_browser is False
+
+
+def test_gui_manifest_tamper_exits_2(tmp_path, monkeypatch, capsys):
+    """启动自检 ②:数据清单校验不通过 → 打印清单问题退 2,不起服务。
+
+    patch 目标是 doctor 模块属性(cli 经 doctor 模块对象调用,查找发生在调用时)。
+    """
+    from migration import cli, doctor
+
+    monkeypatch.setattr(
+        doctor, "verify_data_manifest", lambda: ["rebuild.yaml 内容与清单不符"]
+    )
+    rc = cli.main(["gui", "--no-browser"])
+    assert rc == 2
+    assert "清单" in capsys.readouterr().out
+
+
+def test_gui_workdir_error_exits_2(tmp_path, monkeypatch, capsys):
+    """启动自检 ①:工作目录解析失败(绿色模式未配置)→ doctor 引导文案退 2。"""
+    from migration import cli
+    from migration.workdir import WorkdirError
+
+    def _boom():
+        raise WorkdirError("未配置游戏目录", "请先在界面中选择游戏根目录")
+
+    monkeypatch.setattr(cli, "resolve_workdir", _boom)
+    rc = cli.main(["gui", "--no-browser"])
+    assert rc == 2
+    out = capsys.readouterr().out
+    assert "未配置游戏目录" in out and "doctor" in out
+
+
+def test_migrate_fsops_error_friendly_exit_2(tmp_path, monkeypatch, capsys):
+    """携带项 a:执行段 FsOpsError(磁盘不足预检等)→ [错误] what:why 短文案退 2。
+
+    回归:此前 DiskSpaceError 直接以 traceback 顶穿 main,玩家看到的是堆栈而非提示。
+    """
+    from migration.fsops import DiskSpaceError
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "src", "--game-root", str(game_root)])
+    cli.main(["scan", "dst", "--game-root", str(game_root)])
+    cli.main(["plan", "src", "dst", "--game-root", str(game_root)])
+    capsys.readouterr()
+
+    def _no_disk(*args, **kwargs):
+        raise DiskSpaceError(str(dst_dir), "磁盘空间不足:需要 100.0 MB,剩余 1.0 MB")
+
+    monkeypatch.setattr(cli, "execute_migration", _no_disk)
+    rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "[错误]" in out and "磁盘空间不足" in out
+
+
 def test_plan_user_rule_overrides_orphan(tmp_path: Path, monkeypatch, capsys):
     """user rules.yaml 写 config/jade/**→must_migrate 时压过 orphan(P2 用户主权)。
 

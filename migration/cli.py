@@ -1,4 +1,4 @@
-"""命令行入口:scan / diff / plan / swap / migrate / doctor 子命令(编排逻辑消费 pipeline)。"""
+"""命令行入口:scan / diff / plan / swap / migrate / doctor / gui 子命令(编排逻辑消费 pipeline)。"""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from . import __version__, rules
+from . import __version__, doctor, rules
 from .classifier import Classifier
 from .differ import Differ
-from .doctor import run_doctor
-from .fsops import copy_atomic
+from .fsops import FsOpsError, copy_atomic
 from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
-from .pipeline import build_plan, execute_migration, scan_version
+from .pipeline import build_plan, execute_migration, list_versions, scan_version
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
+from .workdir import WorkdirError, resolve_workdir
 from rich.prompt import Confirm
 
 from .snapshot import Snapshot, snapshot_path
@@ -90,6 +90,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     # doctor 无参数:工作目录按 frozen/兼容模式自动解析
     sub.add_parser("doctor", help="环境体检:数据完整性/配置/权限/磁盘")
+
+    p_gui = sub.add_parser("gui", help="启动本地 Web 迁移向导(自动打开浏览器)")
+    p_gui.add_argument(
+        "--port", type=int, default=None, metavar="N", help="监听端口(默认随机空闲端口)"
+    )
+    p_gui.add_argument(
+        "--no-browser", action="store_true", help="不自动打开浏览器(手动访问打印的地址)"
+    )
     return parser
 
 
@@ -195,13 +203,6 @@ def _version_dir(game_root: Path, version: str) -> Path:
     return game_root / "versions" / version
 
 
-def _list_versions(game_root: Path) -> list[str]:
-    vdir = game_root / "versions"
-    if not vdir.is_dir():
-        return []
-    return sorted(p.name for p in vdir.iterdir() if p.is_dir())
-
-
 def _print(text: str) -> None:
     print(text)
 
@@ -210,7 +211,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     game_root = _resolve_game_root(args)
     ver_dir = _version_dir(game_root, args.version)
     if not ver_dir.is_dir():
-        avail = _list_versions(game_root)
+        avail = list_versions(game_root)
         _print(f"[错误] 版本 '{args.version}' 不存在于 {game_root / 'versions'}")
         if avail:
             _print("可用版本: " + ", ".join(avail))
@@ -577,7 +578,14 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
                 console.print(f"  ❓ {a.path} — {a.reason}")
                 if Confirm.ask("  迁移此文件?", default=False):
                     ask_yes.add(a.path)
-    results = execute_migration(plan, src_root, dst_root, ask_yes, dry_run=args.dry_run)
+    try:
+        results = execute_migration(plan, src_root, dst_root, ask_yes, dry_run=args.dry_run)
+    except FsOpsError as e:
+        # 执行段可预期文件操作失败(磁盘不足预检/目标被占用等):
+        # 三段式短文案替代 traceback(携带项 a;DiskSpaceError 等均为此族)
+        _print(f"[错误] {e.what}:{e.why}")
+        _print("修正问题(关闭占用文件的程序、释放磁盘空间)后重跑;已完成文件会自动跳过。")
+        return 2
     from collections import Counter
 
     stat = Counter(r.status for r in results)
@@ -609,10 +617,58 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """doctor 子命令:逐行打印体检结果;全绿退出 0,任一 ❌ 退出 1。"""
-    ok, lines = run_doctor()
+    ok, lines = doctor.run_doctor()
     for line in lines:
         _print(line)
     return 0 if ok else 1
+
+
+def _free_port() -> int:
+    """让 OS 分配一个空闲 TCP 端口(bind 到端口 0 后读回实际端口)。"""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _cmd_gui(args: argparse.Namespace) -> int:
+    """gui 子命令:启动自检 → 起本地服务(127.0.0.1)→ 延时自动开浏览器。
+
+    启动自检(spec §11):①resolve_workdir(绿色模式未配置游戏目录/目录不可写
+    在起服务前暴露)②verify_data_manifest(杀软误删/传输损坏的规则数据拦截);
+    任一失败打印 doctor 引导文案退 2,绝不带病起服务。
+    """
+    import threading
+    import webbrowser
+
+    try:
+        wdir = resolve_workdir()
+    except WorkdirError as e:
+        _print(f"[错误] {e.what}:{e.why}")
+        _print("可运行 mcmig doctor 逐项体检,按提示修复后再启动界面。")
+        return 2
+    findings = doctor.verify_data_manifest()
+    if findings:
+        _print("[错误] 工具数据清单校验未通过:")
+        for f in findings:
+            _print(f"  - {f}")
+        _print("请重新下载完整发行包覆盖安装;或运行 mcmig doctor 查看详情。")
+        return 2
+    port = args.port if args.port is not None else _free_port()
+    url = f"http://127.0.0.1:{port}"
+    if not args.no_browser:
+        # 延时 0.8s 再开浏览器:等服务端就绪,避免首刷打不开
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    _print(f"[提示] mcmig 迁移向导已启动: {url}")
+    _print("[提示] 使用完毕后关闭本窗口(或按 Ctrl+C)退出。")
+    import uvicorn
+
+    from .gui.server import create_app
+
+    # workdir 复用自检结果(create_app 不再二次解析,两次解析可能不一致)
+    uvicorn.run(create_app(workdir=wdir), host="127.0.0.1", port=port)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -632,5 +688,7 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_migrate(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
+    if args.command == "gui":
+        return _cmd_gui(args)
     build_parser().print_help()
     return 1

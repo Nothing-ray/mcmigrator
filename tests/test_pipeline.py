@@ -169,6 +169,49 @@ def test_execute_migration_cleans_tmp_and_checks_disk(tmp_path, monkeypatch):
     assert not (dst / "options.txt").exists()  # 执行未发生(预检失败零写盘)
 
 
+def test_execute_migration_dry_run_keeps_stale_tmp(tmp_path):
+    """携带项 b:dry-run 零写盘契约 → 既有残留 tmp 原样保留(clean_stale_tmp 随 dry-run 跳过)。
+
+    与 test_execute_migration_cleans_tmp_and_checks_disk 互补:非 dry-run 清理,
+    dry-run 不动(任何写盘副作用都违反零写盘承诺)。
+    """
+    src_root = tmp_path / "s"
+    dst_root = tmp_path / "d"
+    src_root.mkdir()
+    dst_root.mkdir()
+    (src_root / "a.txt").write_text("A", encoding="utf-8")
+    stale = dst_root / "stale.mcmig-tmp"
+    stale.write_text("half", encoding="utf-8")
+    plan = _mk_plan([_mk_action("a.txt", Behavior.COPY)])
+    execute_migration(plan, src_root, dst_root, ask_yes=set(), dry_run=True)
+    assert stale.exists()  # dry-run 不清理
+    assert not (dst_root / "a.txt").exists()  # 零写盘
+
+
+def test_list_versions_and_active_version(tmp_path):
+    """M3 收口:版本枚举与 PCL.ini 活跃版本读取成为 pipeline 公共函数(cli/gui 共用)。
+
+    行为零变化(自 server._list_versions/_read_active_version 原样提取):
+    versions/ 缺失 → 空列表;升序;PCL.ini 缺失 → None;带 BOM 亦可读。
+    """
+    from migration.pipeline import list_versions, read_active_version
+
+    game = tmp_path / "game"
+    assert list_versions(game) == []  # versions/ 不存在
+    (game / "versions" / "b").mkdir(parents=True)
+    (game / "versions" / "a").mkdir()
+    assert list_versions(game) == ["a", "b"]
+
+    assert read_active_version(game) is None  # 无 PCL.ini
+    (game / "PCL.ini").write_text("[general]\nVersion:a\n", encoding="utf-8")
+    assert read_active_version(game) == "a"
+    # BOM(utf-8-sig)与 GBK 系编码按序尝试,均可读回
+    (game / "PCL.ini").write_bytes("﻿Version:a\n".encode("utf-8"))
+    assert read_active_version(game) == "a"
+    (game / "PCL.ini").write_bytes("Version:a\n".encode("gb18030"))
+    assert read_active_version(game) == "a"
+
+
 def test_execute_migration_progress_cb_is_realtime(tmp_path):
     """携带项 A:progress_cb 注入 Executor 实时逐文件回调,而非执行后批量回放。
 

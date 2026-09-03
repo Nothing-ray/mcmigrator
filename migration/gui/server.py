@@ -41,7 +41,13 @@ from pydantic import BaseModel, Field
 from ..executor import FileResult
 from ..fsops import FsOpsError
 from ..plan import ORIGIN_REGISTRY, MigrationPlan, Origin, PlanFormatError
-from ..pipeline import build_plan, execute_migration, scan_version
+from ..pipeline import (
+    build_plan,
+    execute_migration,
+    list_versions,
+    read_active_version,
+    scan_version,
+)
 from ..workdir import WorkDir, WorkdirError, resolve_workdir
 from .STRINGS import STRINGS
 
@@ -167,41 +173,9 @@ def _error_event(what: str, why: str, details: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 版本枚举与活跃版本读取(PCL.ini 直读,不 import cli 私有函数——分层纪律)
+# 版本校验(M3 收口:枚举与 PCL.ini 活跃版本读取已提取为 pipeline 公共函数,
+# 与 CLI 共用同一实现——分层纪律:消费 pipeline,不 import cli 私有函数)
 # ---------------------------------------------------------------------------
-
-
-def _list_versions(game_root: Path) -> list[str]:
-    """列出游戏根目录下全部版本文件夹名(升序);versions/ 不存在时返回空列表。"""
-    vdir = game_root / "versions"
-    if not vdir.is_dir():
-        return []
-    return sorted(p.name for p in vdir.iterdir() if p.is_dir())
-
-
-def _read_active_version(game_root: Path) -> str | None:
-    """读取 PCL.ini 的活跃版本(``Version:`` 行);文件缺失/不可解析返回 None。
-
-    PCL2 写出的 ini 可能为 UTF-8(可带 BOM)或 ANSI(GBK 系),按序尝试解码。
-    """
-    ini = game_root / "PCL.ini"
-    if not ini.is_file():
-        return None
-    text: str | None = None
-    for enc in ("utf-8-sig", "gb18030"):
-        try:
-            text = ini.read_text(encoding=enc)
-            break
-        except (UnicodeDecodeError, OSError):
-            continue
-    if text is None:
-        return None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("Version:"):
-            value = stripped.split(":", 1)[1].strip()
-            return value or None
-    return None
 
 
 def _ensure_version_dirs(game_root: Path, *versions: str) -> None:
@@ -213,7 +187,7 @@ def _ensure_version_dirs(game_root: Path, *versions: str) -> None:
             422,
             "err_version_missing.what",
             "err_version_missing.why",
-            {"missing": missing, "available": _list_versions(game_root)},
+            {"missing": missing, "available": list_versions(game_root)},
         )
 
 
@@ -588,7 +562,7 @@ def create_app(workdir: WorkDir | None = None) -> FastAPI:
     def api_versions() -> dict[str, object]:
         """列可选版本 + 活跃版本(读 PCL.ini 的 ``Version:`` 行)。"""
         root = _game_root()
-        return {"versions": _list_versions(root), "active": _read_active_version(root)}
+        return {"versions": list_versions(root), "active": read_active_version(root)}
 
     @app.post("/api/plan")
     def api_plan(req: PlanRequest) -> dict[str, str]:

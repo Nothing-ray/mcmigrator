@@ -3,7 +3,7 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.5.0 / 2026-09-01
+> Last synced: v0.6.0 / 2026-09-04
 
 > A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
 
@@ -58,6 +58,8 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 | `mcmig plan <src> <dst>` | Generate a migration plan (read-only, produces an action list) |
 | `mcmig migrate <src> <dst>` | Execute the saved migration plan (plan first, then migrate; overwrites are auto-backed up to `_conflict_backup/`) |
 | `mcmig swap <src> <dst> <new-pack-dir>` | Modpack swap: compatibility precheck → install pack → generate swap migration plan |
+| `mcmig doctor` | Environment health check: data integrity / game root config / permissions / disk space |
+| `mcmig gui [--port N] [--no-browser]` | Launch the local web migration wizard (auto-opens the browser; random free port by default) |
 
 > `<version>` = `versions/` subfolder name (MC + loader, e.g. `1.21.1-NeoForge_21.1.227` = Minecraft 1.21.1 + NeoForge 21.1.227).
 
@@ -129,6 +131,33 @@ NeoForge auto-generates `.bak` backups when a player edits a config in-game. The
 - **MD5 differs** → `.bak` stores the pre-edit version → player did modify → migrate
 - **MD5 identical** → `.bak` backup matches current → mod auto-generated (not player-edited) → skip
 
+## Data & Uninstall
+
+### Where the Tool Keeps Its Data
+
+- **Portable exe (recommended, no Python needed)**: all tool state (config / snapshots / plans / rules) lives in the `data/` folder next to `mcmig.exe` — nothing is ever written to AppData or user directories. Copy the whole client folder and the tool state travels with it. Inside `data/`, state is isolated per game root by a subfolder named after it (`data/<game-dir-name>/snapshots|plans|rules.yaml`), so multiple modpacks never mix; `data/config.toml` records the game root.
+- **Source run (Python)**: uses the `.mcmig/` layout in the current directory, same semantics.
+
+### What Gets Written on the Game Side
+
+The tool never creates any tool directory inside the game root; the only thing written game-side during migration is the **conflict backup**: a file with the same name but different content is backed up to `<target-version>/_conflict_backup/` before being overwritten (mirroring the relative path; the first backup is the pre-overwrite original, and re-runs never overwrite it). Once the migration is verified fine, that folder can be safely deleted.
+
+### How to Uninstall
+
+1. Delete the mcmig program folder (for the portable exe, `data/` is inside it — deleting it removes all tool state);
+2. Optional: delete `_conflict_backup/` in each `<game-root>/versions/<version>/` (harmless to keep);
+3. The game directory itself (mods/config/saves…) is never modified by the tool — no cleanup needed.
+
+### Verifying the Download (SHA256)
+
+Each GitHub Release ships the exe plus its SHA256 checksum. Verify after downloading (built-in Windows command):
+
+```bat
+certutil -hashfile mcmig.exe SHA256
+```
+
+Compare the output against the SHA256 on the Release page — a match means the download is intact; otherwise re-download.
+
 ## Project Structure
 
 ```
@@ -171,8 +200,9 @@ Contributions welcome (in Chinese or English):
 - ✅ v0: `scan`/`diff` read-only comparison (done)
 - ✅ v1 Phase 1: `plan` subcommand + config player-edit detection (`.bak` heuristic + whitelist) (implemented)
 - ✅ v1 Phase 2: `migrate` actual writes + `swap` modpack orchestration (implemented; rollback see Future)
+- ✅ v0.6: transactional file operations (fsops) + portable-exe data layout + `doctor` health check + local web wizard `mcmig gui` (implemented)
 - 📋 v1 Phase 3: Manifest decision persistence (auto-remember migration decisions)
-- 📋 Future: Mod Profile (META-INF parsing) + content detection + GUI
+- 📋 Future: Mod Profile (META-INF parsing) + content detection
 
 See [`Reference/specs/`](Reference/specs/) for details.
 

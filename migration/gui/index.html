@@ -510,24 +510,19 @@ var groupOpen = {};          // origin → 是否展开(搜索时暂存用户态
 var askChecked = {};         // path → true(❓组勾选状态)
 var planSrc = "", planDst = "";
 
-// 规范化分组:兼容 {origin:{...actions}}(T6 实现)与 {groups:[{items}]} 两种形态
+// 规范化分组:契约真源唯一为 origin 字典(server._group_actions 的返回形态),
+// 渲染顺序=对象键序(Origin 枚举声明序)。原型期的 {groups:[{items}]} 数组形态
+// 是契约笔误(T7 评审),已连同其容错回退一并删除。
 function normalizeGroups(plan) {
-  var raw = Array.isArray(plan.groups)
-    ? plan.groups
-    : Object.keys(plan).map(function (origin) {
-        var g = plan[origin];
-        g.origin = origin;
-        return g;
-      });
-  return raw.map(function (g) {
-    var actions = g.actions || g.items || [];
+  return Object.keys(plan).map(function (origin) {
+    var g = plan[origin];
     return {
-      origin: g.origin,
-      title: g.title || g.origin,
-      behavior: g.behavior || "",
+      origin: origin,
+      title: g.title,
+      behavior: g.behavior,
       footnote: g.footnote || null,
-      count: (g.count != null) ? g.count : actions.length,
-      actions: actions
+      count: g.count,
+      actions: g.actions
     };
   });
 }
@@ -547,7 +542,7 @@ function renderPlan() {
     head.type = "button";
     head.className = "group-head";
     var inner = '<span class="arrow">▸</span><span class="title"></span>' +
-      '<span class="badge">' + g.count + "</span>" +
+      '<span class="badge">' + esc(String(g.count)) + "</span>" +
       '<span class="behavior-tag">' + esc(BEHAVIOR_LABELS[g.behavior] || g.behavior) + "</span>";
     head.innerHTML = inner;
     head.querySelector(".title").textContent = g.title;

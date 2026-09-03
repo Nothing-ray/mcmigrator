@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcmig"
-version = "0.5.0"
+version = "0.6.0"
 description = "Minecraft 整合包版本迁移工具(只读 scan/diff)"
 requires-python = ">=3.11"
 dependencies = [
@@ -23,8 +23,9 @@ mcmig = "migration.cli:main"
 include = ["migration*"]
 
 [tool.setuptools.package-data]
-# manifest.sha256(数据完整性清单)须随包分发,doctor 校验依赖它
-migration = ["data/*.yaml", "data/*.sha256"]
+# manifest.sha256(数据完整性清单)须随包分发,doctor 校验依赖它;
+# README.txt 为数据目录说明(不参与清单校验),一并随包分发
+migration = ["data/*.yaml", "data/*.sha256", "data/*.txt"]
 
 [tool.ruff]
 line-length = 100

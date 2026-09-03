@@ -55,6 +55,8 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 | `mcmig plan <src> <dst>` | 生成迁移计划(只读,产出 action 列表) |
 | `mcmig migrate <src> <dst>` | 执行已保存的迁移计划(先 plan 后 migrate;覆盖自动备份到 `_conflict_backup/`) |
 | `mcmig swap <src> <dst> <新包目录>` | 整合包替换:兼容预检→装包→生成换包迁移计划 |
+| `mcmig doctor` | 环境体检:数据完整性 / 游戏目录配置 / 权限 / 磁盘空间 |
+| `mcmig gui [--port N] [--no-browser]` | 启动本地 Web 迁移向导(自动开浏览器;默认随机空闲端口) |
 
 ## 工作方式
 
@@ -124,6 +126,33 @@ NeoForge 在玩家游戏内修改 config 时自动生成 `.bak` 备份。工具�
 - **MD5 不同** → `.bak` 存的是改前的旧版本 → 玩家确实改过 → 迁移
 - **MD5 相同** → `.bak` 备份的与当前一致 → mod 自动生成(非玩家修改) → 跳过
 
+## 数据与卸载
+
+### 工具数据放在哪
+
+- **绿色 exe(推荐,免 Python)**:所有工具状态(配置/快照/计划/规则)都在 `mcmig.exe` 同级的 `data/` 文件夹内,绝不写入 AppData 或用户目录——整个客户端文件夹拷走即带走全部工具状态。`data/` 内再按游戏根目录名建子文件夹隔离(`data/<游戏目录名>/snapshots|plans|rules.yaml`),多个整合包互不串数据;`data/config.toml` 记录游戏根目录。
+- **源码运行(Python)**:沿用当前目录的 `.mcmig/` 布局,语义与上述一致。
+
+### 游戏侧会写什么
+
+工具绝不在游戏根目录创建任何工具目录;迁移期间唯一写入游戏侧的是**冲突备份**:同名但内容不同的文件在覆盖前会先备份到 `<目标版本>/_conflict_backup/`(镜像相对路径结构;首份备份为覆盖前的原件,重跑不会覆盖)。迁移完成并确认无误后,该文件夹可安全删除。
+
+### 如何卸载
+
+1. 删除 mcmig 程序文件夹(绿色 exe 下 `data/` 在其中,一并删除即清空全部工具状态);
+2. 可选:删除各 `<游戏根>/versions/<版本>/_conflict_backup/`(留着也无害);
+3. 游戏目录本身(mods/config/saves…)不会被工具改动,无需清理。
+
+### 校验下载完整性(SHA256)
+
+每次 GitHub Release 附带 exe 与其 SHA256 校验值。下载后请校验(Windows 自带命令):
+
+```bat
+certutil -hashfile mcmig.exe SHA256
+```
+
+将输出与 Release 页面的 SHA256 比对,一致即下载完好;不一致请重新下载。
+
 ## 项目结构
 
 ```
@@ -166,8 +195,9 @@ mcmigrator/
 - ✅ v0:`scan`/`diff` 只读对比(已完成)
 - ✅ v1 Phase 1:`plan` 子命令 + config 玩家改动判定(`.bak` 法 + 白名单)(已实现)
 - ✅ v1 Phase 2:`migrate` 实际写盘 + `swap` 换包编排(已实现;回滚见未来)
+- ✅ v0.6:事务式文件操作(fsops)+ 绿色 exe 数据布局 + `doctor` 体检 + 本地 Web 向导 `mcmig gui`(已实现)
 - 📋 v1 Phase 3:Manifest 决策沉淀(自动记忆迁移决策)
-- 📋 未来:Mod Profile(META-INF 解析)+ 内容检测 + GUI
+- 📋 未来:Mod Profile(META-INF 解析)+ 内容检测
 
 详见 [`Reference/specs/`](Reference/specs/)。
 
