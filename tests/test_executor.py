@@ -144,3 +144,30 @@ def test_execute_oserror_on_one_file_continues(tmp_path, monkeypatch):
     assert not results[1].failed
     assert (dst / "config" / "a.toml").read_text(encoding="utf-8") == "x=1\n"
     assert not (dst / "options.txt").exists()
+
+
+def test_backup_keeps_first_copy_on_remigrate(tmp_path):
+    """重复迁移(--force 场景)不得覆盖首份冲突备份(目标原始值不可逆)。"""
+    src, dst = _setup(tmp_path)
+    (dst / "config").mkdir()
+    (dst / "config" / "a.toml").write_text("原始默认", encoding="utf-8")
+    plan = _plan(_action("config/a.toml"))
+    Executor(plan, src, dst, yes).execute()
+    # 用户又改了源,重跑(--force):此时 dst 内容是上次迁入值
+    (src / "config" / "a.toml").write_text("第二次改动", encoding="utf-8")
+    Executor(plan, src, dst, yes).execute()
+    bak = dst / "_conflict_backup" / "config" / "a.toml"
+    assert bak.read_text(encoding="utf-8") == "原始默认"
+
+
+def test_unreadable_src_md5_fails_without_copy(tmp_path, monkeypatch):
+    """源 MD5 不可读时直接判失败,不进入复制(避免假『校验不一致』)。"""
+    import migration.executor as ex
+
+    src, dst = _setup(tmp_path)
+    monkeypatch.setattr(ex, "_md5_of", lambda p: None)
+    plan = _plan(_action("options.txt"))
+    results = Executor(plan, src, dst, yes).execute()
+    assert results[0].failed
+    assert "不可读" in (results[0].error or "")
+    assert not (dst / "options.txt").exists()

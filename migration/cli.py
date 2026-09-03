@@ -14,7 +14,7 @@ from . import __version__, rules
 from .classifier import Classifier
 from .differ import Differ
 from .executor import Executor
-from .plan import Behavior, MigrationPlan, Origin, plan_path
+from .plan import ActionRecord, Behavior, MigrationPlan, Origin, PlanFormatError, plan_path
 from .planner import Planner
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
 from .scanner import Scanner
@@ -401,7 +401,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             cwd, args.src, args.dst, game_root, args,
             modpack_swap=args.modpack_swap, rescan_dst=False, save=not args.no_save,
         )
-    except ValueError as e:
+    except (FileNotFoundError, ValueError) as e:
         _print(f"[错误] {e}")
         return 2
     reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst)
@@ -426,13 +426,11 @@ def _game_running(dst_root: Path) -> bool:
     return False
 
 
-def _md5(path: Path) -> str:
-    """计算文件 MD5(装包阶段同名冲突判定用)。"""
-    import hashlib
+def _md5(path: Path) -> str | None:
+    """计算文件 MD5(装包阶段同名冲突判定用);不可读返回 None。"""
+    from .executor import _md5_of
 
-    h = hashlib.md5()
-    h.update(path.read_bytes())
-    return h.hexdigest()
+    return _md5_of(path)
 
 
 def _swap_preflight(dst_dir: Path, new_pack: Path) -> tuple[str | None, list[str]]:
@@ -585,7 +583,11 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         _print(f"[错误] 缺少计划文件 {p_path}")
         _print("请先运行: mcmig plan <源> <目标>")
         return 2
-    plan = MigrationPlan.load(p_path)
+    try:
+        plan = MigrationPlan.load(p_path)
+    except (PlanFormatError, OSError) as e:
+        _print(f"[错误] 计划文件读取失败: {e}")
+        return 2
     if plan.executed_at and not args.force:
         _print(
             f"[错误] 该计划已执行(时间 {plan.executed_at})。重跑请加 --force"
@@ -611,15 +613,17 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
             return 2
     # ASK 处理器
     if args.skip_ask:
-        ask = lambda _a: False  # noqa: E731
+        def ask(_a: ActionRecord) -> bool:
+            return False
     elif args.yes_ask:
-        ask = lambda _a: True  # noqa: E731
+        def ask(_a: ActionRecord) -> bool:
+            return True
     else:
         from rich.console import Console
 
         _console = Console()
 
-        def ask(a) -> bool:  # noqa: E731
+        def ask(a: ActionRecord) -> bool:
             # 逐文件确认:显示路径与判定原因,由用户决定是否迁移
             _console.print(f"  ❓ {a.path} — {a.reason}")
             return Confirm.ask("  迁移此文件?", default=False)

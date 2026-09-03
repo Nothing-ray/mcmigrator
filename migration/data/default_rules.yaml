@@ -1,5 +1,6 @@
 # 内置默认规则(最低优先级)。简写形式:类别 -> glob 列表。
 never:
+  - _conflict_backup/**               # executor 冲突备份(spec §2.1:不迁不删,首份=目标原始值)
   - logs/**
   - crash-reports/**
   - "<ver>.jar"

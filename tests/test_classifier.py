@@ -38,3 +38,13 @@ def test_classify_all_preserves_order():
     ]
     out = clf.classify_all(entries)
     assert [c.category for c in out] == [Category.MUST_MIGRATE, Category.UNKNOWN]
+
+
+def test_conflict_backup_is_never():
+    """_conflict_backup/** 必须落 never(spec §2.1:不迁不删,避免污染下次 plan)。"""
+    from migration import rules
+
+    default, _ = rules.load_default_rules("v1")
+    clf = _clf(default)
+    assert clf.classify_path("_conflict_backup/config/a.toml") == Category.NEVER
+    assert clf.classify_path("_conflict_backup/options.txt") == Category.NEVER

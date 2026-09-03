@@ -78,8 +78,14 @@ class Executor:
         self.ask_handler = ask_handler
 
     def _backup(self, rel: str, dst_file: Path) -> bool:
-        """覆盖前把目标现有文件镜像备份;返回是否发生备份。"""
+        """覆盖前把目标现有文件镜像备份;返回是否发生备份。
+
+        首份备份=目标原始值,不可逆,绝不覆盖(重复迁移 --force 时保留最早的
+        原始内容;已存在即跳过)。
+        """
         bak = self.dst_root / BACKUP_DIR / rel
+        if bak.exists():
+            return False
         bak.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(dst_file, bak)
         return True
@@ -92,6 +98,9 @@ class Executor:
             if not src_file.is_file():
                 return FileResult(rel, "copied", failed=True, error="源文件不存在")
             src_md5 = _md5_of(src_file)
+            if src_md5 is None:
+                # 源不可读:复制无意义且校验必然失真,直接判失败
+                return FileResult(rel, "copied", failed=True, error="源文件不可读(无法计算 MD5)")
             if dst_file.is_file() and _md5_of(dst_file) == src_md5:
                 return FileResult(rel, "identical")
             backed_up = False
