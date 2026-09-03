@@ -1,5 +1,884 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><title>mcmig</title></head>
-<body><h1>mcmig</h1></body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,"><!-- 空 data URI:抑制浏览器自动请求 /favicon.ico 的 404,仍零外部资源 -->
+<title>mcmig 迁移向导</title>
+<style>
+  /* ============ 基础 ============ */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 16px; max-width: 980px;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background: #f4f5f7; color: #1f2430; line-height: 1.6;
+  }
+  h1 { font-size: 20px; margin: 8px 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  h3 { font-size: 14px; margin: 12px 0 6px; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 13px; }
+
+  /* ============ 顶部步骤导航 ============ */
+  nav.steps { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 16px; }
+  nav.steps span {
+    padding: 4px 14px; border-radius: 999px; background: #e6e8ec;
+    color: #6b7280; font-size: 13px;
+  }
+  nav.steps span.active { background: #2563eb; color: #fff; font-weight: 600; }
+  nav.steps span.done { background: #dbeafe; color: #1d4ed8; }
+  nav.steps span.done::after { content: " ✓"; }
+
+  /* ============ 三步卡片 ============ */
+  section.step {
+    background: #fff; border: 1px solid #e2e4e9; border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 16px;
+  }
+
+  /* ============ 断线横幅(置顶吸附) ============ */
+  #banner-disconnect {
+    position: sticky; top: 0; z-index: 10;
+    background: #b91c1c; color: #fff; font-weight: 600;
+    padding: 10px 16px; border-radius: 8px; margin-bottom: 12px;
+  }
+
+  /* ============ 通用错误条(三段式 what/why/details) ============ */
+  .error {
+    background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+    border-radius: 8px; padding: 10px 14px; margin: 10px 0;
+  }
+  .error .what { font-weight: 700; display: block; }
+  .error .why { margin: 4px 0 0; }
+  .error details { margin-top: 6px; }
+  .error pre {
+    background: #fff; border: 1px dashed #fca5a5; border-radius: 6px;
+    padding: 8px; margin: 6px 0 0; overflow: auto; max-height: 220px;
+    white-space: pre-wrap; word-break: break-all; font-size: 12px;
+  }
+
+  /* ============ 表单 ============ */
+  label.field { display: block; margin: 10px 0; font-size: 14px; }
+  label.field b { display: block; font-size: 13px; color: #4b5563; }
+  select, input[type="search"], input[type="text"] {
+    width: 100%; max-width: 480px; padding: 7px 10px; font-size: 14px;
+    border: 1px solid #cbd2dc; border-radius: 6px; background: #fff;
+  }
+  .hint { font-size: 12.5px; color: #6b7280; margin: 4px 0 0; }
+  .warn { font-size: 13px; color: #b45309; background: #fffbeb;
+    border: 1px solid #fde68a; border-radius: 6px; padding: 6px 10px; display: inline-block; }
+
+  /* ============ 按钮 ============ */
+  button {
+    font-size: 14px; padding: 8px 18px; border-radius: 6px; cursor: pointer;
+    border: 1px solid #cbd2dc; background: #fff; color: #1f2430;
+  }
+  button:hover:not(:disabled) { background: #f3f4f6; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #1d4ed8; }
+  button.small { font-size: 12.5px; padding: 3px 10px; }
+
+  /* ============ 阶段进度(plan 阶段/迁移阶段) ============ */
+  .phase-line { font-size: 14px; color: #374151; }
+  .phase-line .spin {
+    display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid #c7d2fe; border-top-color: #2563eb; margin-right: 8px;
+    vertical-align: -2px; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ============ ② 计划分组 ============ */
+  #plan-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  #search { flex: 1; min-width: 220px; max-width: none; }
+  .group { border: 1px solid #e2e4e9; border-radius: 8px; margin: 10px 0; overflow: hidden; }
+  .group-head {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: #f8fafc; border: none; border-radius: 0; text-align: left;
+    padding: 8px 12px; font-size: 14px; font-weight: 600;
+  }
+  .group-head:hover:not(:disabled) { background: #eef1f5; }
+  .group-head .arrow { width: 1em; display: inline-block; transition: transform .12s; }
+  .group.open .group-head .arrow { transform: rotate(90deg); }
+  .badge {
+    background: #e0e7ff; color: #3730a3; border-radius: 999px;
+    font-size: 12px; font-weight: 600; padding: 1px 10px;
+  }
+  .behavior-tag { font-size: 12px; font-weight: 400; color: #6b7280; }
+  .group-body { display: none; border-top: 1px solid #edeff3; }
+  .group.open .group-body { display: block; }
+  .row {
+    display: flex; align-items: baseline; gap: 10px; padding: 5px 14px;
+    border-bottom: 1px solid #f1f3f6; font-size: 13px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row input[type="checkbox"] { flex: none; transform: translateY(2px); }
+  .row .path { flex: 1 1 45%; word-break: break-all; }
+  .row .reason { flex: 1 1 55%; color: #6b7280; word-break: break-all; }
+  .footnote {
+    padding: 8px 14px; font-size: 12.5px; color: #92400e;
+    background: #fffbeb; border-top: 1px dashed #fde68a;
+  }
+  #no-match { color: #6b7280; font-size: 13px; padding: 10px 2px; }
+  .group.hidden-by-search, .row.hidden-by-search { display: none; }
+
+  /* ============ ③ 执行 ============ */
+  #file-count { font-size: 18px; font-weight: 700; margin: 6px 0 2px; }
+  progress { width: 100%; height: 14px; }
+  #last-file { font-size: 13px; color: #4b5563; word-break: break-all; min-height: 1.4em; }
+  #last-file.failed { color: #b91c1c; font-weight: 600; }
+  #failed-box { border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; background: #fef2f2; }
+  #failed-list { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+  #failed-list li { word-break: break-all; margin-bottom: 4px; color: #7f1d1d; }
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+  .stat {
+    background: #f8fafc; border: 1px solid #e2e4e9; border-radius: 8px;
+    padding: 8px 16px; text-align: center; min-width: 96px;
+  }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { font-size: 12.5px; color: #6b7280; }
+  .stat.bad { background: #fef2f2; border-color: #fecaca; }
+  .stat.bad b { color: #b91c1c; }
+  #reminder-box {
+    background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 14px;
+  }
+  #reminder-box pre {
+    margin: 6px 0 0; white-space: pre-wrap; word-break: break-all;
+    font-family: inherit; font-size: 13px; color: #14532d;
+  }
+  .done-title { color: #15803d; font-size: 16px; font-weight: 700; }
+
+  /* ============ 日志面板 ============ */
+  #log-panel { margin: 4px 0 24px; font-size: 13px; }
+  #log-panel summary { cursor: pointer; color: #4b5563; }
+  #log {
+    background: #0f172a; color: #d7dce5; border-radius: 8px; padding: 10px;
+    max-height: 280px; overflow: auto; font-size: 12px; line-height: 1.5;
+    margin: 8px 0 0;
+  }
+  #log .ts { color: #7dd3fc; margin-right: 8px; }
+</style>
+</head>
+<body>
+
+<h1>mcmig 迁移向导</h1>
+<p class="hint">同一整合包内,把旧版本的玩家进度与自定义内容迁移到新版本文件夹。</p>
+
+<nav class="steps" aria-label="迁移步骤">
+  <span id="nav1">① 选择版本</span>
+  <span id="nav2">② 审阅计划</span>
+  <span id="nav3">③ 执行迁移</span>
+</nav>
+
+<!-- 断线横幅:EventSource onerror 时显示(任务已收尾的主动断流不算) -->
+<div id="banner-disconnect" hidden>连接断开,刷新页面重新开始</div>
+
+<!-- ============ 步① 选择版本 ============ -->
+<section class="step" id="step1">
+  <h2>① 选择源版本与目标版本</h2>
+  <p id="active-hint" class="hint">正在读取版本列表…</p>
+  <div id="versions-error" class="error" hidden></div>
+  <label class="field"><b>源版本(玩家原始状态,从它迁出)</b>
+    <select id="src-select"></select>
+  </label>
+  <label class="field"><b>目标版本(全新实例,迁入它)</b>
+    <select id="dst-select"></select>
+  </label>
+  <p id="same-warning" class="warn" hidden>源与目标不能是同一个版本</p>
+  <p>
+    <button id="btn-plan" class="primary" disabled>开始生成迁移计划</button>
+  </p>
+  <p class="hint">计划生成需要扫描两个版本文件夹,大目录可能耗时十几秒,期间请勿关闭页面。</p>
+</section>
+
+<!-- ============ 步② 审阅计划 ============ -->
+<section class="step" id="step2" hidden>
+  <!-- plan job 运行中的阶段提示 -->
+  <div id="plan-progress">
+    <h2>② 正在生成迁移计划</h2>
+    <p class="phase-line"><span class="spin"></span><span id="plan-phase">准备中…</span></p>
+    <p class="hint">阶段:扫描源版本 → 扫描目标版本 → 生成计划。</p>
+  </div>
+
+  <!-- plan job 失败(或 POST /api/plan、POST /api/migrate 被拒)的三段式错误 -->
+  <div id="step2-error" class="error" hidden></div>
+
+  <!-- 计划渲染主体:done 事件的 plan 字段到位后显示 -->
+  <div id="plan-body" hidden>
+    <h2>② 审阅迁移计划:<span id="plan-route"></span></h2>
+    <div id="plan-toolbar">
+      <input type="search" id="search" placeholder="搜索路径或原因,过滤下方列表…">
+      <span id="ask-summary" class="hint"></span>
+    </div>
+    <div id="groups"></div>
+    <p id="no-match" hidden>没有匹配的条目。</p>
+    <p style="margin-top:16px">
+      <button id="btn-migrate" class="primary">执行迁移</button>
+      <button id="btn-back1">← 返回重选版本</button>
+    </p>
+    <p class="hint">「执行迁移」会把上方勾选的待确认文件一并复制;未勾选的按未确认处理(跳过)。</p>
+  </div>
+</section>
+
+<!-- ============ 步③ 执行迁移 ============ -->
+<section class="step" id="step3" hidden>
+  <h2>③ 执行迁移</h2>
+  <p class="phase-line"><span class="spin" id="migrate-spin"></span><span id="migrate-phase">正在启动…</span></p>
+  <p id="file-count">0 / 0</p>
+  <progress id="file-progress" max="1" value="0"></progress>
+  <p id="last-file"></p>
+
+  <!-- migrate job 失败的三段式错误 -->
+  <div id="step3-error" class="error" hidden></div>
+
+  <!-- 失败清单(可复制) -->
+  <div id="failed-box" hidden>
+    <h3 style="margin-top:0">失败清单(<span id="failed-count">0</span>)</h3>
+    <button id="btn-copy-failed" class="small" type="button">复制失败清单</button>
+    <ul id="failed-list"></ul>
+    <p class="hint">修正问题(关闭占用文件的程序、释放磁盘等)后刷新页面重跑;已完成的文件会按「内容一致」跳过,不会重复复制。</p>
+  </div>
+
+  <!-- done 事件:summary 五键 + reminder 全文 -->
+  <div id="summary-box" hidden>
+    <p class="done-title" id="done-title">迁移完成</p>
+    <div class="stats" id="stats"></div>
+    <div id="reminder-box" hidden>
+      <b>PCL 启动器配置提醒</b>
+      <pre id="reminder-text"></pre>
+    </div>
+    <p class="hint">如需再次迁移或重新审阅,刷新页面重新开始。</p>
+  </div>
+
+  <p><button id="btn-back2">← 返回审阅计划</button></p>
+</section>
+
+<!-- 运行日志:两个 job 的 SSE 事件原文逐条追加(时间戳),出错自动展开 -->
+<details id="log-panel">
+  <summary>运行日志(SSE 事件原文)</summary>
+  <pre id="log"></pre>
+</details>
+
+<script>
+"use strict";
+/* ======================================================================
+ * mcmig 三步迁移向导(Task 7)
+ * - 单文件页面:零外部资源(无 CDN/字体/图片),离线可用
+ * - 仅消费 Task 6 契约:/api/versions、/api/plan、/api/migrate、SSE 事件流
+ * - 全部 API 用相对路径,127.0.0.1 与 localhost 访问行为一致(Host 无关)
+ * ==================================================================== */
+
+/* ---------- 常量:文案与规则(页面侧硬编码,服务端无对应字段) ---------- */
+
+// SSE phase 名 → 中文阶段标签(契约:scan_src|scan_dst|plan|migrate;done 是独立事件型)
+var PHASE_LABELS = {
+  scan_src: "扫描源版本…",
+  scan_dst: "扫描目标版本…",
+  plan: "生成迁移计划…",
+  migrate: "正在迁移文件…"
+};
+
+// 分组默认展开名单(spec §5:✅/✏️/❓ 展开,👻/⚙️/⛔/📦 等折叠;服务端分组无 default_visible 字段)
+var DEFAULT_EXPANDED = ["must_migrate", "config_modified", "needs_review"];
+
+// 组 behavior → 短标签(展示在组标题右侧)
+var BEHAVIOR_LABELS = { copy: "将复制", skip: "默认不迁", ask: "待勾选确认" };
+
+// 文件状态 → 中文(done 事件 summary 五键 + file 事件 status 共用一套口径)
+var STATUS_LABELS = {
+  copied: "已复制",
+  identical: "内容一致",
+  asked_no: "待确认未勾选",
+  skipped: "跳过",
+  failed: "失败"
+};
+// summary 固定五键的渲染顺序
+var SUMMARY_KEYS = ["copied", "identical", "asked_no", "skipped", "failed"];
+
+// 日志面板保留的最大行数(防止长任务把 DOM 撑爆)
+var LOG_MAX_LINES = 2000;
+
+/* ---------- 工具函数 ---------- */
+
+function $(id) { return document.getElementById(id); }
+
+// HTML 转义:所有服务端数据(路径/原因/错误文案)注入 DOM 前必须经过这里
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
+// 当前时间 HH:MM:SS(日志行前缀)
+function nowTs() {
+  var d = new Date();
+  function p(n) { return (n < 10 ? "0" : "") + n; }
+  return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+
+// 渲染三段式错误条(what/why 可展开 details)
+function renderError(box, what, why, details) {
+  var html = '<span class="what"></span>' +
+    '<p class="why"></p>';
+  box.innerHTML = html;
+  box.querySelector(".what").textContent = what || "出错了";
+  box.querySelector(".why").textContent = why || "";
+  var det = document.createElement("details");
+  var sum = document.createElement("summary");
+  sum.textContent = "技术细节";
+  var pre = document.createElement("pre");
+  pre.textContent = JSON.stringify(details == null ? {} : details, null, 2);
+  det.appendChild(sum);
+  det.appendChild(pre);
+  box.appendChild(det);
+  box.hidden = false;
+}
+
+// fetch POST JSON;非 2xx 时把三段式响应体抛成 Error(带 what/why/details 属性)
+function postJson(url, body) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  }).then(function (resp) {
+    if (resp.ok) { return resp.json(); }
+    return resp.json().catch(function () { return {}; }).then(function (j) {
+      var err = new Error(j.what || ("请求失败(HTTP " + resp.status + ")"));
+      err.what = j.what || ("请求失败(HTTP " + resp.status + ")");
+      err.why = j.why || "";
+      err.details = j.details || {};
+      throw err;
+    });
+  });
+}
+
+/* ---------- 日志面板:SSE 事件原文逐条追加(时间戳) ---------- */
+
+function appendLog(ev) {
+  var log = $("log");
+  var line = document.createElement("div");
+  var ts = document.createElement("span");
+  ts.className = "ts";
+  ts.textContent = nowTs();
+  line.appendChild(ts);
+  line.appendChild(document.createTextNode(JSON.stringify(ev)));
+  log.appendChild(line);
+  // 超限裁剪最旧行(保留最近的)
+  while (log.childElementCount > LOG_MAX_LINES) { log.removeChild(log.firstChild); }
+  // 面板打开时自动滚到底
+  if ($("log-panel").open) { log.scrollTop = log.scrollHeight; }
+}
+
+// 任务出错时自动展开日志面板(spec §5:出错自动展开)
+function openLogOnError() {
+  $("log-panel").open = true;
+  var log = $("log");
+  log.scrollTop = log.scrollHeight;
+}
+
+/* ---------- SSE 订阅:四型事件分派 + 断线兜底 ---------- */
+
+var currentEs = null; // 当前 EventSource(单任务,重开前先关旧的)
+
+// 关闭当前订阅(收到 done/error 后服务端会主动断流,这里显式 close 防 onerror 误报)
+function closeEvents() {
+  if (currentEs) { currentEs.close(); currentEs = null; }
+}
+
+// 订阅 job 事件流;done/error 收到即视为任务收尾(关流,后续 onerror 忽略)
+function openEvents(jobId, handlers) {
+  closeEvents();
+  var es = new EventSource("/api/jobs/" + encodeURIComponent(jobId) + "/events");
+  currentEs = es;
+  var finished = false;
+  es.onmessage = function (e) {
+    var ev;
+    try { ev = JSON.parse(e.data); } catch (err) { return; }
+    appendLog(ev);
+    if (ev.type === "phase" && handlers.onPhase) {
+      handlers.onPhase(ev);
+    } else if (ev.type === "file" && handlers.onFile) {
+      handlers.onFile(ev);
+    } else if (ev.type === "done") {
+      finished = true; es.close();
+      if (currentEs === es) { currentEs = null; }
+      if (handlers.onDone) { handlers.onDone(ev); }
+    } else if (ev.type === "error") {
+      finished = true; es.close();
+      if (currentEs === es) { currentEs = null; }
+      if (handlers.onError) { handlers.onError(ev); }
+    }
+  };
+  es.onerror = function () {
+    if (finished) { return; } // 任务已收尾,服务端断流属正常
+    finished = true;
+    es.close();
+    if (currentEs === es) { currentEs = null; }
+    $("banner-disconnect").hidden = false; // 真断线:任务结果未知,提示刷新
+    openLogOnError();
+  };
+  return es;
+}
+
+/* ---------- 步骤切换(导航高亮:当前步 active,已完成步 done) ---------- */
+
+function showStep(n) {
+  $("step1").hidden = n !== 1;
+  $("step2").hidden = n !== 2;
+  $("step3").hidden = n !== 3;
+  for (var i = 1; i <= 3; i++) {
+    var el = $("nav" + i);
+    el.className = i < n ? "done" : (i === n ? "active" : "");
+  }
+  window.scrollTo(0, 0);
+}
+
+/* ======================================================================
+ * 步①:版本下拉(/api/versions)
+ * ==================================================================== */
+
+var activeVersion = null; // 服务端读到的 PCL.ini 活跃版本(null=未读到)
+
+function fillSelect(sel, versions, active) {
+  sel.innerHTML = "";
+  versions.forEach(function (v) {
+    var opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v + (v === active ? "(当前活跃)" : "");
+    sel.appendChild(opt);
+  });
+}
+
+// 默认选位:源=活跃版本(读不到取最旧一个),目标=与源不同的最后一个版本
+function pickDefaults(versions) {
+  var src = versions.indexOf(activeVersion) >= 0 ? activeVersion : versions[0];
+  var dst = null;
+  for (var i = versions.length - 1; i >= 0; i--) {
+    if (versions[i] !== src) { dst = versions[i]; break; }
+  }
+  return { src: src, dst: dst };
+}
+
+function refreshStartButton() {
+  var src = $("src-select").value;
+  var dst = $("dst-select").value;
+  var same = src !== "" && src === dst;
+  $("same-warning").hidden = !same;
+  $("btn-plan").disabled = same || !src || !dst;
+}
+
+function loadVersions() {
+  fetch("/api/versions").then(function (resp) {
+    if (!resp.ok) {
+      return resp.json().catch(function () { return {}; }).then(function (j) {
+        throw { what: j.what || "版本列表读取失败", why: j.why || ("HTTP " + resp.status), details: j.details };
+      });
+    }
+    return resp.json();
+  }).then(function (body) {
+    var versions = body.versions || [];
+    activeVersion = body.active || null;
+    if (versions.length === 0) {
+      renderError($("versions-error"), "没有可选版本",
+        "游戏根目录的 versions/ 下没有版本文件夹,请检查配置后刷新页面", {});
+      $("active-hint").textContent = "当前活跃版本:未读取到";
+      return;
+    }
+    fillSelect($("src-select"), versions, activeVersion);
+    fillSelect($("dst-select"), versions, activeVersion);
+    var d = pickDefaults(versions);
+    if (d.src) { $("src-select").value = d.src; }
+    if (d.dst) { $("dst-select").value = d.dst; }
+    $("active-hint").textContent =
+      "当前活跃版本(启动器正在使用):" + (activeVersion || "未读取到") +
+      "。迁移完成后请按下文提醒更新 PCL 两处配置。";
+    refreshStartButton();
+  }).catch(function (err) {
+    if (err instanceof TypeError) {
+      // fetch 网络层失败(服务进程不在了):与 SSE 断线同一提示口径
+      $("banner-disconnect").hidden = false;
+      return;
+    }
+    renderError($("versions-error"), err.what, err.why, err.details || {});
+  });
+}
+
+/* ======================================================================
+ * 步②:plan job(SSE phase → done.plan)与计划渲染
+ * ==================================================================== */
+
+var planGroups = [];         // 规范化后的分组数组(渲染顺序=服务端返回顺序)
+var groupOpen = {};          // origin → 是否展开(搜索时暂存用户态)
+var askChecked = {};         // path → true(❓组勾选状态)
+var planSrc = "", planDst = "";
+
+// 规范化分组:兼容 {origin:{...actions}}(T6 实现)与 {groups:[{items}]} 两种形态
+function normalizeGroups(plan) {
+  var raw = Array.isArray(plan.groups)
+    ? plan.groups
+    : Object.keys(plan).map(function (origin) {
+        var g = plan[origin];
+        g.origin = origin;
+        return g;
+      });
+  return raw.map(function (g) {
+    var actions = g.actions || g.items || [];
+    return {
+      origin: g.origin,
+      title: g.title || g.origin,
+      behavior: g.behavior || "",
+      footnote: g.footnote || null,
+      count: (g.count != null) ? g.count : actions.length,
+      actions: actions
+    };
+  });
+}
+
+function renderPlan() {
+  $("plan-route").textContent = planSrc + " → " + planDst;
+  var box = $("groups");
+  box.innerHTML = "";
+  planGroups.forEach(function (g) {
+    var isAsk = g.behavior === "ask";
+    var section = document.createElement("section");
+    section.className = "group" + (groupOpen[g.origin] ? " open" : "");
+    section.dataset.origin = g.origin;
+
+    // 组头:折叠箭头 + 标题 + 计数徽章 + behavior 短标签(+❓组全选开关)
+    var head = document.createElement("button");
+    head.type = "button";
+    head.className = "group-head";
+    var inner = '<span class="arrow">▸</span><span class="title"></span>' +
+      '<span class="badge">' + g.count + "</span>" +
+      '<span class="behavior-tag">' + esc(BEHAVIOR_LABELS[g.behavior] || g.behavior) + "</span>";
+    head.innerHTML = inner;
+    head.querySelector(".title").textContent = g.title;
+    head.addEventListener("click", function () {
+      section.classList.toggle("open");
+      groupOpen[g.origin] = section.classList.contains("open");
+    });
+    if (isAsk) {
+      var all = document.createElement("label");
+      all.className = "behavior-tag";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = "ask-all-" + g.origin;
+      all.appendChild(cb);
+      all.appendChild(document.createTextNode(" 全选"));
+      cb.addEventListener("change", function () {
+        section.querySelectorAll('input[data-path]').forEach(function (row) {
+          row.checked = cb.checked;
+          syncAsk(row.dataset.path, cb.checked);
+        });
+        refreshAskSummary();
+      });
+      head.appendChild(all);
+    }
+    section.appendChild(head);
+
+    // 行:❓组带勾选框(默认不勾),所有组行显 path + reason
+    var body = document.createElement("div");
+    body.className = "group-body";
+    g.actions.forEach(function (a) {
+      var row = document.createElement("div");
+      row.className = "row";
+      row.dataset.q = (a.path + "\n" + (a.reason || "")).toLowerCase();
+      if (isAsk) {
+        var cb2 = document.createElement("input");
+        cb2.type = "checkbox";
+        cb2.dataset.path = a.path;
+        cb2.checked = !!askChecked[a.path];
+        cb2.addEventListener("change", function () { syncAsk(a.path, cb2.checked); refreshAskSummary(); });
+        row.appendChild(cb2);
+      }
+      var p = document.createElement("code");
+      p.className = "path";
+      p.textContent = a.path;
+      var r = document.createElement("span");
+      r.className = "reason";
+      r.textContent = a.reason || "";
+      row.appendChild(p);
+      row.appendChild(r);
+      body.appendChild(row);
+    });
+    section.appendChild(body);
+
+    // 👻组脚注:从分组数据的 footnote 字段取(其余组为 null 不渲染)
+    if (g.footnote) {
+      var fn = document.createElement("div");
+      fn.className = "footnote";
+      fn.textContent = g.footnote;
+      section.appendChild(fn);
+    }
+    box.appendChild(section);
+  });
+  refreshAskSummary();
+  applyFilter();
+}
+
+function syncAsk(path, checked) {
+  if (checked) { askChecked[path] = true; } else { delete askChecked[path]; }
+}
+
+function refreshAskSummary() {
+  var askGroups = planGroups.filter(function (g) { return g.behavior === "ask"; });
+  if (askGroups.length === 0) {
+    $("ask-summary").textContent = "本计划没有需要人工确认的条目。";
+    return;
+  }
+  var total = askGroups.reduce(function (n, g) { return n + g.count; }, 0);
+  var n = Object.keys(askChecked).length;
+  $("ask-summary").textContent = "待确认已勾选 " + n + " / " + total +
+    " 项(勾选的将随本次迁移一并复制)";
+  // 同步组头「全选」框状态
+  askGroups.forEach(function (g) {
+    var cb = $("ask-all-" + g.origin);
+    if (cb) { cb.checked = (n === total && total > 0); }
+  });
+}
+
+// 搜索过滤(前端):匹配 path/reason(不区分大小写);有匹配的组强制显示并展开,无匹配的组隐藏
+function applyFilter() {
+  var q = $("search").value.trim().toLowerCase();
+  var anyVisible = false;
+  document.querySelectorAll("#groups .group").forEach(function (section) {
+    var visibleRows = 0;
+    section.querySelectorAll(".row").forEach(function (row) {
+      var hit = !q || row.dataset.q.indexOf(q) >= 0;
+      row.classList.toggle("hidden-by-search", !hit);
+      if (hit) { visibleRows++; }
+    });
+    var show = visibleRows > 0 || !q;
+    section.classList.toggle("hidden-by-search", !show);
+    // 搜索态强制展开有匹配的组;清空搜索恢复用户折叠状态
+    if (q && visibleRows > 0) { section.classList.add("open"); }
+    if (!q) { section.classList.toggle("open", !!groupOpen[section.dataset.origin]); }
+    if (show) { anyVisible = true; }
+  });
+  $("no-match").hidden = !(q && !anyVisible);
+}
+
+// 步② UI 复位(重新生成计划/返回第一步时)
+function resetStep2() {
+  $("plan-progress").hidden = false;
+  $("plan-phase").textContent = "准备中…";
+  $("step2-error").hidden = true;
+  $("plan-body").hidden = true;
+  $("groups").innerHTML = "";
+  $("search").value = "";
+  $("no-match").hidden = true;
+  planGroups = [];
+  groupOpen = {};
+  askChecked = {};
+}
+
+// 启动 plan job:POST /api/plan → 订阅 SSE → phase 更新 / done 渲染分组 / error 渲染错误条
+function startPlan() {
+  var src = $("src-select").value;
+  var dst = $("dst-select").value;
+  if (!src || !dst || src === dst) { return; }
+  planSrc = src; planDst = dst;
+  $("btn-plan").disabled = true;
+  $("step2-error").hidden = true;
+  resetStep2();
+  showStep(2);
+  postJson("/api/plan", { src: src, dst: dst }).then(function (body) {
+    openEvents(body.job_id, {
+      onPhase: function (ev) {
+        $("plan-phase").textContent = PHASE_LABELS[ev.name] || ev.name;
+      },
+      onDone: function (ev) {
+        $("plan-progress").hidden = true;
+        var plan = ev.plan || {};
+        planGroups = normalizeGroups(plan);
+        // 初始展开状态:白名单展开,其余折叠(spec §5;服务端无 default_visible 字段)
+        planGroups.forEach(function (g) {
+          groupOpen[g.origin] = DEFAULT_EXPANDED.indexOf(g.origin) >= 0;
+        });
+        renderPlan();
+        $("plan-body").hidden = false;
+        $("btn-plan").disabled = false;
+        $("btn-migrate").disabled = false; // 新计划 → 可执行(上次失败可能禁用了按钮)
+      },
+      onError: function (ev) {
+        $("plan-progress").hidden = true;
+        renderError($("step2-error"), ev.what, ev.why, ev.details);
+        openLogOnError();
+        $("btn-plan").disabled = false;
+      }
+    });
+  }).catch(function (err) {
+    if (err instanceof TypeError) {
+      $("banner-disconnect").hidden = false;
+      return;
+    }
+    $("plan-progress").hidden = true;
+    renderError($("step2-error"), err.what, err.why, err.details);
+    $("btn-plan").disabled = false;
+  });
+}
+
+/* ======================================================================
+ * 步③:migrate job(POST /api/migrate → SSE file 流 → done/error)
+ * ==================================================================== */
+
+var failedFiles = []; // {path, error} 失败清单(done 前可复制)
+
+function resetStep3() {
+  $("migrate-phase").textContent = "正在启动…";
+  $("file-count").textContent = "0 / 0";
+  $("file-progress").max = 1;
+  $("file-progress").value = 0;
+  $("last-file").textContent = "";
+  $("last-file").className = "";
+  $("step3-error").hidden = true;
+  $("failed-box").hidden = true;
+  $("failed-list").innerHTML = "";
+  $("failed-count").textContent = "0";
+  $("summary-box").hidden = true;
+  $("stats").innerHTML = "";
+  $("reminder-box").hidden = true;
+  $("reminder-text").textContent = "";
+  $("done-title").textContent = "迁移完成";
+  failedFiles = [];
+}
+
+function onFileEvent(ev) {
+  // 文件级进度:只更新计数/进度条/最近一行(不逐行刷 DOM)
+  $("file-count").textContent = ev.index + " / " + ev.total;
+  $("file-progress").max = ev.total || 1;
+  $("file-progress").value = ev.index;
+  var label = STATUS_LABELS[ev.status] || ev.status;
+  if (ev.failed) {
+    label = "失败";
+    failedFiles.push({ path: ev.path, error: ev.error || "未知错误" });
+    $("failed-count").textContent = String(failedFiles.length);
+    var li = document.createElement("li");
+    li.textContent = ev.path + " — " + (ev.error || "未知错误");
+    $("failed-list").appendChild(li);
+    $("failed-box").hidden = false;
+  }
+  $("last-file").textContent = "最近:" + ev.path + "(" + label +
+    (ev.backed_up ? ",目标已备份" : "") + ")";
+  $("last-file").className = ev.failed ? "failed" : "";
+}
+
+function onMigrateDone(ev) {
+  $("migrate-phase").textContent = "已结束";
+  var spin = $("migrate-spin");
+  if (spin && spin.parentNode) { spin.parentNode.removeChild(spin); }
+  var summary = ev.summary || {};
+  // summary 五键恒存在(服务端契约 I1);done-title 按失败数给文案
+  var failed = summary.failed || 0;
+  $("done-title").textContent = failed > 0 ? "迁移结束(有 " + failed + " 个失败)" : "迁移完成";
+  var stats = $("stats");
+  stats.innerHTML = "";
+  SUMMARY_KEYS.forEach(function (k) {
+    var v = summary[k] || 0;
+    var div = document.createElement("div");
+    div.className = "stat" + (k === "failed" && v > 0 ? " bad" : "");
+    var b = document.createElement("b");
+    b.textContent = String(v);
+    var s = document.createElement("span");
+    s.textContent = STATUS_LABELS[k] || k;
+    div.appendChild(b);
+    div.appendChild(s);
+    stats.appendChild(div);
+  });
+  $("summary-box").hidden = false;
+  // PCL 提醒:全文逐行显示(dry-run 或有失败时服务端给空数组,不渲染)
+  var reminder = ev.reminder || [];
+  if (reminder.length > 0) {
+    $("reminder-text").textContent = reminder.join("\n");
+    $("reminder-box").hidden = false;
+  }
+}
+
+function copyFailedList() {
+  var text = failedFiles.map(function (f) {
+    return f.path + "\n  错误: " + f.error;
+  }).join("\n");
+  if (!text) { return; }
+  // 优先剪贴板 API(127.0.0.1/localhost 属安全上下文),失败退回选区方案
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      $("btn-copy-failed").textContent = "已复制";
+      setTimeout(function () { $("btn-copy-failed").textContent = "复制失败清单"; }, 1500);
+    }, function () { fallbackCopy(text); });
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text) {
+  var ta = document.createElement("textarea");
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); } catch (e) { /* 忽略:极老浏览器 */ }
+  document.body.removeChild(ta);
+  $("btn-copy-failed").textContent = "已复制";
+  setTimeout(function () { $("btn-copy-failed").textContent = "复制失败清单"; }, 1500);
+}
+
+// 启动 migrate job:勾选路径放 ask_yes → POST /api/migrate → 订阅 SSE
+function startMigrate() {
+  var askYes = Object.keys(askChecked);
+  $("btn-migrate").disabled = true;
+  resetStep3();
+  showStep(3);
+  postJson("/api/migrate", { src: planSrc, dst: planDst, ask_yes: askYes, dry_run: false })
+    .then(function (body) {
+      openEvents(body.job_id, {
+        onPhase: function (ev) {
+          $("migrate-phase").textContent = PHASE_LABELS[ev.name] || ev.name;
+        },
+        onFile: onFileEvent,
+        onDone: onMigrateDone,
+        onError: function (ev) {
+          $("migrate-phase").textContent = "任务失败";
+          renderError($("step3-error"), ev.what, ev.why, ev.details);
+          openLogOnError();
+          $("btn-migrate").disabled = false; // 允许修正后直接重试
+        }
+      });
+    })
+    .catch(function (err) {
+      // POST 被拒(409 单锁占用/422 版本不存在等):退回步②显示三段式错误
+      if (err instanceof TypeError) {
+        $("banner-disconnect").hidden = false;
+        return;
+      }
+      showStep(2);
+      $("btn-migrate").disabled = false;
+      renderError($("step2-error"), err.what, err.why, err.details);
+    });
+}
+
+/* ---------- 事件绑定与启动 ---------- */
+
+function init() {
+  $("src-select").addEventListener("change", refreshStartButton);
+  $("dst-select").addEventListener("change", refreshStartButton);
+  $("btn-plan").addEventListener("click", startPlan);
+  $("btn-migrate").addEventListener("click", startMigrate);
+  $("btn-back1").addEventListener("click", function () {
+    closeEvents();          // 放弃当前订阅(job 若仍在跑由服务端单锁兜底)
+    $("btn-plan").disabled = false;
+    $("btn-migrate").disabled = false;
+    showStep(1);
+  });
+  // 步③返回:计划仍留在内存(勾选状态保留),修正问题后可直接重试
+  $("btn-back2").addEventListener("click", function () {
+    closeEvents();
+    $("btn-migrate").disabled = false;
+    showStep(2);
+  });
+  $("btn-copy-failed").addEventListener("click", copyFailedList);
+  $("search").addEventListener("input", applyFilter);
+  showStep(1);
+  loadVersions();
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
 </html>
