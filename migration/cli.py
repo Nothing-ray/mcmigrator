@@ -1,4 +1,4 @@
-"""命令行入口:scan / diff / plan / swap / migrate 子命令(编排逻辑消费 pipeline)。"""
+"""命令行入口:scan / diff / plan / swap / migrate / doctor 子命令(编排逻辑消费 pipeline)。"""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pathlib import Path
 from . import __version__, rules
 from .classifier import Classifier
 from .differ import Differ
+from .doctor import run_doctor
 from .fsops import copy_atomic
 from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
 from .pipeline import build_plan, execute_migration, scan_version
@@ -86,6 +87,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_mig.add_argument("--yes-ask", action="store_true", help="needs_review 全部迁移")
     p_mig.add_argument("-y", action="store_true", help="跳过执行前确认")
     p_mig.add_argument("--force", action="store_true", help="忽略已执行/过期防护")
+
+    # doctor 无参数:工作目录按 frozen/兼容模式自动解析
+    sub.add_parser("doctor", help="环境体检:数据完整性/配置/权限/磁盘")
     return parser
 
 
@@ -603,6 +607,14 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """doctor 子命令:逐行打印体检结果;全绿退出 0,任一 ❌ 退出 1。"""
+    ok, lines = run_doctor()
+    for line in lines:
+        _print(line)
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。"""
     _safe_reconfigure_streams()
@@ -618,5 +630,7 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_swap(args)
     if args.command == "migrate":
         return _cmd_migrate(args)
+    if args.command == "doctor":
+        return _cmd_doctor(args)
     build_parser().print_help()
     return 1

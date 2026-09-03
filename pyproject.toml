@@ -20,7 +20,8 @@ mcmig = "migration.cli:main"
 include = ["migration*"]
 
 [tool.setuptools.package-data]
-migration = ["data/*.yaml"]
+# manifest.sha256(数据完整性清单)须随包分发,doctor 校验依赖它
+migration = ["data/*.yaml", "data/*.sha256"]
 
 [tool.ruff]
 line-length = 100
