@@ -133,6 +133,10 @@ def _rollback_if_touched(
 ) -> None:
     """失败回滚:目标原件若在事务中被改动,从备份镜像恢复(备份保留,绝不删)。
 
+    回滚是尽力而为的补救,恢复过程自身失败(OSError)只降级为 log.warning,
+    绝不上抛——否则会在 copy_atomic 的 except 块内顶替类型化主异常,
+    且裸 OSError 不属于 FsOpsError 族,会击穿 executor 的逐文件容错。
+
     Args:
         dst: 事务目标文件。
         backup_dir: 冲突备份目录(None=无备份可回滚)。
@@ -148,8 +152,12 @@ def _rollback_if_touched(
         log.warning("回滚失败:冲突备份缺失 %s", bak)
         return
     rtmp = dst.parent / f"{dst.name}{TMP_SUFFIX}"
-    shutil.copy2(long_path(bak), long_path(rtmp))
-    os.replace(long_path(rtmp), long_path(dst))
+    try:
+        shutil.copy2(long_path(bak), long_path(rtmp))
+        os.replace(long_path(rtmp), long_path(dst))
+    except OSError as e:
+        log.warning("回滚失败,放弃恢复(目标可能保持中间态): %s: %s", dst, e)
+        return
     log.warning("已从备份回滚目标原件: %s ← %s", dst, bak)
 
 

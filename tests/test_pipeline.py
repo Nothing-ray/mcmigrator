@@ -134,6 +134,65 @@ def test_execute_migration_ask_yes_set_decides_ask(tmp_path):
     assert (dst_root / "q.txt").read_text(encoding="utf-8") == "Q"
 
 
+def test_execute_migration_cleans_tmp_and_checks_disk(tmp_path, monkeypatch):
+    """预检:清理残留 tmp;磁盘不足抛 DiskSpaceError 且零写盘。
+
+    磁盘预检用注入法:monkeypatch 模块级 check_disk_space(实现须调用模块级名,
+    不可 from-import 后改本地别名调用,否则 monkeypatch 拦不到)。
+    """
+    import pytest
+
+    from migration import pipeline as pl
+    from migration.fsops import DiskSpaceError
+
+    game = tmp_path / "game"
+    src = game / "versions" / "src"
+    dst = game / "versions" / "dst"
+    src.mkdir(parents=True)
+    dst.mkdir(parents=True)
+    (src / "options.txt").write_text("fps:1\n", encoding="utf-8")
+    (dst / "stale.mcmig-tmp").write_text("half", encoding="utf-8")
+
+    plan = _mk_plan([_mk_action("options.txt", Behavior.COPY)])
+    execute_migration(plan, src, dst, ask_yes=set())
+    assert not (dst / "stale.mcmig-tmp").exists()  # tmp 清理
+    assert (dst / "options.txt").read_text(encoding="utf-8") == "fps:1\n"
+
+    def no_disk(root, needed):
+        raise DiskSpaceError(str(root), f"缺 {needed // (1024 * 1024)} MB")
+
+    monkeypatch.setattr(pl, "check_disk_space", no_disk)
+    (dst / "options.txt").unlink()  # 移除已迁移产物,验证预检失败零写盘
+    plan2 = _mk_plan([_mk_action("options.txt", Behavior.COPY)])
+    with pytest.raises(DiskSpaceError):
+        execute_migration(plan2, src, dst, ask_yes=set())
+    assert not (dst / "options.txt").exists()  # 执行未发生(预检失败零写盘)
+
+
+def test_execute_migration_progress_cb_is_realtime(tmp_path):
+    """携带项 A:progress_cb 注入 Executor 实时逐文件回调,而非执行后批量回放。
+
+    判据:收到第一个文件的回调时,第二个文件应尚未写盘(批量回放则必已写盘)。
+    """
+    src_root = tmp_path / "s"
+    dst_root = tmp_path / "d"
+    src_root.mkdir()
+    dst_root.mkdir()
+    (src_root / "a.txt").write_text("A", encoding="utf-8")
+    (src_root / "b.txt").write_text("B", encoding="utf-8")
+    plan = _mk_plan([_mk_action("a.txt", Behavior.COPY), _mk_action("b.txt", Behavior.COPY)])
+    realtime: list[bool] = []
+
+    def cb(r) -> None:
+        """收到 a.txt 回调时记录 b.txt 是否仍未写盘。"""
+        if r.path == "a.txt":
+            realtime.append(not (dst_root / "b.txt").exists())
+
+    execute_migration(plan, src_root, dst_root, ask_yes=set(), progress_cb=cb)
+    assert realtime == [True]
+    assert (dst_root / "b.txt").read_text(encoding="utf-8") == "B"  # 全程正常完成
+
+
 def test_execute_migration_dry_run_zero_write_and_progress_cb(tmp_path):
     """dry_run 零写盘(COPY/ASK 推演、未命中 ASK=asked_no、SKIP=skipped);progress_cb 逐结果回调。"""
     src_root = tmp_path / "s"

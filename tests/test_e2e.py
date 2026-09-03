@@ -558,6 +558,48 @@ def test_migrate_full_chain(tmp_path, monkeypatch, capsys):
     assert len([b for b in backups if b.is_file()]) == 1
 
 
+def test_migrate_force_keeps_first_executed_at(tmp_path, monkeypatch, capsys):
+    """--force 统计修正:重跑成功保留首次 executed_at;execution_summary 取最新一次。
+
+    时间戳精确到秒,真实两次执行可能同秒导致断言假通过,故用哨兵值篡改首次
+    executed_at 后重跑,验证其不被覆盖。
+    """
+    from migration.cli import main
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert main(["scan", "dst", "--game-root", str(game_root)]) == 0
+    assert main(["plan", "src", "dst", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    assert main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"]) == 0
+    capsys.readouterr()
+
+    # 篡改首次执行状态为哨兵值:executed_at(时间锚点)+ 首跑统计(copied=1)
+    plan_file = tmp_path / ".mcmig" / "plans" / "src__dst.plan.json"
+    doc = json.loads(plan_file.read_text(encoding="utf-8"))
+    assert doc["executed_at"]
+    doc["executed_at"] = "2000-01-01T00:00:00+08:00"
+    doc["execution_summary"] = {"copied": 1, "identical": 0, "asked_no": 0, "failed": 0}
+    plan_file.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # --force 重跑:全部 identical
+    assert main(["migrate", "src", "dst", "--game-root", str(game_root), "-y", "--force"]) == 0
+    capsys.readouterr()
+
+    doc2 = json.loads(plan_file.read_text(encoding="utf-8"))
+    assert doc2["executed_at"] == "2000-01-01T00:00:00+08:00"  # 保留首次执行时间
+    assert doc2["execution_summary"] == {  # 统计取最新一次(本次全 identical)
+        "copied": 0, "identical": 1, "asked_no": 0, "failed": 0,
+    }
+
+
 def test_migrate_missing_plan_exit_2(tmp_path, monkeypatch, capsys):
     from migration.cli import main
 

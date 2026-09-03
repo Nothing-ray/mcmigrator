@@ -160,6 +160,34 @@ def test_backup_keeps_first_copy_on_remigrate(tmp_path):
     assert bak.read_text(encoding="utf-8") == "原始默认"
 
 
+def test_execute_progress_cb_called_per_file(tmp_path):
+    """progress_cb 逐文件回调,顺序与结果一致(不传=行为不变由其余测试覆盖)。"""
+    src, dst = tmp_path / "s", tmp_path / "d"
+    src.mkdir()
+    dst.mkdir()
+    (src / "a.txt").write_text("1", encoding="utf-8")
+    (src / "b.txt").write_text("2", encoding="utf-8")
+    plan = _plan(_action("a.txt"), _action("b.txt"))
+    seen = []
+    Executor(plan, src, dst, yes).execute(progress_cb=seen.append)
+    assert [r.path for r in seen] == ["a.txt", "b.txt"]
+
+
+def test_execute_progress_cb_realtime_before_next_file(tmp_path):
+    """实时性:收到 a.txt 回调时 b.txt 尚未写盘(单文件完成即回调,非批量回放)。"""
+    src, dst = _setup(tmp_path)
+    plan = _plan(_action("options.txt"), _action("config/a.toml"))
+    snapshot_at_first_cb: list[bool] = []
+
+    def cb(r) -> None:
+        """首个文件回调时,检查第二个文件是否仍未写盘。"""
+        if r.path == "options.txt":
+            snapshot_at_first_cb.append(not (dst / "config" / "a.toml").exists())
+
+    Executor(plan, src, dst, yes).execute(progress_cb=cb)
+    assert snapshot_at_first_cb == [True]
+
+
 def test_unreadable_src_md5_fails_without_copy(tmp_path, monkeypatch):
     """源 MD5 不可读时直接判失败,不进入复制(避免假『校验不一致』)。"""
     import migration.executor as ex

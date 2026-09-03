@@ -582,6 +582,9 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     for r in failed:
         _print(f"  [失败] {r.path}: {r.error}")
     if not args.dry_run and not failed:
+        # --force 重跑统计修正:保留首次 executed_at(执行状态的时间锚点),
+        # execution_summary 取最新一次(反映当前实例状态;重跑多为全 identical)
+        first_executed_at = plan.executed_at
         plan.mark_executed(
             {
                 "copied": stat.get("copied", 0),
@@ -590,6 +593,8 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
                 "failed": 0,
             }
         )
+        if first_executed_at is not None:
+            plan.executed_at = first_executed_at
         plan.save(p_path)
         _print("[提醒] 迁移完成。若要让启动器默认打开新版本,需同步两处配置:")
         _print(f"  1. {game_root / 'PCL.ini'} 的 Version: 行 → 改为 {args.dst}")

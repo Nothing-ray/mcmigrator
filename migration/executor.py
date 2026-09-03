@@ -96,21 +96,33 @@ class Executor:
             log.warning("复制失败 %s: %s", rel, e)
             return FileResult(rel, "copied", failed=True, error=f"复制失败: {e}")
 
-    def execute(self, dry_run: bool = False) -> list[FileResult]:
+    def execute(
+        self,
+        dry_run: bool = False,
+        progress_cb: Callable[[FileResult], None] | None = None,
+    ) -> list[FileResult]:
         """执行计划,返回逐文件结果(按 plan.actions 顺序)。
 
         Args:
             dry_run: True 时零写盘,结果为推演。
+            progress_cb: 逐文件实时进度回调——每个 FileResult 产出后立即同步调用
+                (GUI 进度条数据源);None 时无回调,行为与旧版完全一致。
         """
+        cb: Callable[[FileResult], None] = (
+            progress_cb if progress_cb is not None else (lambda _r: None)
+        )
         results: list[FileResult] = []
         for action in self.plan.actions:
+            result: FileResult
             if action.behavior == Behavior.COPY:
-                results.append(self._copy_one(action.path, dry_run))
+                result = self._copy_one(action.path, dry_run)
             elif action.behavior == Behavior.ASK:
                 if self.ask_handler(action):
-                    results.append(self._copy_one(action.path, dry_run))
+                    result = self._copy_one(action.path, dry_run)
                 else:
-                    results.append(FileResult(action.path, "asked_no"))
+                    result = FileResult(action.path, "asked_no")
             else:
-                results.append(FileResult(action.path, "skipped"))
+                result = FileResult(action.path, "skipped")
+            results.append(result)
+            cb(result)  # 实时回调:单文件完成即上报,而非执行完批量回放
         return results

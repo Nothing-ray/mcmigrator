@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from .classifier import Classifier
 from .differ import Differ
 from .executor import Executor, FileResult
+from .fsops import check_disk_space, clean_stale_tmp
 from .plan import ActionRecord, Behavior, MigrationPlan, Origin
 from .planner import Planner
 from .scanner import Scanner
@@ -212,29 +213,41 @@ def execute_migration(
     dry_run: bool = False,
     progress_cb: Callable[[FileResult], None] | None = None,
 ) -> list[FileResult]:
-    """执行迁移计划(Executor 封装,CLI 与 GUI 平级消费)。
+    """执行迁移计划(三道预检 + Executor 封装,CLI 与 GUI 平级消费)。
+
+    预检序列(执行前):
+    1. clean_stale_tmp(dst_root):清理上次崩溃残留的 *.mcmig-tmp(有写盘副作用,
+       dry-run 跳过以守住零写盘契约)
+    2. check_disk_space(dst_root, Σ COPY 动作源文件大小):不足抛 DiskSpaceError,
+       此时零写盘(模块级函数引用,便于 GUI/测试注入替身)
 
     Args:
         plan: 已审阅的迁移计划。
         src_root: 源版本根目录。
         dst_root: 目标版本根目录。
         ask_yes: 预收集的 ASK 确认路径集合(命中即迁移,未命中按 asked_no 跳过)。
-        dry_run: True 时零写盘,结果为推演。
-        progress_cb: 逐文件结果回调(None 时内部以 no-op 兜底;Task 3 才接入
-            GUI 实时进度,本任务仅保证签名与逐结果调用)。
+        dry_run: True 时零写盘,结果为推演(tmp 清理随之跳过;磁盘预检只读仍执行)。
+        progress_cb: 逐文件结果实时回调——注入 Executor.execute,单文件完成即同步
+            调用(GUI 进度条数据源);None 时无回调,行为不变。
 
     Returns:
         逐文件执行结果(按 plan.actions 顺序)。
+
+    Raises:
+        DiskSpaceError: 目标磁盘剩余空间不足(预检失败,零写盘)。
     """
-    cb: Callable[[FileResult], None] = progress_cb if progress_cb is not None else (
-        lambda r: None
-    )
+    if not dry_run:
+        removed = clean_stale_tmp(dst_root)
+        if removed:
+            log.info("[预检] 已清理 %d 个残留临时文件(*.mcmig-tmp)", removed)
+    # 磁盘预检:按 COPY 动作源文件大小求和(identical 会零写盘,偏保守无害)
+    needed = sum(a.src_size or 0 for a in plan.actions if a.behavior == Behavior.COPY)
+    check_disk_space(dst_root, needed)
 
     def ask(a: ActionRecord) -> bool:
         """ASK 动作决策:路径在预确认集合内即迁移。"""
         return a.path in ask_yes
 
-    results = Executor(plan, src_root, dst_root, ask).execute(dry_run=dry_run)
-    for r in results:
-        cb(r)
-    return results
+    return Executor(plan, src_root, dst_root, ask).execute(
+        dry_run=dry_run, progress_cb=progress_cb
+    )
