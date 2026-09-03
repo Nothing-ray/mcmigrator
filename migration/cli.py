@@ -1,4 +1,4 @@
-"""命令行入口:scan / diff 两个子命令。"""
+"""命令行入口:scan / diff / plan / swap / migrate 子命令(编排逻辑消费 pipeline)。"""
 
 from __future__ import annotations
 
@@ -13,11 +13,9 @@ from pathlib import Path
 from . import __version__, rules
 from .classifier import Classifier
 from .differ import Differ
-from .executor import Executor
-from .plan import ActionRecord, Behavior, MigrationPlan, Origin, PlanFormatError, plan_path
-from .planner import Planner
+from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
+from .pipeline import build_plan, execute_migration, scan_version
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
-from .scanner import Scanner
 from rich.prompt import Confirm
 
 from .snapshot import Snapshot, snapshot_path
@@ -133,24 +131,41 @@ def _resolve_game_root(args: argparse.Namespace) -> Path:
 
 def build_ruleset(
     versions: str | list[str],
-    args: argparse.Namespace,
-    mcmig_dir: Path,
     *,
+    exclude: list[str],
+    include: list[str],
+    rule_files: list[Path],
+    mcmig_dir: Path,
     with_whitelist: bool = False,
     orphan_rules: list[rules.Rule] | None = None,
 ) -> tuple[rules.RuleSet, list[str]]:
     """按优先级(CLI > extra > user > ORPHAN > REBUILD > whitelist > default)组装 RuleSet。
+
+    纯参数签名(不依赖 argparse.Namespace):CLI 从 args 展开传参,
+    pipeline.build_plan 直调亦可(GUI 复用)。
+
+    Args:
+        versions: 参与判定的版本名(展开 default 规则中的版本占位)。
+        exclude: CLI 级临时规则 glob(本次按 never,对应 --exclude)。
+        include: CLI 级临时规则 glob(本次按 must_migrate,对应 --include)。
+        rule_files: 额外规则文件路径列表(对应 --rule)。
+        mcmig_dir: .mcmig 目录(user rules.yaml 所在)。
+        with_whitelist: 是否启用 whitelist 层(仅 plan 命令)。
+        orphan_rules: orphan 规则(仅 plan 命令,plan-only)。
+
+    Returns:
+        (规则集, 规则加载警告列表)。
 
     rebuild 层对所有命令(scan/diff/plan)常开;whitelist 仅 plan 命令启用;
     orphan 规则仅 plan 命令启用(plan-only)。
     """
     from importlib import resources
 
-    cli_rules = rules.load_cli_rules(args.exclude, args.include)
+    cli_rules = rules.load_cli_rules(exclude, include)
     extra: list[rules.Rule] = []
     errors: list[str] = []
-    for f in args.rule:
-        r, e = rules.load_user_rules(Path(f))
+    for f in rule_files:
+        r, e = rules.load_user_rules(f)
         extra.extend(r)
         errors.extend(e)
     user_path = mcmig_dir / "rules.yaml"
@@ -187,11 +202,6 @@ def _print(text: str) -> None:
     print(text)
 
 
-def _print_err(text: str) -> None:
-    """打到 stderr(--json 模式下保持 stdout 纯 JSON 可解析)。"""
-    print(text, file=sys.stderr)
-
-
 def _cmd_scan(args: argparse.Namespace) -> int:
     game_root = _resolve_game_root(args)
     ver_dir = _version_dir(game_root, args.version)
@@ -203,14 +213,18 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         return 2
     cwd = Path.cwd()
     mcmig_dir = cwd / ".mcmig"
-    rs, errs = build_ruleset(args.version, args, mcmig_dir)
+    rs, errs = build_ruleset(
+        args.version,
+        exclude=args.exclude,
+        include=args.include,
+        rule_files=[Path(f) for f in args.rule],
+        mcmig_dir=mcmig_dir,
+    )
     for e in errs:
         _print(f"[规则警告] {e}")
-    snap, scan_errors = Scanner(ver_dir, args.version, strict=args.strict).build_snapshot(
-        str(game_root)
-    )
+    # 扫描构建逻辑已下沉 pipeline(快照仍写 .mcmig/snapshots/,与 snapshot_path 同构)
+    snap = scan_version(game_root, args.version, mcmig_dir / "snapshots", strict=args.strict)
     spath = snapshot_path(cwd, args.version)
-    snap.save(spath)
     clf = Classifier(rs)
     classified = clf.classify_all(snap.files)
     counts: dict[str, int] = {}
@@ -225,7 +239,6 @@ def _cmd_scan(args: argparse.Namespace) -> int:
                     "version": args.version,
                     "file_count": snap.file_count,
                     "by_category": counts,
-                    "unreadable": len(scan_errors),
                     "snapshot": str(spath),
                 },
                 ensure_ascii=False,
@@ -235,8 +248,6 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     else:
         _print(f"[完成] 扫描 {args.version}: {snap.file_count} 个文件 → {spath}")
         _print("分类汇总: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-        if scan_errors:
-            _print(f"[警告] {len(scan_errors)} 个文件无法读取(已跳过)")
     return 0
 
 
@@ -256,7 +267,13 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         _print(f"[错误] 快照读取失败: {e}")
         return 2
     mcmig_dir = cwd / ".mcmig"
-    rs, errs = build_ruleset([args.src, args.dst], args, mcmig_dir)
+    rs, errs = build_ruleset(
+        [args.src, args.dst],
+        exclude=args.exclude,
+        include=args.include,
+        rule_files=[Path(f) for f in args.rule],
+        mcmig_dir=mcmig_dir,
+    )
     for e in errs:
         _print(f"[规则警告] {e}")
     clf = Classifier(rs)
@@ -275,118 +292,11 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_plan_pipeline(
-    cwd: Path,
-    src: str,
-    dst: str,
-    game_root: Path,
-    args: argparse.Namespace,
-    *,
-    modpack_swap: bool = False,
-    rescan_dst: bool = False,
-    save: bool = True,
-) -> tuple[MigrationPlan, list[str]]:
-    """plan 公共管线(plan 子命令与 swap 第三步共用)。
-
-    流程:载入 src 快照 → dst 快照(rescan_dst=True 时现场重扫并落盘,否则载入已有)
-    → orphan 规则 → ruleset → diff(modpack_swap) → planner → mod 兼容检查 → 保存 plan。
-
-    Args:
-        cwd: 工作目录(.mcmig 所在)。
-        src/dst: 源/目标版本名。
-        game_root: 游戏根目录。
-        args: 命令参数(仅用 exclude/include/rule,plan 之外的命令可传缺省 Namespace)。
-        modpack_swap: 换包模式(源独有 mod 视为旧包自带,不回迁)。
-        rescan_dst: True 时重扫 dst 生成最新快照并写入 .mcmig/snapshots(swap 装包后必开)。
-        save: 是否持久化 plan 文件。
-
-    Returns:
-        (plan, compat_warnings)。
-
-    Raises:
-        FileNotFoundError: src 快照不存在,或 rescan_dst=False 且 dst 快照不存在。
-    """
-    src_path = snapshot_path(cwd, src)
-    if not src_path.exists():
-        raise FileNotFoundError(f"缺少 {src} 快照")
-    try:
-        src_snap = Snapshot.load(src_path)
-    except FileNotFoundError:
-        raise
-    except Exception as e:  # noqa: BLE001
-        raise ValueError(f"{src} 快照读取失败: {e}") from e
-    dst_snap_path = snapshot_path(cwd, dst)
-    if rescan_dst:
-        # swap 装包刚改写 dst/mods,必须现场重扫以保证 dst 快照反映最新状态
-        dst_dir = _version_dir(game_root, dst)
-        dst_snap, scan_errors = Scanner(dst_dir, dst, strict=False).build_snapshot(
-            str(game_root)
-        )
-        dst_snap.save(dst_snap_path)
-        for e in scan_errors:
-            _print(f"[警告] 扫描 {dst} 时无法读取: {e}")
-    elif not dst_snap_path.exists():
-        raise FileNotFoundError(f"缺少 {dst} 快照")
-    else:
-        try:
-            dst_snap = Snapshot.load(dst_snap_path)
-        except FileNotFoundError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            raise ValueError(f"{dst} 快照读取失败: {e}") from e
-    mcmig_dir = cwd / ".mcmig"
-    # 扫描 src/dst mods → 建 mod 注册表 → 生成 orphan 规则
-    from .moddb import (
-        check_mod_compat,
-        generate_orphan_rules,
-        load_mod_config_map,
-        read_neoforge_version,
-        scan_mods,
-    )
-
-    src_dir = _version_dir(game_root, src)
-    dst_dir = _version_dir(game_root, dst)
-    dst_mods = scan_mods(dst_dir)
-    override = load_mod_config_map()
-    orphan_rules = generate_orphan_rules(src_snap.files, dst_mods, override)
-    rs, errs = build_ruleset(
-        [src, dst], args, mcmig_dir, with_whitelist=True, orphan_rules=orphan_rules
-    )
-    for e in errs:
-        _print(f"[规则警告] {e}")
-    clf = Classifier(rs)
-    # 换包提示:src 独有 mod jar 数量大(≥20)时提醒用户(正常版本升级只有个位数)
-    src_only_mods = sum(
-        1 for p in src_snap.files
-        if p.path.startswith("mods/") and p.path.endswith(".jar")
-        and not any(d.path == p.path for d in dst_snap.files)
-    )
-    if not modpack_swap and src_only_mods >= 20:
-        _print_err(
-            f"[提示] 检测到 {src_only_mods} 个源独有 mod。若这是一次整合包替换,"
-            "请加 --modpack-swap 避免旧包 mod 被搬入新包。"
-        )
-    report = Differ(src_snap.files, dst_snap.files, clf, modpack_swap=modpack_swap).diff()
-    src_index = {e.path: e for e in src_snap.files}
-    plan = Planner(report, src_index).plan()
-    plan.src, plan.dst = src, dst
-    # 版本兼容检查:对 mod_added 的 jar 检查 NeoForge 版本范围
-    src_mods = scan_mods(src_dir)
-    dst_nf_version = read_neoforge_version(dst_dir)
-    mod_added_paths = [
-        r.path for r in plan.actions if r.behavior == Behavior.COPY and r.origin == Origin.MOD_ADDED
-    ]
-    compat_warnings = check_mod_compat(mod_added_paths, src_mods, dst_nf_version)
-    if save:
-        try:
-            plan.save(plan_path(cwd, src, dst))
-        except OSError as e:
-            _print(f"[警告] plan 文件写入失败(已忽略,stdout 仍有效): {e}")
-    return plan, compat_warnings
-
-
 def _cmd_plan(args: argparse.Namespace) -> int:
-    """plan 子命令:load snapshots → scan mods → orphan rules → diff → plan → 兼容检查 → 渲染。"""
+    """plan 子命令:load snapshots → scan mods → orphan rules → diff → plan → 兼容检查 → 渲染。
+
+    编排逻辑已下沉 pipeline.build_plan,本函数只负责参数展开与结果渲染。
+    """
     cwd = Path.cwd()
     src_path = snapshot_path(cwd, args.src)
     dst_path = snapshot_path(cwd, args.dst)
@@ -397,9 +307,19 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         return 2
     game_root = _resolve_game_root(args)
     try:
-        plan, compat_warnings = _run_plan_pipeline(
-            cwd, args.src, args.dst, game_root, args,
-            modpack_swap=args.modpack_swap, rescan_dst=False, save=not args.no_save,
+        plan, compat_warnings = build_plan(
+            cwd,
+            game_root,
+            args.src,
+            args.dst,
+            modpack_swap=args.modpack_swap,
+            rescan_dst=False,
+            save=not args.no_save,
+            mcmig_dir=cwd / ".mcmig",
+            plans_dir=cwd / ".mcmig" / "plans",
+            exclude=args.exclude,
+            include=args.include,
+            rule_files=[Path(f) for f in args.rule],
         )
     except (FileNotFoundError, ValueError) as e:
         _print(f"[错误] {e}")
@@ -553,11 +473,16 @@ def _cmd_swap(args: argparse.Namespace) -> int:
         # 彩排模式未真正写盘,规划会基于旧状态误导用户,故跳过规划
         _print("[提示] dry-run 未写盘,跳过规划步骤。去掉 --dry-run 将自动生成迁移计划。")
         return 0
-    plan_args = argparse.Namespace(exclude=[], include=[], rule=[])
     try:
-        plan, compat_warnings = _run_plan_pipeline(
-            Path.cwd(), args.src, args.dst, game_root, plan_args,
-            modpack_swap=True, rescan_dst=True,
+        plan, compat_warnings = build_plan(
+            Path.cwd(),
+            game_root,
+            args.src,
+            args.dst,
+            modpack_swap=True,
+            rescan_dst=True,
+            mcmig_dir=Path.cwd() / ".mcmig",
+            plans_dir=Path.cwd() / ".mcmig" / "plans",
         )
     except (FileNotFoundError, ValueError) as e:
         _print(f"[错误] 规划失败: {e}")
@@ -575,7 +500,7 @@ def _cmd_swap(args: argparse.Namespace) -> int:
 
 
 def _cmd_migrate(args: argparse.Namespace) -> int:
-    """migrate 子命令:加载 plan → 防护校验 → 确认 → Executor 执行 → 回写状态 → PCL 提醒。"""
+    """migrate 子命令:加载 plan → 防护校验 → ASK 预收集 → 确认 → pipeline 执行 → 回写状态 → PCL 提醒。"""
     cwd = Path.cwd()
     game_root = _resolve_game_root(args)
     p_path = plan_path(cwd, args.src, args.dst)
@@ -611,23 +536,11 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         _print("[警告] 目标版本文件被占用,游戏可能仍在运行;继续可能损坏存档。")
         if not args.force:
             return 2
-    # ASK 处理器
-    if args.skip_ask:
-        def ask(_a: ActionRecord) -> bool:
-            return False
-    elif args.yes_ask:
-        def ask(_a: ActionRecord) -> bool:
-            return True
+    # ASK 预收集:执行期 ASK 决策 = 路径 ∈ ask_yes(pipeline.execute_migration 消费)
+    if args.yes_ask:
+        ask_yes: set[str] = {a.path for a in plan.actions if a.behavior == Behavior.ASK}
     else:
-        from rich.console import Console
-
-        _console = Console()
-
-        def ask(a: ActionRecord) -> bool:
-            # 逐文件确认:显示路径与判定原因,由用户决定是否迁移
-            _console.print(f"  ❓ {a.path} — {a.reason}")
-            return Confirm.ask("  迁移此文件?", default=False)
-
+        ask_yes = set()
     copy_n = sum(1 for a in plan.actions if a.behavior == Behavior.COPY)
     ask_n = sum(1 for a in plan.actions if a.behavior == Behavior.ASK)
     _print(
@@ -638,7 +551,17 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         if not Confirm.ask("确认执行?", default=False):
             _print("已取消。")
             return 0
-    results = Executor(plan, src_root, dst_root, ask).execute(dry_run=args.dry_run)
+    if not args.skip_ask and not args.yes_ask:
+        # 交互模式:逐文件确认(显示路径与判定原因),先收集决策集合再统一交执行器
+        from rich.console import Console
+
+        console = Console()
+        for a in plan.actions:
+            if a.behavior == Behavior.ASK:
+                console.print(f"  ❓ {a.path} — {a.reason}")
+                if Confirm.ask("  迁移此文件?", default=False):
+                    ask_yes.add(a.path)
+    results = execute_migration(plan, src_root, dst_root, ask_yes, dry_run=args.dry_run)
     from collections import Counter
 
     stat = Counter(r.status for r in results)
