@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import shutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -13,6 +12,7 @@ from pathlib import Path
 from . import __version__, rules
 from .classifier import Classifier
 from .differ import Differ
+from .fsops import copy_atomic
 from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
 from .pipeline import build_plan, execute_migration, scan_version
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
@@ -408,8 +408,9 @@ def _swap_install(
             if not resolver(jar.name):
                 continue  # 保留目标
         if not dry_run:
-            dst_mods.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(jar, target)
+            # 装包覆盖走 fsops 事务复制(tmp+MD5 校验+原子换名);
+            # 冲突是否覆盖已由 resolver 决策,无需再备份(backup_dir=None)
+            copy_atomic(jar, target, rel=jar.name, backup_dir=None)
         copied += 1
     return copied, skipped, conflicted
 

@@ -9,6 +9,8 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .fsops import write_json_atomic
+
 TOOL_VERSION = "0.5.0"
 SNAPSHOT_FORMAT = 1
 
@@ -40,8 +42,7 @@ class Snapshot:
     snapshot_format: int = SNAPSHOT_FORMAT
 
     def save(self, path: Path) -> None:
-        """将快照写入 JSON(自动创建父目录)。"""
-        path.parent.mkdir(parents=True, exist_ok=True)
+        """将快照写入 JSON(原子写:tmp+replace,自动创建父目录,失败不留半截文件)。"""
         payload = {
             "tool_version": self.tool_version,
             "snapshot_format": self.snapshot_format,
@@ -52,8 +53,7 @@ class Snapshot:
             "file_count": self.file_count,
             "files": [asdict(f) for f in self.files],
         }
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        write_json_atomic(path, payload)
 
     @classmethod
     def load(cls, path: Path) -> "Snapshot":

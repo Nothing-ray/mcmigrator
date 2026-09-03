@@ -3,19 +3,22 @@
 语义见 Reference/specs/2026-08-31-modpack-swap-workflow-design.md §2.1/§3.1:
 - 仅 COPY 动手;ASK 走 ask_handler
 - 可重入:目标与源 MD5 相同 → identical(不备份)
-- 覆盖已存在文件前先镜像备份到 <dst>/_conflict_backup/<rel>
-- 复制后 MD5 校验;绝不删除任何文件
+- 覆盖已存在文件前先镜像备份到 <dst>/_conflict_backup/<rel>(首份不可逆)
+- 复制/备份/校验/换名下沉 fsops.copy_atomic(事务式,任一步失败回滚且不留 tmp)
+- 逐文件容错:捕获 FsOpsError,单文件失败不中断整个计划;绝不删除任何文件
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import shutil
+import shutil  # noqa: F401 — 测试 monkeypatch 锚点:改全局 shutil.copy2 属性,
+# fsops 内的 copy2 调用同样被拦截,逐文件容错路径得以在测试中验证
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from .fsops import FsOpsError, copy_atomic, md5_of as _md5_of
 from .plan import ActionRecord, Behavior, MigrationPlan
 
 log = logging.getLogger(__name__)
@@ -42,18 +45,6 @@ class FileResult:
     error: str | None = None
 
 
-def _md5_of(p: Path) -> str | None:
-    """计算文件 MD5;文件不存在/不可读返回 None。"""
-    h = hashlib.md5()
-    try:
-        with p.open("rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-    except OSError:
-        return None
-    return h.hexdigest()
-
-
 class Executor:
     """执行 MigrationPlan 的 COPY/ASK 动作(纯逻辑,交互由 ask_handler 注入)。"""
 
@@ -77,21 +68,12 @@ class Executor:
         self.dst_root = dst_root
         self.ask_handler = ask_handler
 
-    def _backup(self, rel: str, dst_file: Path) -> bool:
-        """覆盖前把目标现有文件镜像备份;返回是否发生备份。
-
-        首份备份=目标原始值,不可逆,绝不覆盖(重复迁移 --force 时保留最早的
-        原始内容;已存在即跳过)。
-        """
-        bak = self.dst_root / BACKUP_DIR / rel
-        if bak.exists():
-            return False
-        bak.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(dst_file, bak)
-        return True
-
     def _copy_one(self, rel: str, dry_run: bool) -> FileResult:
-        """执行单个 COPY:identical 短路 → 备份 → 复制 → 校验(逐文件容错)。"""
+        """执行单个 COPY:identical 短路 → fsops 事务复制(逐文件容错)。
+
+        事务细节(冲突备份镜像/首份不可逆/tmp+MD5 校验+原子换名/失败回滚)
+        全部下沉 fsops.copy_atomic,本方法只做前置判定与结果归并。
+        """
         src_file = self.src_root / rel
         dst_file = self.dst_root / rel
         try:
@@ -105,15 +87,11 @@ class Executor:
                 return FileResult(rel, "identical")
             backed_up = False
             if not dry_run:
-                if dst_file.is_file():
-                    backed_up = self._backup(rel, dst_file)
-                dst_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src_file, dst_file)
-                if _md5_of(dst_file) != src_md5:
-                    return FileResult(rel, "copied", backed_up=backed_up, failed=True,
-                                      error="复制后 MD5 校验不一致")
+                backed_up = copy_atomic(
+                    src_file, dst_file, rel=rel, backup_dir=self.dst_root / BACKUP_DIR
+                )
             return FileResult(rel, "copied", backed_up=backed_up)
-        except OSError as e:
+        except FsOpsError as e:
             # 逐文件容错:单个文件复制/备份失败不中断整个计划(spec §2.1)
             log.warning("复制失败 %s: %s", rel, e)
             return FileResult(rel, "copied", failed=True, error=f"复制失败: {e}")

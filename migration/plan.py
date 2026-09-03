@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
+from .fsops import write_json_atomic
 from .snapshot import TOOL_VERSION
 
 PLAN_FORMAT = 2
@@ -184,8 +185,7 @@ class MigrationPlan:
         return counts
 
     def save(self, path: Path) -> None:
-        """写入 JSON(自动创建父目录)。"""
-        path.parent.mkdir(parents=True, exist_ok=True)
+        """写入 JSON(原子写:tmp+replace,自动创建父目录,失败不留半截文件)。"""
         payload = {
             "tool_version": self.tool_version,
             "plan_format": self.plan_format,
@@ -197,8 +197,7 @@ class MigrationPlan:
             "executed_at": self.executed_at,
             "execution_summary": self.execution_summary,
         }
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        write_json_atomic(path, payload)
 
     @classmethod
     def load(cls, path: Path) -> "MigrationPlan":
