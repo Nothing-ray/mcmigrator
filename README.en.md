@@ -195,6 +195,24 @@ Contributions welcome (in Chinese or English):
 
 - **On legacy Chinese Windows consoles (cmd / GBK code page), emoji in reports render as `?`.** This is a limitation of the Windows console encoding (GBK/cp936), which cannot represent emoji. `mcmigrator` degrades automatically to avoid crashing — Chinese text and all paths/reasons always display correctly; only decorative symbols like ✅📦🔄 become `?`. Modern terminals (Windows Terminal / PowerShell 7) are unaffected.
 
+### Encoding behavior (important)
+
+`mcmigrator` picks the output encoding by destination:
+
+- **Direct console display** (tty): keeps the console's native encoding (Chinese renders correctly on GBK consoles)
+- **Redirected to file or pipe** (`> out.json` / consumed by other programs): **always UTF-8** (no BOM), matching the project's UTF-8 file convention — `--json` output is safe for cross-machine consumption
+
+Two Windows environment notes (from real dedicated-server testing, 2026-09):
+
+1. **Prefer PowerShell 7 (pwsh) or Windows Terminal**; legacy PowerShell 5.1 parses BOM-less UTF-8 scripts as GBK, and GBK consoles cannot render emoji
+2. **On GBK-locale machines, prefer ASCII version names** (e.g. `pre-9.8` instead of `9.11前`) — some terminal environments mangle CJK arguments passed through bash (PowerShell passes them fine); if you hit a "snapshot missing" error, check this first
+
+### Dedicated server scenario
+
+A dedicated server has no `versions/` layout — **each server directory is one "version"**. Built-in default rules already cover server-core assets: `world/**`, `server.properties`, `whitelist.json`, `ops.json`, `banned-*.json` → must-migrate; `mods_*/**` (ops rollback backup dirs) → never.
+
+Zero-copy integration trick: map the server directory to `versions\<name>` with an NTFS junction (`mklink /J`), then `scan`/`diff` directly — no need to copy the 2GB+ server tree. One scan before and one after a modpack swap gives the full comparison.
+
 ## Roadmap
 
 - ✅ v0: `scan`/`diff` read-only comparison (done)

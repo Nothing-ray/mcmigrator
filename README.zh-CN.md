@@ -190,6 +190,24 @@ mcmigrator/
 
 - **旧版中文 Windows 控制台(cmd / GBK 代码页)下,报告里的 emoji 会显示为 `?`**。这是 Windows 控制台编码(GBK/cp936)无法渲染 emoji 的限制——`mcmigrator` 会自动降级以避免崩溃,中文与所有路径/原因始终正常显示,仅 ✅📦🔄 等装饰性符号变为 `?`。现代终端(Windows Terminal / PowerShell 7)不受影响。
 
+### 编码行为说明(重要)
+
+`mcmigrator` 按输出目的地自动选择编码:
+
+- **直接显示在控制台**(tty):沿用控制台原生编码(GBK 控制台中文正常)
+- **重定向到文件或管道**(`> out.json` / 供其他程序读取):**恒为 UTF-8**(无 BOM),与项目"文件一律 UTF-8"规范一致——`--json` 输出可放心跨机消费
+
+两个 Windows 环境提示(源自 2026-09 服务端实测):
+
+1. **推荐用 PowerShell 7(pwsh)或 Windows Terminal**;老旧 PowerShell 5.1 会把无 BOM 的 UTF-8 脚本按 GBK 解析,且 GBK 控制台无法显示 emoji
+2. **GBK 区域机器上,版本名建议用 ASCII**(如 `pre-9.8` 而非 `9.11前`)——个别终端环境经 bash 传中文参数可能出现编码错位(用 PowerShell 传参正常);遇到"缺少快照"报错时优先排查此项
+
+### 服务端(dedicated server)场景
+
+专用服务器没有 `versions/` 结构——**每个服务器目录就是一个"版本"**。内置默认规则已覆盖服务端核心资产:`world/**`、`server.properties`、`whitelist.json`、`ops.json`、`banned-*.json` → 必迁;`mods_*/**`(运维回滚备份目录)→ 不迁。
+
+零拷贝接入技巧:用 NTFS Junction(`mklink /J`)把服务器目录映射为 `versions\<名称>`,即可直接 `scan`/`diff`,无需复制 2GB+ 的服务端目录。换装前后各 scan 一次即可得到完整对比。
+
 ## 路线图
 
 - ✅ v0:`scan`/`diff` 只读对比(已完成)

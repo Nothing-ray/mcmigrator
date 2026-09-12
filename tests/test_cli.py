@@ -496,3 +496,53 @@ def test_plan_user_rule_overrides_orphan(tmp_path: Path, monkeypatch, capsys):
     origins = {a["path"]: a["origin"] for a in doc["actions"]}
     # 用户规则压过 orphan:jade 落 must_migrate 而非 orphan
     assert origins.get("config/jade/presets.json") == "must_migrate"
+
+
+def test_safe_reconfigure_streams_forces_utf8_when_redirected():
+    """重定向/管道(非 tty)时强制 UTF-8 编码(F7 回归:2026-09 服务端语料 diff JSON 被 GBK 污染)。
+
+    GBK 控制台下 `mcmig diff ... --json > out.json` 若沿用原生编码,机器可读输出
+    会变成 GBK 字节,跨机消费即乱码。重定向输出必须恒为 UTF-8(项目编码规范)。
+    """
+    import io
+    import sys
+
+    from migration.cli import _safe_reconfigure_streams
+
+    orig = (sys.stdout, sys.stderr)
+    try:
+        sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding="gbk", errors="strict")
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="gbk", errors="strict")
+        _safe_reconfigure_streams()
+        assert sys.stdout.encoding == "utf-8"
+        assert sys.stdout.errors == "replace"
+        assert sys.stderr.encoding == "utf-8"
+    finally:
+        sys.stdout, sys.stderr = orig
+
+
+def test_safe_reconfigure_streams_keeps_native_encoding_on_tty():
+    """真实控制台(tty)保持原生编码,仅 errors 降级 replace(F7 修复不得倒退交互体验)。
+
+    GBK 控制台直接显示时强制 UTF-8 会中文乱码;原生编码 + replace 才是正确语义。
+    """
+    import io
+    import sys
+
+    from migration.cli import _safe_reconfigure_streams
+
+    class FakeTty(io.TextIOWrapper):
+        """isatty()=True 的 GBK 文本流,模拟真实 GBK 控制台。"""
+
+        def isatty(self) -> bool:
+            return True
+
+    orig = (sys.stdout, sys.stderr)
+    try:
+        sys.stdout = FakeTty(io.BytesIO(), encoding="gbk", errors="strict")
+        sys.stderr = FakeTty(io.BytesIO(), encoding="gbk", errors="strict")
+        _safe_reconfigure_streams()
+        assert sys.stdout.encoding == "gbk"  # 原生编码保留
+        assert sys.stdout.errors == "replace"  # 仅错误处理降级
+    finally:
+        sys.stdout, sys.stderr = orig

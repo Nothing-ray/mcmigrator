@@ -102,15 +102,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _safe_reconfigure_streams() -> None:
-    """将 stdout/stderr 错误处理改为 replace,避免 GBK 控制台 emoji 崩溃。
+    """按输出目的地设置编码:真实控制台保原生编码,重定向/管道强制 UTF-8。
 
-    保留控制台原生编码(gbk/utf-8 自适应):中文始终正常,emoji 降级为 '?'。
-    rich 无论走 legacy_windows_render 还是 file.write 路径,最终都经 file.write,
-    故在编码层 reconfigure 即可全覆盖。PyInstaller exe 同样适用(sys.stdout 仍为 TextIOWrapper)。
+    - 控制台(tty):保留原生编码(GBK 控制台中文正常),emoji 降级为 '?'(errors=replace)
+    - 重定向/管道(非 tty):强制 UTF-8 —— 机器可读输出(--json 等)跨机消费恒为 UTF-8。
+      回归来源:2026-09 服务端语料 diff JSON 在 GBK 控制台重定向后被 GBK 污染(F7)
+    - rich 无论走 legacy_windows_render 还是 file.write 路径,最终都经 file.write,
+      故在编码层 reconfigure 即可全覆盖。PyInstaller exe 同样适用(sys.stdout 仍为 TextIOWrapper)。
     """
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(errors="replace")  # type: ignore[attr-defined]
+            if stream.isatty():
+                stream.reconfigure(errors="replace")  # type: ignore[attr-defined]
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
         except (AttributeError, ValueError):
             pass  # 非 TextIOWrapper 或不支持 reconfigure(如已关闭/重定向到非文本流)
 
