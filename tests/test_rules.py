@@ -275,7 +275,6 @@ def test_default_rules_server_scenario():
 
     客户端目录不存在这些路径,规则不命中 → 对客户端零影响。
     """
-    from importlib import resources
 
     layer, errs = rules.load_default_rules(["1.21.1-NeoForge_21.1.228"])
     assert errs == []
