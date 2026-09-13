@@ -307,6 +307,8 @@ class DiffContext:
             rel_path: 版本内相对路径(正斜杠)。
             side: "src" 或 "dst";其他值视为不存在。
         """
+        if side not in ("src", "dst"):
+            return None
         root = self.src_dir if side == "src" else self.dst_dir
         try:
             return (root / rel_path).read_bytes()
@@ -330,7 +332,8 @@ def resolve_diff_context(src_snap: Snapshot, dst_snap: Snapshot) -> DiffContext 
     """
     dirs: list[Path] = []
     for snap in (src_snap, dst_snap):
-        if not snap.game_root:
+        # version 空串同样守卫:"" 参与 Path 拼接会折叠成 versions/ 目录本身
+        if not snap.game_root or not snap.version:
             return None
         vdir = Path(snap.game_root) / "versions" / snap.version
         if not vdir.is_dir():

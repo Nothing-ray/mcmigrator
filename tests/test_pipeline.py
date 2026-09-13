@@ -321,3 +321,16 @@ def test_context_read_file_roundtrip_and_missing(tmp_path):
     assert ctx.read_file("server.properties", "src") == b"motd=hi\n"
     assert ctx.read_file("server.properties", "dst") is None  # 读取失败 → None
     assert ctx.read_file("server.properties", "unknown-side") is None
+
+
+def test_resolve_context_empty_version_returns_none(tmp_path):
+    """终审 T2②:version="" 时路径折叠成 versions/ 目录本身,不得误当版本目录。
+
+    game_root 有效但 version 为空串 → resolve_diff_context 必须返回 None
+    (与 game_root 为空的守卫同级),否则会把 versions/ 当版本目录去扫 mods。
+    """
+    from migration.pipeline import resolve_diff_context
+
+    ra, _ = _make_game_root(tmp_path, "a", "x", "1.0")
+    # src 侧 version=""(dst 侧完全有效,证明守卫在空串一侧生效)
+    assert resolve_diff_context(_snap("", str(ra)), _snap("a", str(ra))) is None
