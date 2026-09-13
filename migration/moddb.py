@@ -496,3 +496,76 @@ def check_mod_compat(
                     )
                 )
     return warnings
+
+
+@dataclass(frozen=True)
+class ModPair:
+    """跨侧配对的同一 mod(升级或改名)。
+
+    Attributes:
+        modid: mod 标识符。
+        kind: "upgrade"(同 modid 异版本) 或 "renamed"(同 modid 同版本异文件名)。
+        src_files: 源侧 jar 相对路径(通常 1 个)。
+        dst_files: 目标侧 jar 相对路径。
+        src_version: 源侧版本(空串视为 None)。
+        dst_version: 目标侧版本(空串视为 None)。
+    """
+
+    modid: str
+    kind: str
+    src_files: list[str]
+    dst_files: list[str]
+    src_version: str | None
+    dst_version: str | None
+
+    def to_dict(self) -> dict:
+        """转为 JSON 可序列化字典(diff --json 的 mod_pairs 元素)。"""
+        return {
+            "modid": self.modid,
+            "kind": self.kind,
+            "src_files": self.src_files,
+            "dst_files": self.dst_files,
+            "src_version": self.src_version,
+            "dst_version": self.dst_version,
+        }
+
+
+def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
+    """按 modid 配对两侧注册表,产出升级/改名清单。
+
+    - 两侧均有该 modid:版本不同 → upgrade;版本相同但 jar 文件名不同 → renamed;
+      版本与文件名均相同 → 不配对(已是 shared)。
+    - 仅一侧有 → 不配对(维持 to_add/target_only 原语义,planner 行为不变)。
+    - 多 jar 同 modid(注册表按 modid 去重,罕见)整组按单条处理,不做逐 jar 拆分。
+
+    Args:
+        src_mods: 源侧 mod 注册表。
+        dst_mods: 目标侧 mod 注册表。
+
+    Returns:
+        ModPair 列表(按 modid 升序)。
+    """
+    pairs: list[ModPair] = []
+    # 注:modids 是 ModRegistry 的 property(非方法),直接取集合做交集
+    for modid in sorted(src_mods.modids & dst_mods.modids):
+        s = src_mods.get(modid)
+        d = dst_mods.get(modid)
+        if s is None or d is None:
+            continue
+        if s.version != d.version:
+            kind = "upgrade"
+        elif s.jar_filename != d.jar_filename:
+            kind = "renamed"
+        else:
+            continue
+        pairs.append(
+            ModPair(
+                modid=modid,
+                kind=kind,
+                src_files=[f"mods/{s.jar_filename}"],
+                dst_files=[f"mods/{d.jar_filename}"],
+                src_version=s.version or None,
+                dst_version=d.version or None,
+            )
+        )
+    return pairs
