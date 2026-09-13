@@ -12,6 +12,8 @@
 | `20260908/snapshot_after.json` | snapshot_9.8-换装后.json | 一轮换装后（919 文件，删 6 mod/备份目录污染） |
 | `20260912/snapshot_9_8_player.json` | snapshot_9.8玩家档_换9.11前.json | 二轮换装前（1450 文件，含 4 天玩家 world 561 个） |
 | `20260912/snapshot_9_11_fresh.json` | snapshot_9.11-换装后.json | 二轮换装后（802 文件，删档重建 + 7 mod 升级） |
+| `20260913/r3_live.json` | r3-live.snapshot.json | 三轮 20.4h 运行后（899 文件，F10 演化对 dst） |
+| `20260913/r3_post.json` | r3-post.snapshot.json | 三轮 agent 微调后（899 文件，F11 漂移对） |
 
 脱敏：`game_root` 字段替换为 `C:\fixture\sanitized`（原为测试机个人路径）；
 其余内容（相对路径/尺寸/MD5）与原件逐字节一致。
@@ -23,5 +25,7 @@
 - **F5**：`mods_9.4_旧/` 运维备份目录 118 jar（一轮 dst 侧污染 / 二轮 src 侧污染）
 - **F2**：被删 mod 的孤儿 config（二轮删除态 → candidate；一轮保留态 → identical）
 - 同尺寸不同内容的手改 config（alexscaves/infernalmobs/scguns）→ 验证内容哈希而非尺寸判等
+- **F10/F11**：同包演化全量可解释（only_in_dst=91）+ 纯配置漂移最小对照（candidate 恰=2）
+- **F12**：server.properties 的 Properties.store 规范化噪声在 R1/R2 中与真实改动混合（无 ctx 字节判定锚定）
 
 消费方：`tests/test_corpus_regression.py`（六桶计数 + 关键路径 spot check）。

@@ -89,3 +89,37 @@ def test_corpus_0912_orphan_config_deleted_and_hand_edits() -> None:
     # 同尺寸不同内容(6533→6533)必须落 modified 而非 identical —— 内容哈希哨兵
     assert cd["config/alexscaves-general.toml"].note == "modified"
     assert cd["config/infernalmobs.cfg"].note == "modified"
+
+
+def test_corpus_r3_evolution_fully_explained() -> None:
+    """F10(三轮): 同包 20.4h 演化 — 世界/服务器资产入 to_migrate,91 个演化文件全量可解释。"""
+    src = Snapshot.load(FIXTURES / "20260912" / "snapshot_9_11_fresh.json")
+    dst = Snapshot.load(FIXTURES / "20260913" / "r3_live.json")
+    rs, errs = build_ruleset(["evo_src", "evo_dst"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    actual = {k: len(getattr(report, k))
+              for k in ["to_migrate", "candidate", "mods", "only_in_dst", "identical", "never"]}
+    assert actual == {"to_migrate": 22, "candidate": 1, "mods": 112,
+                      "only_in_dst": 91, "identical": 636, "never": 37}
+    tm = {i.path: i for i in report.to_migrate}
+    assert "server.properties" in tm  # E1/E2 真实改动 + F12 噪声成分(无 ctx 时字节判定)
+    assert any(p.startswith("world/") for p in tm)  # 世界演化数据
+    assert [i.path for i in report.candidate] == ["user_jvm_args.txt"]  # 唯一 unknown 漂移
+
+
+def test_corpus_r3_pure_config_drift_golden() -> None:
+    """F11(三轮黄金对): agent 只改 2 个配置 ⇒ diff 恰好 1+1,零误报零漏报。"""
+    src = Snapshot.load(FIXTURES / "20260913" / "r3_live.json")
+    dst = Snapshot.load(FIXTURES / "20260913" / "r3_post.json")
+    rs, errs = build_ruleset(["drift_src", "drift_dst"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    actual = {k: len(getattr(report, k))
+              for k in ["to_migrate", "candidate", "mods", "only_in_dst", "identical", "never"]}
+    assert actual == {"to_migrate": 1, "candidate": 1, "mods": 112,
+                      "only_in_dst": 0, "identical": 748, "never": 37}
+    assert [i.path for i in report.to_migrate] == ["server.properties"]
+    assert [i.path for i in report.candidate] == ["config/alltheleaks.json"]
