@@ -2,7 +2,8 @@ import json
 
 from migration import rules
 from migration.classifier import Classifier
-from migration.differ import Differ
+from migration.differ import DiffItem, DiffReport, Differ
+from migration.moddb import ModPair
 from migration.reporter import DiffReporter, ReportOptions
 from migration.snapshot import FileEntry
 
@@ -258,3 +259,52 @@ def test_plan_reporter_to_json_omits_compat_warnings_when_empty():
     # 显式空列表
     doc_empty = json.loads(reporter.to_json([]))
     assert "compat_warnings" not in doc_empty
+
+
+# 批次 B 渲染层测试:F4 配对标记 + F3 方向提示 + mod_pairs JSON。
+# (import 已合并至文件顶部:json / DiffItem / DiffReport / ModPair / DiffReporter / ReportOptions)
+
+
+def _pairs():
+    return [
+        ModPair(modid="waystones", kind="upgrade",
+                src_files=["mods/waystones-42.jar"], dst_files=["mods/waystones-44.jar"],
+                src_version="21.1.42", dst_version="21.1.44"),
+    ]
+
+
+def _report_with_mods():
+    r = DiffReport()
+    r.mods = [
+        DiffItem("mods/waystones-42.jar", None, None, note="to_add"),
+        DiffItem("mods/waystones-44.jar", None, None, note="target_only"),
+    ]
+    r.candidate = [DiffItem("config/new-stuff.toml", None, None, note="new")]
+    r.only_in_dst = [DiffItem("config/dst-only.toml", None, None, note="target_only")]
+    return r
+
+
+def test_to_json_contains_mod_pairs_additive():
+    doc = json.loads(DiffReporter(_report_with_mods(), src_version="a", dst_version="b",
+                                  mod_pairs=_pairs()).to_json())
+    assert doc["mod_pairs"][0]["modid"] == "waystones"
+    assert doc["mod_pairs"][0]["kind"] == "upgrade"
+    # 六桶键与 note 词汇不变
+    assert set(doc["buckets"]) == {"to_migrate", "candidate", "mods", "only_in_dst", "identical", "never"}
+    assert doc["buckets"]["mods"][0]["note"] == "to_add"
+
+
+def test_to_json_mod_pairs_default_empty():
+    doc = json.loads(DiffReporter(_report_with_mods(), src_version="a", dst_version="b").to_json())
+    assert doc["mod_pairs"] == []
+
+
+def test_render_pair_marker_and_direction_hints(capsys):
+    DiffReporter(_report_with_mods(), src_version="a", dst_version="b",
+                 mod_pairs=_pairs()).render(ReportOptions(show_identical=True, show_never=True))
+    out = capsys.readouterr().out
+    assert "to_add ⇄upgrade" in out
+    assert "target_only ⇄upgrade" in out
+    assert "new ←仅源" in out
+    assert "target_only →仅目标" in out
+    assert "配对: ⇄upgrade ×1" in out
