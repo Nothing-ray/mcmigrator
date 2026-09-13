@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,7 +30,7 @@ from .scanner import Scanner
 from .snapshot import Snapshot
 
 if TYPE_CHECKING:
-    from .moddb import CompatWarning
+    from .moddb import CompatWarning, ModRegistry
 
 log = logging.getLogger(__name__)
 
@@ -287,4 +288,58 @@ def execute_migration(
 
     return Executor(plan, src_root, dst_root, ask).execute(
         dry_run=dry_run, progress_cb=progress_cb
+    )
+
+
+@dataclass(frozen=True)
+class DiffContext:
+    """独立 diff 的扫描上下文:两侧 mod 注册表 + 真实版本目录(F2/F4/F12 共同基座)。"""
+
+    src_mods: "ModRegistry"
+    dst_mods: "ModRegistry"
+    src_dir: Path
+    dst_dir: Path
+
+    def read_file(self, rel_path: str, side: str) -> bytes | None:
+        """按侧读取版本目录内文件字节内容;文件缺失/IO 失败返回 None。
+
+        Args:
+            rel_path: 版本内相对路径(正斜杠)。
+            side: "src" 或 "dst";其他值视为不存在。
+        """
+        root = self.src_dir if side == "src" else self.dst_dir
+        try:
+            return (root / rel_path).read_bytes()
+        except OSError:
+            return None
+
+
+def resolve_diff_context(src_snap: Snapshot, dst_snap: Snapshot) -> DiffContext | None:
+    """从两份快照的 game_root+version 解析各自版本目录并扫描 mods。
+
+    任一侧目录不可达(跨机复放/夹具/手动删除)→ 返回 None,调用方降级为
+    纯快照对比(与 0.6.1 行为逐字节一致)。版本目录 = <game_root>/versions/<version>,
+    服务端 NTFS Junction 影子根同样成立。
+
+    Args:
+        src_snap: 源侧快照。
+        dst_snap: 目标侧快照。
+
+    Returns:
+        DiffContext,或 None(无法解析/不可达)。
+    """
+    dirs: list[Path] = []
+    for snap in (src_snap, dst_snap):
+        if not snap.game_root:
+            return None
+        vdir = Path(snap.game_root) / "versions" / snap.version
+        if not vdir.is_dir():
+            return None
+        dirs.append(vdir)
+    from .moddb import scan_mods  # 延迟导入避免循环
+    return DiffContext(
+        src_mods=scan_mods(dirs[0]),
+        dst_mods=scan_mods(dirs[1]),
+        src_dir=dirs[0],
+        dst_dir=dirs[1],
     )
