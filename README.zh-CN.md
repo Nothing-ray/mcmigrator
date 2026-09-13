@@ -126,6 +126,18 @@ NeoForge 在玩家游戏内修改 config 时自动生成 `.bak` 备份。工具�
 - **MD5 不同** → `.bak` 存的是改前的旧版本 → 玩家确实改过 → 迁移
 - **MD5 相同** → `.bak` 备份的与当前一致 → mod 自动生成(非玩家修改) → 跳过
 
+### diff 的 mods 桶语义与配对
+
+diff 以**迁移源视角**报告:src=迁移源(旧实例),dst=目标(新实例)。
+mods 桶标记:`shared`=两侧同名 jar;`to_add`=**源有目标无**(迁移时会补齐);
+`target_only`=目标自带。升级/改名由 modid 配对识别(rich 表 `⇄upgrade`/`⇄renamed` 标记 +
+表尾配对脚注;`--json` 输出顶层 `mod_pairs` 数组),不再表现为无关的"删旧+增新"。
+
+- 源侧 mod 已被目标移除时,其 config 会被标注为孤儿(`never/orphan`)——独立 `diff` 与 `plan` 语义一致
+- `*.properties`(如服务端 `server.properties`)在字节不同但键值语义相同时
+  (vanilla 重写导致的转义/时间戳/编码噪声)报告为 `identical/semantics` 而非 modified
+- 以上两项依赖快照的 `game_root` 可达;不可达时(跨机复放)自动降级为纯字节对比,stderr 提示一行
+
 ## 数据与卸载
 
 ### 工具数据放在哪

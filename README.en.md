@@ -131,6 +131,20 @@ NeoForge auto-generates `.bak` backups when a player edits a config in-game. The
 - **MD5 differs** → `.bak` stores the pre-edit version → player did modify → migrate
 - **MD5 identical** → `.bak` backup matches current → mod auto-generated (not player-edited) → skip
 
+### diff mods-bucket semantics & pairing
+
+diff reports from the **migration-source frame**: src = source (old instance), dst = target (new instance).
+mods-bucket notes: `shared` = same-named jar on both sides; `to_add` = **src-only** (migrated over);
+`target_only` = shipped by target. Upgrades/renames are paired by modid (rich-table `⇄upgrade`/`⇄renamed`
+markers + a pairing footnote; top-level `mod_pairs` array in `--json` output) instead of unrelated
+remove+add pairs.
+
+- When a mod was removed on the target side, its config is flagged as orphan (`never/orphan`) — standalone `diff` now matches `plan`
+- `*.properties` files (e.g. server `server.properties`) that differ in bytes but not in key/value
+  semantics (vanilla rewrite noise: escaping/timestamp/BOM) are reported as `identical/semantics`
+- Both features require the snapshot's `game_root` to be reachable; otherwise diff degrades to pure
+  byte comparison with a one-line stderr hint
+
 ## Data & Uninstall
 
 ### Where the Tool Keeps Its Data
