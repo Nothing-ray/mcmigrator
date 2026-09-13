@@ -168,13 +168,13 @@ def build_ruleset(
         rule_files: 额外规则文件路径列表(对应 --rule)。
         mcmig_dir: .mcmig 目录(user rules.yaml 所在)。
         with_whitelist: 是否启用 whitelist 层(仅 plan 命令)。
-        orphan_rules: orphan 规则(仅 plan 命令,plan-only)。
+        orphan_rules: orphan 规则(plan 与独立 diff 共用)。
 
     Returns:
         (规则集, 规则加载警告列表)。
 
     rebuild 层对所有命令(scan/diff/plan)常开;whitelist 仅 plan 命令启用;
-    orphan 规则仅 plan 命令启用(plan-only)。
+    orphan 规则在 plan 与独立 diff 命令启用(plan 与独立 diff 共用同一生成源)。
     """
     from importlib import resources
 
@@ -210,6 +210,11 @@ def _version_dir(game_root: Path, version: str) -> Path:
 
 def _print(text: str) -> None:
     print(text)
+
+
+def _print_err(text: str) -> None:
+    """stderr 输出(提示/警告类),不污染 --json 的 stdout。"""
+    print(text, file=sys.stderr)
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
@@ -288,18 +293,36 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         _print(f"[错误] 快照读取失败: {e}")
         return 2
     mcmig_dir = cwd / ".mcmig"
+    # 扫描上下文(F2/F4/F12 基座):两侧版本目录可达时扫描 mods 并注入配对/语义复核;
+    # 不可达(跨机复放/夹具/手动删除)→ ctx=None,降级为纯快照对比(0.6.1 行为)
+    from .moddb import generate_orphan_rules, load_mod_config_map, pair_mods
+    from .pipeline import resolve_diff_context
+
+    ctx = resolve_diff_context(src, dst)
+    orphan_rules: list[rules.Rule] = []
+    if ctx is not None:
+        # F2 孤儿规则:与 pipeline.build_plan 完全同源(src config × dst 注册表 × 覆盖表)
+        orphan_rules = generate_orphan_rules(src.files, ctx.dst_mods, load_mod_config_map())
+    else:
+        _print_err("[提示] mods 扫描不可用(game_root 不可达),配对与孤儿标注已跳过")
     rs, errs = build_ruleset(
         [args.src, args.dst],
         exclude=args.exclude,
         include=args.include,
         rule_files=[Path(f) for f in args.rule],
         mcmig_dir=mcmig_dir,
+        orphan_rules=orphan_rules,
     )
     for e in errs:
         _print(f"[规则警告] {e}")
     clf = Classifier(rs)
-    report = Differ(src.files, dst.files, clf).diff()
-    reporter = DiffReporter(report, src_version=args.src, dst_version=args.dst)
+    # F12: content_reader 注入 .properties 语义复核;F4: 按 modid 配对两侧 mod 注册表
+    report = Differ(
+        src.files, dst.files, clf,
+        content_reader=ctx.read_file if ctx is not None else None,
+    ).diff()
+    pairs = pair_mods(ctx.src_mods, ctx.dst_mods) if ctx is not None else []
+    reporter = DiffReporter(report, src_version=args.src, dst_version=args.dst, mod_pairs=pairs)
     if args.json:
         _print(reporter.to_json())
         return 0
