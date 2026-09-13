@@ -1,7 +1,7 @@
 from migration import rules
 from migration.classifier import Classifier
 from migration.differ import Differ
-from migration.rules import Category
+from migration.rules import Category, Rule
 from migration.snapshot import FileEntry
 
 
@@ -174,3 +174,68 @@ def test_modpack_swap_user_rule_rescues_specific_jar():
     ).diff()
     assert any(i.path == "mods/my-keep.jar" and i.note == "to_add" for i in d.mods)
     assert any(i.path == "mods/old-pack.jar" and i.note == "modpack_swap" for i in d.never)
+
+
+# F12:Differ properties 语义复核(注入 content_reader)
+# (导入复用文件顶部:rules / Classifier / Differ / Category / Rule / FileEntry)
+
+
+def _clf():
+    return Classifier(rules.RuleSet.from_layers(*rules.load_default_rules("mini")))
+
+
+def _must_migrate_clf():
+    return Classifier(rules.RuleSet(rules=[Rule(match="server.properties", decide=Category.MUST_MIGRATE)]))
+
+
+def _reader(pairs: dict[tuple[str, str], bytes]):
+    """构造假 content_reader;未登记的读取返回 None。"""
+    return lambda rel, side: pairs.get((rel, side))
+
+
+A = b"view-distance=8\n"          # 未转义
+B = b"view-distance=8\n#Sat Sep 12\n"  # 多了时间戳注释,语义等价
+C = b"view-distance=10\n"          # 真实差异
+
+
+def test_semantics_equal_properties_lands_identical():
+    d = Differ([FileEntry("config/x.properties", 1, "a"), ], [FileEntry("config/x.properties", 2, "b")],
+               _clf(), content_reader=_reader({("config/x.properties", "src"): A,
+                                               ("config/x.properties", "dst"): B})).diff()
+    assert [i.note for i in d.identical] == ["semantics"]
+
+
+def test_must_migrate_semantics_equal_skips_migration():
+    # 语义等价的 server.properties: identical(SKIP) 而非 to_migrate(COPY)
+    d = Differ([FileEntry("server.properties", 1, "a")], [FileEntry("server.properties", 2, "b")],
+               _must_migrate_clf(), content_reader=_reader({("server.properties", "src"): A,
+                                                            ("server.properties", "dst"): B})).diff()
+    assert [i.note for i in d.identical] == ["semantics"]
+    assert d.to_migrate == []
+
+
+def test_real_difference_still_modified():
+    d = Differ([FileEntry("config/x.properties", 1, "a")], [FileEntry("config/x.properties", 2, "b")],
+               _clf(), content_reader=_reader({("config/x.properties", "src"): A,
+                                               ("config/x.properties", "dst"): C})).diff()
+    assert [i.note for i in d.candidate] == ["modified"]
+
+
+def test_reader_none_falls_back_to_byte_compare():
+    d = Differ([FileEntry("config/x.properties", 1, "a")], [FileEntry("config/x.properties", 2, "b")],
+               _clf(), content_reader=_reader({})).diff()
+    assert [i.note for i in d.candidate] == ["modified"]
+
+
+def test_non_properties_never_triggers_reader():
+    d = Differ([FileEntry("config/x.toml", 1, "a")], [FileEntry("config/x.toml", 2, "b")],
+               _clf(), content_reader=_reader({("config/x.toml", "src"): A,
+                                               ("config/x.toml", "dst"): B})).diff()
+    assert [i.note for i in d.candidate] == ["modified"]
+
+
+def test_md5_equal_ignores_reader():
+    d = Differ([FileEntry("config/x.properties", 1, "same")], [FileEntry("config/x.properties", 1, "same")],
+               _clf(), content_reader=_reader({("config/x.properties", "src"): A,
+                                               ("config/x.properties", "dst"): C})).diff()
+    assert [i.note for i in d.identical] == ["verified"]
