@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .classifier import Classifier
 from .rules import Category
 from .snapshot import FileEntry
+from .textcompare import properties_semantic_equal
 
 MODS_PREFIX = "mods/"
+
+ContentReader = Callable[[str, str], "bytes | None"]  # (rel_path, side) → 内容;None=读取失败
 
 
 @dataclass(frozen=True)
@@ -17,7 +21,7 @@ class DiffItem:
 
     note 为 Differ→Planner 的字符串契约(非枚举,各桶异质;typo 静默走默认):
     - to_migrate / candidate: new / modified
-    - identical:              verified / size-based
+    - identical:              verified / size-based / semantics
     - never:                  never / rebuild / orphan
     - mods:                   to_add / shared / target_only
     - only_in_dst:            target_only
@@ -55,11 +59,13 @@ class Differ:
         dst_entries: list[FileEntry],
         classifier: Classifier,
         modpack_swap: bool = False,
+        content_reader: ContentReader | None = None,
     ) -> None:
         self.src = {e.path: e for e in src_entries}
         self.dst = {e.path: e for e in dst_entries}
         self.classifier = classifier
         self.modpack_swap = modpack_swap
+        self.content_reader = content_reader
 
     @staticmethod
     def _same_content(s: FileEntry, d: FileEntry) -> tuple[bool, str]:
@@ -67,6 +73,17 @@ class Differ:
         if s.md5 is not None and d.md5 is not None:
             return s.md5 == d.md5, "verified"
         return s.size == d.size, "size-based"
+
+    def _same_content_semantic(self, path: str, s: FileEntry, d: FileEntry) -> tuple[bool, str]:
+        """内容比较:F12 仅在 md5 都存在且不同、且为 .properties、且读取成功时做语义复核。"""
+        if s.md5 is not None and d.md5 is not None and s.md5 != d.md5:
+            if path.endswith(".properties") and self.content_reader is not None:
+                a = self.content_reader(path, "src")
+                b = self.content_reader(path, "dst")
+                if a is not None and b is not None and properties_semantic_equal(a, b):
+                    return True, "semantics"
+            return False, "verified"
+        return self._same_content(s, d)
 
     def _mod_item(self, path: str, s: FileEntry | None, d: FileEntry | None) -> DiffItem:
         """mods 目录条目按文件名集合三态分桶:shared / to_add / target_only。"""
@@ -121,7 +138,7 @@ class Differ:
                 elif s is None:
                     report.only_in_dst.append(DiffItem(path, s, d, note="target_only"))
                 else:
-                    same, how = self._same_content(s, d)
+                    same, how = self._same_content_semantic(path, s, d)
                     if same:
                         report.identical.append(DiffItem(path, s, d, note=how))
                     else:
@@ -133,7 +150,7 @@ class Differ:
             elif s is None:
                 report.only_in_dst.append(DiffItem(path, s, d, note="target_only"))
             else:
-                same, how = self._same_content(s, d)
+                same, how = self._same_content_semantic(path, s, d)
                 if same:
                     report.identical.append(DiffItem(path, s, d, note=how))
                 else:

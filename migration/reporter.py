@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 
 from rich.console import Console
 from rich.table import Table
 
 from .differ import DiffItem, DiffReport
-from .moddb import CompatWarning
+from .moddb import CompatWarning, ModPair
 from .plan import Behavior, MigrationPlan, ORIGIN_REGISTRY
 
 BUCKETS = ["to_migrate", "candidate", "mods", "only_in_dst", "identical", "never"]
@@ -36,10 +37,39 @@ class ReportOptions:
 class DiffReporter:
     """把 DiffReport 渲染成 rich 终端表格或 JSON。"""
 
-    def __init__(self, report: DiffReport, *, src_version: str, dst_version: str) -> None:
+    def __init__(
+        self,
+        report: DiffReport,
+        *,
+        src_version: str,
+        dst_version: str,
+        mod_pairs: list[ModPair] | None = None,
+    ) -> None:
         self.report = report
         self.src_version = src_version
         self.dst_version = dst_version
+        self.mod_pairs = mod_pairs or []
+        # path → 配对类型(F4 rich 标记用)
+        self._pair_by_path: dict[str, str] = {}
+        for p in self.mod_pairs:
+            for f in (*p.src_files, *p.dst_files):
+                self._pair_by_path[f] = p.kind
+
+    def _display_note(self, bucket: str, item: DiffItem) -> str:
+        """rich 显示用 note:F3 方向提示(candidate/only_in_dst)+ F4 配对标记(mods)。
+
+        JSON 输出仍用原始 item.note,消费方兼容不受影响。
+        """
+        note = item.note
+        if bucket == "mods":
+            kind = self._pair_by_path.get(item.path)
+            if kind:
+                note = f"{note} ⇄{kind}"
+        elif bucket == "candidate" and note == "new":
+            note = "new ←仅源"
+        elif bucket == "only_in_dst" and note == "target_only":
+            note = "target_only →仅目标"
+        return note
 
     def _item_dict(self, item: DiffItem) -> dict:
         return {
@@ -56,6 +86,7 @@ class DiffReporter:
             "dst": self.dst_version,
             "summary": {b: len(getattr(self.report, b)) for b in BUCKETS},
             "buckets": {b: [self._item_dict(i) for i in getattr(self.report, b)] for b in BUCKETS},
+            "mod_pairs": [p.to_dict() for p in self.mod_pairs],
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -87,8 +118,12 @@ class DiffReporter:
             tbl.add_column("路径")
             tbl.add_column("标记", style="dim")
             for it in items:
-                tbl.add_row(it.path, it.note)
+                tbl.add_row(it.path, self._display_note(b, it))
             console.print(tbl)
+        if self.mod_pairs and "mods" in self._visible_buckets(opts):
+            counts = Counter(p.kind for p in self.mod_pairs)
+            summary = " · ".join(f"⇄{k} ×{v}" for k, v in sorted(counts.items()))
+            console.print(f"[dim]配对: {summary}[/]")
 
 
 def _default_visible_origins() -> list[str]:

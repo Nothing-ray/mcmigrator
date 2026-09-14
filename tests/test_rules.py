@@ -268,3 +268,31 @@ def test_whitelist_yaml_loads_sodium_options():
 def test_category_orphan_exists():
     assert Category.ORPHAN.value == "orphan"
     assert Category.ORPHAN in {c for c in Category}
+
+
+def test_default_rules_server_scenario():
+    """服务端场景规则(F1/F5, 2026-09 服务端实测语料):世界/服务器资产必迁,运维备份目录不迁。
+
+    客户端目录不存在这些路径,规则不命中 → 对客户端零影响。
+    """
+
+    layer, errs = rules.load_default_rules(["1.21.1-NeoForge_21.1.228"])
+    assert errs == []
+    rs = RuleSet(rules=layer)
+    # 服务端核心资产 → must_migrate
+    assert rs.classify("world/region/r.0.0.mca") == Category.MUST_MIGRATE
+    assert rs.classify("world/DIM-1/data/raids.dat") == Category.MUST_MIGRATE
+    assert rs.classify("world/entities/r.-1.-1.mca") == Category.MUST_MIGRATE
+    assert rs.classify("world_nether/dim-1/region/r.0.0.mca") == Category.MUST_MIGRATE
+    assert rs.classify("server.properties") == Category.MUST_MIGRATE
+    assert rs.classify("whitelist.json") == Category.MUST_MIGRATE
+    assert rs.classify("ops.json") == Category.MUST_MIGRATE
+    assert rs.classify("banned-ips.json") == Category.MUST_MIGRATE
+    assert rs.classify("banned-players.json") == Category.MUST_MIGRATE
+    # 运维回滚备份目录 → never(F5: mods_9.4_旧/ 118 jar 污染)
+    assert rs.classify("mods_9.4_旧/infernalmobs.jar") == Category.NEVER
+    assert rs.classify("mods_backup/some.jar") == Category.NEVER
+    # 客户端既有判定不受影响
+    assert rs.classify("saves/World1/level.dat") == Category.MUST_MIGRATE
+    assert rs.classify("logs/latest.log") == Category.NEVER
+    assert rs.classify("config/create.toml") == Category.UNKNOWN

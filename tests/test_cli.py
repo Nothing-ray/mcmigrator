@@ -496,3 +496,131 @@ def test_plan_user_rule_overrides_orphan(tmp_path: Path, monkeypatch, capsys):
     origins = {a["path"]: a["origin"] for a in doc["actions"]}
     # 用户规则压过 orphan:jade 落 must_migrate 而非 orphan
     assert origins.get("config/jade/presets.json") == "must_migrate"
+
+
+def test_safe_reconfigure_streams_forces_utf8_when_redirected():
+    """重定向/管道(非 tty)时强制 UTF-8 编码(F7 回归:2026-09 服务端语料 diff JSON 被 GBK 污染)。
+
+    GBK 控制台下 `mcmig diff ... --json > out.json` 若沿用原生编码,机器可读输出
+    会变成 GBK 字节,跨机消费即乱码。重定向输出必须恒为 UTF-8(项目编码规范)。
+    """
+    import io
+    import sys
+
+    from migration.cli import _safe_reconfigure_streams
+
+    orig = (sys.stdout, sys.stderr)
+    try:
+        sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding="gbk", errors="strict")
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="gbk", errors="strict")
+        _safe_reconfigure_streams()
+        assert sys.stdout.encoding == "utf-8"
+        assert sys.stdout.errors == "replace"
+        assert sys.stderr.encoding == "utf-8"
+    finally:
+        sys.stdout, sys.stderr = orig
+
+
+def test_safe_reconfigure_streams_keeps_native_encoding_on_tty():
+    """真实控制台(tty)保持原生编码,仅 errors 降级 replace(F7 修复不得倒退交互体验)。
+
+    GBK 控制台直接显示时强制 UTF-8 会中文乱码;原生编码 + replace 才是正确语义。
+    """
+    import io
+    import sys
+
+    from migration.cli import _safe_reconfigure_streams
+
+    class FakeTty(io.TextIOWrapper):
+        """isatty()=True 的 GBK 文本流,模拟真实 GBK 控制台。"""
+
+        def isatty(self) -> bool:
+            return True
+
+    orig = (sys.stdout, sys.stderr)
+    try:
+        sys.stdout = FakeTty(io.BytesIO(), encoding="gbk", errors="strict")
+        sys.stderr = FakeTty(io.BytesIO(), encoding="gbk", errors="strict")
+        _safe_reconfigure_streams()
+        assert sys.stdout.encoding == "gbk"  # 原生编码保留
+        assert sys.stdout.errors == "replace"  # 仅错误处理降级
+    finally:
+        sys.stdout, sys.stderr = orig
+
+
+# ---- 批次 B _cmd_diff 接线测试:F2 孤儿 / F4 mod_pairs / 降级提示 ----
+
+
+def _prep_diff_game_root(tmp_path):
+    """建 双版本游戏根:a 有 waystones 旧版 + 共享 create + 孤儿 jade config;b 有 waystones 新版 + create。
+
+    孤儿判定按 spec F2 语义(dst 缺 mod 才标注):config/jade/presets.json 只在 a 且
+    jade 未安装于 dst → 孤儿;config/waystones-common.toml 只在 a,但 waystones 在 b
+    仍安装(F4 升级对所需)→ 不标注;create 两侧都有 → 非孤儿。
+    """
+    from tests.conftest import write_mod_jar
+
+    root = tmp_path / "root"
+    for ver, wv in (("a", "1.0.1"), ("b", "1.0.2")):
+        vdir = root / "versions" / ver
+        (vdir / "config").mkdir(parents=True)
+        (vdir / "options.txt").write_text("version:x\n", encoding="utf-8")
+        write_mod_jar(vdir / "mods" / "create-1.0.jar", "create", "1.0")
+        write_mod_jar(vdir / "mods" / f"[tw] waystones-{wv}.jar", "waystones", wv)
+    (root / "versions" / "a" / "config" / "waystones-common.toml").write_text(
+        "x = 1\n", encoding="utf-8")
+    # 孤儿样本:config 只在源,jade mod 两侧均未安装 → 应落 never/orphan
+    (root / "versions" / "a" / "config" / "jade").mkdir()
+    (root / "versions" / "a" / "config" / "jade" / "presets.json").write_text(
+        "{}", encoding="utf-8")
+    return root
+
+
+def _scan_versions(root, tmp_path, monkeypatch, capsys):
+    """扫描 a/b 两版(快照落 cwd/.mcmig/snapshots/);排空 capsys 防 scan 输出污染 diff JSON 断言。"""
+    monkeypatch.chdir(tmp_path)  # scan 落 cwd/.mcmig
+    from migration.cli import main
+
+    assert main(["scan", "a", "--game-root", str(root), "-q"]) == 0
+    assert main(["scan", "b", "--game-root", str(root), "-q"]) == 0
+    capsys.readouterr()  # 丢弃 scan 的 [完成]/分类汇总 stdout(-q 仅静日志不静 stdout)
+
+
+def test_diff_json_mod_pairs_and_orphan(tmp_path, monkeypatch, capsys):
+    """ctx 可用:diff --json 含 F4 mod_pairs 升级对与 F2 never/orphan 孤儿标注。"""
+    root = _prep_diff_game_root(tmp_path)
+    _scan_versions(root, tmp_path, monkeypatch, capsys)
+    from migration.cli import main
+
+    assert main(["diff", "a", "b", "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    # F4: waystones 1.0.1→1.0.2 升级对(文件名带 [tw] 前缀也按 modid 配对)
+    assert len(doc["mod_pairs"]) == 1
+    assert (doc["mod_pairs"][0]["modid"], doc["mod_pairs"][0]["kind"]) == ("waystones", "upgrade")
+    # F2: dst 未安装 jade → 其 config 落 never/orphan
+    orphan = [i for i in doc["buckets"]["never"] if i["path"] == "config/jade/presets.json"]
+    assert len(orphan) == 1 and orphan[0]["note"] == "orphan"
+    # F2 后半(spec): dst 仍安装 waystones → 其 config 不标注(落 candidate 而非 never)
+    assert not [i for i in doc["buckets"]["never"] if i["path"] == "config/waystones-common.toml"]
+
+
+def test_diff_degraded_when_game_root_unreachable(tmp_path, monkeypatch, capsys):
+    """夹具式脱敏 game_root → ctx=None → mod_pairs=[] + stderr 提示,六桶照常输出。"""
+    root = _prep_diff_game_root(tmp_path)
+    _scan_versions(root, tmp_path, monkeypatch, capsys)
+    # 篡改两份快照的 game_root 为不可达路径
+    for name in ("a", "b"):
+        p = tmp_path / ".mcmig" / "snapshots" / f"{name}.snapshot.json"
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["game_root"] = r"C:\\definitely\\missing"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    from migration.cli import main
+
+    assert main(["diff", "a", "b", "--json"]) == 0
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    assert doc["mod_pairs"] == []
+    assert "mods 扫描不可用" in captured.err
+    # 孤儿也不再标注(降级 = 0.6.1 行为)
+    orphan = [i for i in doc["buckets"]["never"] if i["path"] == "config/jade/presets.json"]
+    assert orphan == []

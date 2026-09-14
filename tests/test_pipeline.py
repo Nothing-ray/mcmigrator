@@ -263,3 +263,74 @@ def test_execute_migration_dry_run_zero_write_and_progress_cb(tmp_path):
     assert not (dst_root / "a.txt").exists()  # 零写盘
     assert not (dst_root / "q.txt").exists()
     assert seen == ["a.txt", "q.txt", "z.txt"]  # 按 plan.actions 顺序逐结果回调
+
+
+# resolve_diff_context 测试(批次 B F2/F4/F12 基座;Snapshot 已在文件头导入)
+
+
+def _snap(version: str, game_root: str) -> Snapshot:
+    """构造最小快照对象(scanned_at/hash_mode/file_count 为必填,填占位值)。"""
+    return Snapshot(version=version, game_root=game_root,
+                    scanned_at="2026-09-13T00:00:00+00:00", hash_mode="tiered",
+                    file_count=0, files=[])
+
+
+def _make_game_root(tmp_path, version: str, modid: str, mod_version: str):
+    """建一个含 1 个 mod jar 的最小版本目录,返回 (game_root, 版本目录)。"""
+    from tests.conftest import write_mod_jar
+
+    root = tmp_path / "root"
+    vdir = root / "versions" / version
+    vdir.mkdir(parents=True)
+    write_mod_jar(vdir / "mods" / f"{modid}-{mod_version}.jar", modid, mod_version)
+    return root, vdir
+
+
+def test_resolve_context_success(tmp_path):
+    from migration.pipeline import resolve_diff_context
+
+    ra, _ = _make_game_root(tmp_path, "a", "waystones", "21.1.42")
+    rb, _ = _make_game_root(tmp_path, "b", "waystones", "21.1.44")
+    ctx = resolve_diff_context(_snap("a", str(ra)), _snap("b", str(rb)))
+    assert ctx is not None
+    assert "waystones" in ctx.src_mods and "waystones" in ctx.dst_mods
+    assert ctx.src_mods.get("waystones").version == "21.1.42"
+
+
+def test_resolve_context_missing_dir_returns_none(tmp_path):
+    from migration.pipeline import resolve_diff_context
+
+    ra, _ = _make_game_root(tmp_path, "a", "x", "1.0")
+    # dst 指向不存在的版本目录(跨机复放/夹具场景)
+    assert resolve_diff_context(_snap("a", str(ra)), _snap("ghost", str(ra))) is None
+
+
+def test_resolve_context_empty_game_root_returns_none():
+    from migration.pipeline import resolve_diff_context
+
+    assert resolve_diff_context(_snap("a", ""), _snap("b", "C:\\nonexistent")) is None
+
+
+def test_context_read_file_roundtrip_and_missing(tmp_path):
+    from migration.pipeline import resolve_diff_context
+
+    ra, va = _make_game_root(tmp_path, "a", "x", "1.0")
+    (va / "server.properties").write_bytes(b"motd=hi\n")
+    rb, _ = _make_game_root(tmp_path, "b", "x", "1.0")
+    ctx = resolve_diff_context(_snap("a", str(ra)), _snap("b", str(rb)))
+    assert ctx.read_file("server.properties", "src") == b"motd=hi\n"
+    assert ctx.read_file("server.properties", "dst") is None  # 读取失败 → None
+    assert ctx.read_file("server.properties", "unknown-side") is None
+
+
+def test_resolve_context_empty_version_returns_none(tmp_path):
+    """终审 T2②:version="" 时路径折叠成 versions/ 目录本身,不得误当版本目录。
+
+    game_root 有效但 version 为空串 → resolve_diff_context 必须返回 None
+    (与 game_root 为空的守卫同级),否则会把 versions/ 当版本目录去扫 mods。
+    """
+    from migration.pipeline import resolve_diff_context
+
+    ra, _ = _make_game_root(tmp_path, "a", "x", "1.0")
+    # src 侧 version=""(dst 侧完全有效,证明守卫在空串一侧生效)
+    assert resolve_diff_context(_snap("", str(ra)), _snap("a", str(ra))) is None

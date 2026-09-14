@@ -126,6 +126,18 @@ NeoForge 在玩家游戏内修改 config 时自动生成 `.bak` 备份。工具�
 - **MD5 不同** → `.bak` 存的是改前的旧版本 → 玩家确实改过 → 迁移
 - **MD5 相同** → `.bak` 备份的与当前一致 → mod 自动生成(非玩家修改) → 跳过
 
+### diff 的 mods 桶语义与配对
+
+diff 以**迁移源视角**报告:src=迁移源(旧实例),dst=目标(新实例)。
+mods 桶标记:`shared`=两侧同名 jar;`to_add`=**源有目标无**(迁移时会补齐);
+`target_only`=目标自带。升级/改名由 modid 配对识别(rich 表 `⇄upgrade`/`⇄renamed` 标记 +
+表尾配对脚注;`--json` 输出顶层 `mod_pairs` 数组),不再表现为无关的"删旧+增新"。
+
+- 源侧 mod 已被目标移除时,其 config 会被标注为孤儿(`never/orphan`)——独立 `diff` 与 `plan` 语义一致
+- `*.properties`(如服务端 `server.properties`)在字节不同但键值语义相同时
+  (vanilla 重写导致的转义/时间戳/编码噪声)报告为 `identical/semantics` 而非 modified
+- 以上两项依赖快照的 `game_root` 可达;不可达时(跨机复放)自动降级为纯字节对比,stderr 提示一行
+
 ## 数据与卸载
 
 ### 工具数据放在哪
@@ -189,6 +201,24 @@ mcmigrator/
 ## 已知限制
 
 - **旧版中文 Windows 控制台(cmd / GBK 代码页)下,报告里的 emoji 会显示为 `?`**。这是 Windows 控制台编码(GBK/cp936)无法渲染 emoji 的限制——`mcmigrator` 会自动降级以避免崩溃,中文与所有路径/原因始终正常显示,仅 ✅📦🔄 等装饰性符号变为 `?`。现代终端(Windows Terminal / PowerShell 7)不受影响。
+
+### 编码行为说明(重要)
+
+`mcmigrator` 按输出目的地自动选择编码:
+
+- **直接显示在控制台**(tty):沿用控制台原生编码(GBK 控制台中文正常)
+- **重定向到文件或管道**(`> out.json` / 供其他程序读取):**恒为 UTF-8**(无 BOM),与项目"文件一律 UTF-8"规范一致——`--json` 输出可放心跨机消费
+
+两个 Windows 环境提示(源自 2026-09 服务端实测):
+
+1. **推荐用 PowerShell 7(pwsh)或 Windows Terminal**;老旧 PowerShell 5.1 会把无 BOM 的 UTF-8 脚本按 GBK 解析,且 GBK 控制台无法显示 emoji
+2. **GBK 区域机器上,版本名建议用 ASCII**(如 `pre-9.8` 而非 `9.11前`)——个别终端环境经 bash 传中文参数可能出现编码错位(用 PowerShell 传参正常);遇到"缺少快照"报错时优先排查此项
+
+### 服务端(dedicated server)场景
+
+专用服务器没有 `versions/` 结构——**每个服务器目录就是一个"版本"**。内置默认规则已覆盖服务端核心资产:`world/**`、`server.properties`、`whitelist.json`、`ops.json`、`banned-*.json` → 必迁;`mods_*/**`(运维回滚备份目录)→ 不迁。
+
+零拷贝接入技巧:用 NTFS Junction(`mklink /J`)把服务器目录映射为 `versions\<名称>`,即可直接 `scan`/`diff`,无需复制 2GB+ 的服务端目录。换装前后各 scan 一次即可得到完整对比。
 
 ## 路线图
 

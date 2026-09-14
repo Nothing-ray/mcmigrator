@@ -131,6 +131,20 @@ NeoForge auto-generates `.bak` backups when a player edits a config in-game. The
 - **MD5 differs** → `.bak` stores the pre-edit version → player did modify → migrate
 - **MD5 identical** → `.bak` backup matches current → mod auto-generated (not player-edited) → skip
 
+### diff mods-bucket semantics & pairing
+
+diff reports from the **migration-source frame**: src = source (old instance), dst = target (new instance).
+mods-bucket notes: `shared` = same-named jar on both sides; `to_add` = **src-only** (migrated over);
+`target_only` = shipped by target. Upgrades/renames are paired by modid (rich-table `⇄upgrade`/`⇄renamed`
+markers + a pairing footnote; top-level `mod_pairs` array in `--json` output) instead of unrelated
+remove+add pairs.
+
+- When a mod was removed on the target side, its config is flagged as orphan (`never/orphan`) — standalone `diff` now matches `plan`
+- `*.properties` files (e.g. server `server.properties`) that differ in bytes but not in key/value
+  semantics (vanilla rewrite noise: escaping/timestamp/BOM) are reported as `identical/semantics`
+- Both features require the snapshot's `game_root` to be reachable; otherwise diff degrades to pure
+  byte comparison with a one-line stderr hint
+
 ## Data & Uninstall
 
 ### Where the Tool Keeps Its Data
@@ -194,6 +208,24 @@ Contributions welcome (in Chinese or English):
 ## Known Limitations
 
 - **On legacy Chinese Windows consoles (cmd / GBK code page), emoji in reports render as `?`.** This is a limitation of the Windows console encoding (GBK/cp936), which cannot represent emoji. `mcmigrator` degrades automatically to avoid crashing — Chinese text and all paths/reasons always display correctly; only decorative symbols like ✅📦🔄 become `?`. Modern terminals (Windows Terminal / PowerShell 7) are unaffected.
+
+### Encoding behavior (important)
+
+`mcmigrator` picks the output encoding by destination:
+
+- **Direct console display** (tty): keeps the console's native encoding (Chinese renders correctly on GBK consoles)
+- **Redirected to file or pipe** (`> out.json` / consumed by other programs): **always UTF-8** (no BOM), matching the project's UTF-8 file convention — `--json` output is safe for cross-machine consumption
+
+Two Windows environment notes (from real dedicated-server testing, 2026-09):
+
+1. **Prefer PowerShell 7 (pwsh) or Windows Terminal**; legacy PowerShell 5.1 parses BOM-less UTF-8 scripts as GBK, and GBK consoles cannot render emoji
+2. **On GBK-locale machines, prefer ASCII version names** (e.g. `pre-9.8` instead of `9.11前`) — some terminal environments mangle CJK arguments passed through bash (PowerShell passes them fine); if you hit a "snapshot missing" error, check this first
+
+### Dedicated server scenario
+
+A dedicated server has no `versions/` layout — **each server directory is one "version"**. Built-in default rules already cover server-core assets: `world/**`, `server.properties`, `whitelist.json`, `ops.json`, `banned-*.json` → must-migrate; `mods_*/**` (ops rollback backup dirs) → never.
+
+Zero-copy integration trick: map the server directory to `versions\<name>` with an NTFS junction (`mklink /J`), then `scan`/`diff` directly — no need to copy the 2GB+ server tree. One scan before and one after a modpack swap gives the full comparison.
 
 ## Roadmap
 

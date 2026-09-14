@@ -18,6 +18,8 @@ never:
   - "**/cache/**"
   - config/jei/world/**                    # JEI 查询历史(运行时可重建)
   - config/ars_nouveau/search_index/**     # Lucene 索引(运行时可重建)
+  - mods_*/**                         # 服务端运维回滚备份目录(mods_9.4_旧/ 等,非玩家状态;F5)
+                                      # 客户端版本文件夹内无此形态,不命中
 must_migrate:
   - options.txt
   - servers.dat
@@ -29,3 +31,12 @@ must_migrate:
   - local/ftbchunks/**
   - Distant_Horizons_server_data/**
   - dragon-survival/**
+  # ---- 服务端场景(F1, 2026-09 服务端实测语料: world+配置全落 candidate 致 to_migrate=0)----
+  # 专用服务器无 versions/ 结构,整目录即"版本";客户端目录无以下路径,永不命中
+  - world/**                          # 服务端世界与全部玩家进度(含 DIM-1/DIM1/entities)
+  - world_nether/**                   # Bukkit 系下界维度(旧版命名兼容)
+  - world_the_end/**                  # Bukkit 系末地维度(旧版命名兼容)
+  - server.properties                 # 端口/种子/MOTD/白名单开关,丢失不可逆
+  - whitelist.json                    # 白名单
+  - ops.json                          # 管理员列表与权限等级
+  - banned-*.json                     # banned-ips / banned-players 封禁列表

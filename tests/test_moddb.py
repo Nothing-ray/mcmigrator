@@ -649,3 +649,59 @@ def test_load_mod_config_map_b_class_mappings():
     assert table.lookup("config/gun_scaling/main.toml") == "scguns"
     assert table.lookup("config/resourceful-config-web.json") == "resourcefulconfig"
     assert table.lookup("config/l2configs/l2core-client.toml") == "l2core"
+
+
+"""pair_mods 测试(批次 B F4):同 modid 跨版本升级/同 jar 改名配对。"""
+
+# ModInfo/ModRegistry 已由文件头导入,此处仅补 pair_mods(文件尾追加触发 E402/F811)
+from migration.moddb import pair_mods  # noqa: E402
+
+
+def _mkreg(*infos: ModInfo) -> ModRegistry:
+    # 独立命名:模块级再定义 _reg 会遮蔽上方按 modid 字符串构建的助手,破坏既有测试
+    r = ModRegistry()
+    for i in infos:
+        r.add(i)
+    return r
+
+
+def _info(modid, version, jar):
+    return ModInfo(modid=modid, version=version, jar_filename=jar, neoforge_range=None)
+
+
+def test_upgrade_pair():
+    pairs = pair_mods(
+        _mkreg(_info("waystones", "21.1.42", "[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.42.jar")),
+        _mkreg(_info("waystones", "21.1.44", "[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.44.jar")),
+    )
+    assert len(pairs) == 1
+    p = pairs[0]
+    assert (p.modid, p.kind) == ("waystones", "upgrade")
+    assert p.src_files == ["mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.42.jar"]
+    assert p.dst_files == ["mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.44.jar"]
+    assert (p.src_version, p.dst_version) == ("21.1.42", "21.1.44")
+    assert p.to_dict()["kind"] == "upgrade"
+
+
+def test_renamed_pair():
+    pairs = pair_mods(
+        _mkreg(_info("infernalmobs", "1.21.1.3NF", "infernalmobs-1.21.1.3NF.jar")),
+        _mkreg(_info("infernalmobs", "1.21.1.3NF", "[稀有精英怪] infernalmobs-1.21.1.3NF.jar")),
+    )
+    assert len(pairs) == 1 and pairs[0].kind == "renamed"
+
+
+def test_same_version_same_name_not_paired():
+    pairs = pair_mods(_mkreg(_info("x", "1.0", "x-1.0.jar")), _mkreg(_info("x", "1.0", "x-1.0.jar")))
+    assert pairs == []
+
+
+def test_one_side_only_not_paired():
+    pairs = pair_mods(_mkreg(_info("a", "1.0", "a-1.0.jar")),
+                      _mkreg(_info("b", "1.0", "b-1.0.jar")))
+    assert pairs == []
+
+
+def test_empty_version_treated_as_none():
+    pairs = pair_mods(_mkreg(_info("x", "", "x.jar")), _mkreg(_info("x", "1.0", "x-1.0.jar")))
+    assert len(pairs) == 1 and pairs[0].src_version is None

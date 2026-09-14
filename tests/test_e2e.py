@@ -54,15 +54,15 @@ def test_e2e_full_source_to_empty_target_buckets(mini_version: Path, tmp_path: P
     doc = json.loads(buf.getvalue())
 
     migrate = {i["path"] for i in doc["buckets"]["to_migrate"]}
-    candidate = {i["path"] for i in doc["buckets"]["candidate"]}
     mods = {i["path"]: i["note"] for i in doc["buckets"]["mods"]}
     never = {i["path"] for i in doc["buckets"]["never"]}
 
     # 必迁类(must_migrate):目标缺失 → to_migrate
     assert "options.txt" in migrate
     assert "servers.dat" in migrate
-    # 未知类(unknown):目标缺失 → candidate
-    assert "config/create.toml" in candidate
+    # F2 孤儿标注(批次 B diff 接线后):目标为空壳 → create 未安装于 dst,
+    # 其 config 由 orphan 规则落 never/orphan(接线前为 candidate;spec §3.2 二轮删除态)
+    assert "config/create.toml" in never
     # mods 按文件名集合:目标无 create.jar → to_add
     assert mods.get("mods/create.jar") == "to_add"
     # 不迁类:源里的 logs → never
