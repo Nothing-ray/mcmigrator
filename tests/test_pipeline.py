@@ -334,3 +334,24 @@ def test_resolve_context_empty_version_returns_none(tmp_path):
     ra, _ = _make_game_root(tmp_path, "a", "x", "1.0")
     # src 侧 version=""(dst 侧完全有效,证明守卫在空串一侧生效)
     assert resolve_diff_context(_snap("", str(ra)), _snap("a", str(ra))) is None
+
+
+def test_resolve_diff_context_same_dir_detected(tmp_path):
+    """junction 同体:两侧版本目录 resolve 后同路径 → same_dir=True(ctx 仍可用,孤儿照常)。"""
+    root = tmp_path / "root"
+    (root / "versions" / "a" / "mods").mkdir(parents=True)
+    (root / "versions" / "b").symlink_to(root / "versions" / "a", target_is_directory=True)
+    from migration.pipeline import resolve_diff_context
+
+    ctx = resolve_diff_context(_snap("a", str(root)), _snap("b", str(root)))
+    assert ctx is not None and ctx.same_dir is True
+
+
+def test_resolve_diff_context_distinct_dirs_same_dir_false(tmp_path):
+    root = tmp_path / "root"
+    (root / "versions" / "a" / "mods").mkdir(parents=True)
+    (root / "versions" / "b" / "mods").mkdir(parents=True)
+    from migration.pipeline import resolve_diff_context
+
+    ctx = resolve_diff_context(_snap("a", str(root)), _snap("b", str(root)))
+    assert ctx is not None and ctx.same_dir is False

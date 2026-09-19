@@ -1,0 +1,6611 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r6-pre",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-09-19T01:27:38+08:00",
+ "hash_mode": "tiered",
+ "file_count": 1320,
+ "files": [
+  {
+   "path": "banned-ips.json",
+   "size": 2,
+   "md5": "d751713988987e9331980363e24189ce"
+  },
+  {
+   "path": "banned-players.json",
+   "size": 2,
+   "md5": "d751713988987e9331980363e24189ce"
+  },
+  {
+   "path": "config/alexscaves-general.toml",
+   "size": 6533,
+   "md5": "1ac7758ff3bfd731bd5dc4250148604c"
+  },
+  {
+   "path": "config/alexscaves_biome_generation/.version",
+   "size": 1,
+   "md5": "8f14e45fceea167a5a36dedd4bea2543"
+  },
+  {
+   "path": "config/alexscaves_biome_generation/abyssal_chasm.json",
+   "size": 273,
+   "md5": "f751692ee07db906c070f587174e4684"
+  },
+  {
+   "path": "config/alexscaves_biome_generation/candy_cavity.json",
+   "size": 227,
+   "md5": "ea49709183a59df4d8616a1b5064ab85"
+  },
+  {
+   "path": "config/alexscaves_biome_generation/forlorn_hollows.json",
+   "size": 228,
+   "md5": "d2ce1e5c4dc53be3304db20b7af14eef"
+  },
+  {
+   "path": "config/alexscaves_biome_generation/magnetic_caves.json",
+   "size": 228,
+   "md5": "4737246d17edbe460c011be69a30242d"
+  },
+  {
+   "path": "config/alexscaves_biome_generation/primordial_caves.json",
+   "size": 227,
+   "md5": "e8946f3b607e78d540344f983077f783"
+  },
+  {
+   "path": "config/alexscaves_biome_generation/toxic_caves.json",
+   "size": 227,
+   "md5": "4ff7881c145a5ea89fef532664b891b8"
+  },
+  {
+   "path": "config/alexscavesup_biome_generation/abyssal_chasm.json",
+   "size": 274,
+   "md5": "9ec168bba8af06a5c8de895027fd9471"
+  },
+  {
+   "path": "config/alexscavesup_biome_generation/candy_cavity.json",
+   "size": 229,
+   "md5": "40bbd9e6787869e48d9cf0c21a9c2296"
+  },
+  {
+   "path": "config/alexscavesup_biome_generation/forlorn_hollows.json",
+   "size": 228,
+   "md5": "706ad01fb2e81eaa0783fa8f888e8e9b"
+  },
+  {
+   "path": "config/alexscavesup_biome_generation/magnetic_caves.json",
+   "size": 228,
+   "md5": "2b08779c3505dcde82ff1c71221e5db2"
+  },
+  {
+   "path": "config/alexscavesup_biome_generation/primordial_caves.json",
+   "size": 229,
+   "md5": "8567fe4f0816849451b2d6b14fba610c"
+  },
+  {
+   "path": "config/alexscavesup_biome_generation/toxic_caves.json",
+   "size": 228,
+   "md5": "975f7c2f563eb0ec2b13e2f8ac83de49"
+  },
+  {
+   "path": "config/alexsmobs/alligator_snapping_turtle_spawns.json",
+   "size": 750,
+   "md5": "1612fd932d46bc7e1d2f512f24b8b50e"
+  },
+  {
+   "path": "config/alexsmobs/anaconda_spawns.json",
+   "size": 1032,
+   "md5": "2571cf5bec58f00cd529ba5b2c6548b3"
+  },
+  {
+   "path": "config/alexsmobs/anteater_spawns.json",
+   "size": 1166,
+   "md5": "2040bb544aff0345a335fd895cd0022c"
+  },
+  {
+   "path": "config/alexsmobs/bald_eagle_spawns.json",
+   "size": 2719,
+   "md5": "a325e17ed04405409ac3f537124dbf40"
+  },
+  {
+   "path": "config/alexsmobs/banana_slug_spawns.json",
+   "size": 1689,
+   "md5": "5e219001a913e4b3791205e90b4e88f2"
+  },
+  {
+   "path": "config/alexsmobs/bison_spawns.json",
+   "size": 1753,
+   "md5": "08b1706d504d9fb5b33acf63378d77a9"
+  },
+  {
+   "path": "config/alexsmobs/blobfish_spawns.json",
+   "size": 146,
+   "md5": "ad3201c8f95a758dbe8496d677756a5e"
+  },
+  {
+   "path": "config/alexsmobs/blue_jay_spawns.json",
+   "size": 4020,
+   "md5": "9b797aa57e7c173d5e4a8f034f267dff"
+  },
+  {
+   "path": "config/alexsmobs/bone_serpent_spawns.json",
+   "size": 253,
+   "md5": "b6208ce4c3a2a65bedea86058fc1df1c"
+  },
+  {
+   "path": "config/alexsmobs/bunfungus_spawns.json",
+   "size": 478,
+   "md5": "8d475d3e4f93fdcef5c02798564472c1"
+  },
+  {
+   "path": "config/alexsmobs/cachalot_whale_beached_spawns.json",
+   "size": 642,
+   "md5": "b779f228a334a5be8eaa5f845664105c"
+  },
+  {
+   "path": "config/alexsmobs/cachalot_whale_spawns.json",
+   "size": 889,
+   "md5": "3fc8f1b2c0466058fc021823426bcfb2"
+  },
+  {
+   "path": "config/alexsmobs/caiman_spawns.json",
+   "size": 291,
+   "md5": "0443b3f49eb26ce302434cf0af666b90"
+  },
+  {
+   "path": "config/alexsmobs/capuchin_monkey_spawns.json",
+   "size": 1184,
+   "md5": "61f854072c18a0b127bb37c01b33a0ae"
+  },
+  {
+   "path": "config/alexsmobs/catfish_spawns.json",
+   "size": 1089,
+   "md5": "4ed120643d7a4e222796ce91c2236009"
+  },
+  {
+   "path": "config/alexsmobs/cave_centipede_spawns.json",
+   "size": 2192,
+   "md5": "922156164a885193c7624611e0fbf245"
+  },
+  {
+   "path": "config/alexsmobs/cockroach_spawns.json",
+   "size": 2081,
+   "md5": "2e4cdf1517d742db07384a00f3d67a33"
+  },
+  {
+   "path": "config/alexsmobs/comb_jelly_spawns.json",
+   "size": 414,
+   "md5": "e9fa2345daa80ad12a849fe96ea656f9"
+  },
+  {
+   "path": "config/alexsmobs/cosmaw_spawns.json",
+   "size": 371,
+   "md5": "99ec85d1693bdd51d1970b9bfba84267"
+  },
+  {
+   "path": "config/alexsmobs/cosmic_cod_spawns.json",
+   "size": 139,
+   "md5": "84b1c3b63a2e5656da5478c844a5ad49"
+  },
+  {
+   "path": "config/alexsmobs/crimson_mosquito_spawns.json",
+   "size": 781,
+   "md5": "eb1a2bb1104c3cef150049de2d3e830f"
+  },
+  {
+   "path": "config/alexsmobs/crocodile_spawns.json",
+   "size": 999,
+   "md5": "2619ba7041382aa994751dc1ae8c5aae"
+  },
+  {
+   "path": "config/alexsmobs/crow_spawns.json",
+   "size": 5142,
+   "md5": "d0a99225d93f475713ed519f8700f08a"
+  },
+  {
+   "path": "config/alexsmobs/devils_hole_pupfish_spawns.json",
+   "size": 145,
+   "md5": "2c88b50ebef0c2d8cefd7fec53cc1b31"
+  },
+  {
+   "path": "config/alexsmobs/dropbear_spawns.json",
+   "size": 399,
+   "md5": "0e94c2329c55e4b9a62c22960849e152"
+  },
+  {
+   "path": "config/alexsmobs/elephant_spawns.json",
+   "size": 1163,
+   "md5": "1032996d6a2cac873766f7a443d44810"
+  },
+  {
+   "path": "config/alexsmobs/emu_spawns.json",
+   "size": 1661,
+   "md5": "3eb32cae8d7825df19055f0b673481ec"
+  },
+  {
+   "path": "config/alexsmobs/endergrade_spawns.json",
+   "size": 250,
+   "md5": "fe07337e303bd453f45f00ec63fa9c0a"
+  },
+  {
+   "path": "config/alexsmobs/enderiophage_spawns.json",
+   "size": 603,
+   "md5": "4ab64e4848a83c605d54ade54fdf0702"
+  },
+  {
+   "path": "config/alexsmobs/farseer.json",
+   "size": 262,
+   "md5": "545e8dcaae8563ace39b3c164e5f5e7e"
+  },
+  {
+   "path": "config/alexsmobs/flutter_spawns.json",
+   "size": 147,
+   "md5": "1ab7408c8c7997d1ca595bdaa531820b"
+  },
+  {
+   "path": "config/alexsmobs/fly_spawns.json",
+   "size": 145,
+   "md5": "2c88b50ebef0c2d8cefd7fec53cc1b31"
+  },
+  {
+   "path": "config/alexsmobs/flying_fish_spawns.json",
+   "size": 708,
+   "md5": "aaf9a1130d665f7b50064f6b4be570eb"
+  },
+  {
+   "path": "config/alexsmobs/frilled_shark_spawns.json",
+   "size": 146,
+   "md5": "ad3201c8f95a758dbe8496d677756a5e"
+  },
+  {
+   "path": "config/alexsmobs/froststalker_spawns.json",
+   "size": 934,
+   "md5": "2a017b04fa69a371da739dca3dccfaeb"
+  },
+  {
+   "path": "config/alexsmobs/gazelle_spawns.json",
+   "size": 1050,
+   "md5": "397912ee2f4758bf87c6e017fc8c3dc0"
+  },
+  {
+   "path": "config/alexsmobs/gelada_monkey_spawns.json",
+   "size": 993,
+   "md5": "84b640124afb8de7bd27b9f4780f01f7"
+  },
+  {
+   "path": "config/alexsmobs/giant_squid_spawns.json",
+   "size": 146,
+   "md5": "ad3201c8f95a758dbe8496d677756a5e"
+  },
+  {
+   "path": "config/alexsmobs/gorilla_spawns.json",
+   "size": 1053,
+   "md5": "803b7292137cbeece7aaa1d69e04b5b2"
+  },
+  {
+   "path": "config/alexsmobs/grizzly_bear_spawns.json",
+   "size": 4020,
+   "md5": "9b797aa57e7c173d5e4a8f034f267dff"
+  },
+  {
+   "path": "config/alexsmobs/guster_spawns.json",
+   "size": 1116,
+   "md5": "adafd5888bf7f99a1ec169426e65522d"
+  },
+  {
+   "path": "config/alexsmobs/hammerhead_shark_spawns.json",
+   "size": 250,
+   "md5": "6a2314a4130a3073965e87053fd0bc82"
+  },
+  {
+   "path": "config/alexsmobs/hummingbird_spawns.json",
+   "size": 3029,
+   "md5": "4ab2f69a298dba2dd6de993426aa1642"
+  },
+  {
+   "path": "config/alexsmobs/jerboa_spawns.json",
+   "size": 1240,
+   "md5": "c6b90789703d28d8d91e0bacb1491a90"
+  },
+  {
+   "path": "config/alexsmobs/kangaroo_spawns.json",
+   "size": 1661,
+   "md5": "3eb32cae8d7825df19055f0b673481ec"
+  },
+  {
+   "path": "config/alexsmobs/komodo_dragon_spawns.json",
+   "size": 771,
+   "md5": "2671c74d2406cd8182b0cabaac7140f0"
+  },
+  {
+   "path": "config/alexsmobs/laviathan_spawns.json",
+   "size": 142,
+   "md5": "477bc268eb72dc151845a22729de3fe8"
+  },
+  {
+   "path": "config/alexsmobs/leafcutter_anthill_spawns.json",
+   "size": 1166,
+   "md5": "2040bb544aff0345a335fd895cd0022c"
+  },
+  {
+   "path": "config/alexsmobs/lobster_spawns.json",
+   "size": 398,
+   "md5": "3284cadc1438c85425a3621a016e6eba"
+  },
+  {
+   "path": "config/alexsmobs/maned_wolf_spawns.json",
+   "size": 1037,
+   "md5": "c21feac193fa689955ac90f659e1f0c2"
+  },
+  {
+   "path": "config/alexsmobs/mantis_shrimp_spawns.json",
+   "size": 381,
+   "md5": "058fad337964a50f07113e9a14655587"
+  },
+  {
+   "path": "config/alexsmobs/mimic_octopus_spawns.json",
+   "size": 369,
+   "md5": "f06db03437677bd744243a39a340e2db"
+  },
+  {
+   "path": "config/alexsmobs/mimicube_spawns.json",
+   "size": 361,
+   "md5": "8a0db6566c4c765f54a187647714dafd"
+  },
+  {
+   "path": "config/alexsmobs/moose_spawns.json",
+   "size": 2279,
+   "md5": "f37a426a4019cd5cb05ad7c226c4d37a"
+  },
+  {
+   "path": "config/alexsmobs/mudskipper_spawns.json",
+   "size": 291,
+   "md5": "0443b3f49eb26ce302434cf0af666b90"
+  },
+  {
+   "path": "config/alexsmobs/mungus_spawns.json",
+   "size": 478,
+   "md5": "8d475d3e4f93fdcef5c02798564472c1"
+  },
+  {
+   "path": "config/alexsmobs/murmur.json",
+   "size": 2192,
+   "md5": "922156164a885193c7624611e0fbf245"
+  },
+  {
+   "path": "config/alexsmobs/orca_spawns.json",
+   "size": 251,
+   "md5": "ddaee37aa8a451c0484973b919cca420"
+  },
+  {
+   "path": "config/alexsmobs/platypus_spawns.json",
+   "size": 621,
+   "md5": "a23edfc3a01c2c5622620f442c6a8193"
+  },
+  {
+   "path": "config/alexsmobs/potoo_spawns.json",
+   "size": 148,
+   "md5": "d1511fa5b0562676dab091599bc838a2"
+  },
+  {
+   "path": "config/alexsmobs/raccoon_spawns.json",
+   "size": 3708,
+   "md5": "acebed0c7954d70f5835f34c3b891376"
+  },
+  {
+   "path": "config/alexsmobs/rain_frog_spawns.json",
+   "size": 1240,
+   "md5": "c6b90789703d28d8d91e0bacb1491a90"
+  },
+  {
+   "path": "config/alexsmobs/rattlesnake_spawns.json",
+   "size": 1634,
+   "md5": "8e23413736a996951fb625397ff3f3a7"
+  },
+  {
+   "path": "config/alexsmobs/rhinoceros_spawns.json",
+   "size": 1050,
+   "md5": "397912ee2f4758bf87c6e017fc8c3dc0"
+  },
+  {
+   "path": "config/alexsmobs/roadrunner_spawns.json",
+   "size": 1634,
+   "md5": "8e23413736a996951fb625397ff3f3a7"
+  },
+  {
+   "path": "config/alexsmobs/rocky_roller_spawns.json",
+   "size": 669,
+   "md5": "0ee17cc0e67f4e0ec70f963c658b71bf"
+  },
+  {
+   "path": "config/alexsmobs/seagull_spawns.json",
+   "size": 1296,
+   "md5": "477c8512be58a4c7cadbc3ea65c3642a"
+  },
+  {
+   "path": "config/alexsmobs/seal_spawns.json",
+   "size": 873,
+   "md5": "da2e5f89d6a148ca2008c351c026b1ec"
+  },
+  {
+   "path": "config/alexsmobs/shoebill_spawns.json",
+   "size": 619,
+   "md5": "ea40512f5507f6e83260ef5696c40555"
+  },
+  {
+   "path": "config/alexsmobs/skelewag_spawns.json",
+   "size": 370,
+   "md5": "b81d0f4e46326e1c88c23c34b0f86602"
+  },
+  {
+   "path": "config/alexsmobs/skreecher.json",
+   "size": 272,
+   "md5": "ce39ad5dd123dfcd62b854469283815d"
+  },
+  {
+   "path": "config/alexsmobs/skunk_spawns.json",
+   "size": 2033,
+   "md5": "8e885caf4fa2f10dc5fa9c6216faa668"
+  },
+  {
+   "path": "config/alexsmobs/snow_leopard_spawns.json",
+   "size": 1804,
+   "md5": "c6579e5e8ded01cfcc6b337b92d48506"
+  },
+  {
+   "path": "config/alexsmobs/soul_vulture_spawns.json",
+   "size": 519,
+   "md5": "0f34e243633de91a26dede615f852487"
+  },
+  {
+   "path": "config/alexsmobs/spectre_spawns.json",
+   "size": 250,
+   "md5": "fe07337e303bd453f45f00ec63fa9c0a"
+  },
+  {
+   "path": "config/alexsmobs/straddler_spawns.json",
+   "size": 660,
+   "md5": "75d0a15283306b1b4a0a4ccf0d280e9a"
+  },
+  {
+   "path": "config/alexsmobs/stradpole_spawns.json",
+   "size": 660,
+   "md5": "75d0a15283306b1b4a0a4ccf0d280e9a"
+  },
+  {
+   "path": "config/alexsmobs/sugar_glider_spawns.json",
+   "size": 418,
+   "md5": "6f1722c17a8adc08ab757a0e6377233e"
+  },
+  {
+   "path": "config/alexsmobs/sunbird_spawns.json",
+   "size": 3925,
+   "md5": "147fdf357f3478c40b5b7481569c6c07"
+  },
+  {
+   "path": "config/alexsmobs/tarantula_hawk_spawns.json",
+   "size": 1240,
+   "md5": "c6b90789703d28d8d91e0bacb1491a90"
+  },
+  {
+   "path": "config/alexsmobs/tasmanian_devil_spawns.json",
+   "size": 1904,
+   "md5": "ca6ca10e9f534d483df43e097ab0a8b2"
+  },
+  {
+   "path": "config/alexsmobs/terrapin_spawns.json",
+   "size": 621,
+   "md5": "a23edfc3a01c2c5622620f442c6a8193"
+  },
+  {
+   "path": "config/alexsmobs/tiger_spawns.json",
+   "size": 1209,
+   "md5": "8e7708606954a64a9f8648585c8a4a74"
+  },
+  {
+   "path": "config/alexsmobs/toucan_spawns.json",
+   "size": 1166,
+   "md5": "2040bb544aff0345a335fd895cd0022c"
+  },
+  {
+   "path": "config/alexsmobs/triops_spawns.json",
+   "size": 1240,
+   "md5": "c6b90789703d28d8d91e0bacb1491a90"
+  },
+  {
+   "path": "config/alexsmobs/tusklin_spawns.json",
+   "size": 874,
+   "md5": "7cb897b147863d2b3bb6940b11bc1b30"
+  },
+  {
+   "path": "config/alexsmobs/underminer.json",
+   "size": 2081,
+   "md5": "2e4cdf1517d742db07384a00f3d67a33"
+  },
+  {
+   "path": "config/alexsmobs/void_worm_spawns.json",
+   "size": 18,
+   "md5": "0531dec7156e47b4566a5eb598a4b931"
+  },
+  {
+   "path": "config/alexsmobs/warped_mosco_spawns.json",
+   "size": 18,
+   "md5": "0531dec7156e47b4566a5eb598a4b931"
+  },
+  {
+   "path": "config/alexsmobs/warped_toad_spawns.json",
+   "size": 661,
+   "md5": "39d42abce47f0e9e64bab7680a0d8ef0"
+  },
+  {
+   "path": "config/alexsmobs-common.toml",
+   "size": 39575,
+   "md5": "8b9850d9a5ec5f02d7846b7610ab26e4"
+  },
+  {
+   "path": "config/ali/ali_common.json",
+   "size": 3543,
+   "md5": "32f7237b5c9c34851c4562a62cf9c256"
+  },
+  {
+   "path": "config/ali/ali_common.json.bak",
+   "size": 3672,
+   "md5": "0c73d40442320b2453d623b92d86e611"
+  },
+  {
+   "path": "config/alltheleaks.json",
+   "size": 398,
+   "md5": "3ec7e3fc6ae71c87fd8f17e9e1f826e6"
+  },
+  {
+   "path": "config/aperture_innovations-common.toml",
+   "size": 1636,
+   "md5": "257730d2292b3df27b623fdb7eaf0b56"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_accelerate.toml",
+   "size": 378,
+   "md5": "6095d01b07eb3ce6a8be3ef2d4e37382"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_amplify.toml",
+   "size": 378,
+   "md5": "50698b60e1faf5632733a5f36c5b32f8"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_animate_block.toml",
+   "size": 1004,
+   "md5": "6dccc519118852911b13d2c3cc555450"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_aoe.toml",
+   "size": 378,
+   "md5": "66ab3b0b8256073cf50579ef5428c3da"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_blink.toml",
+   "size": 976,
+   "md5": "363789599d48b832b878d6b36b5840fb"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_bounce.toml",
+   "size": 1006,
+   "md5": "7d9127e97c29685e82ae54bcf39ad7fc"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_break.toml",
+   "size": 902,
+   "md5": "0bd4a93cb3a0e2f0c6a8f5f3fe18e60d"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_bubble.toml",
+   "size": 1052,
+   "md5": "615d09789c4a3c04418ae282bb11bf9f"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_burst.toml",
+   "size": 910,
+   "md5": "dadb98352bc52d3b1c9542b6a760f4c0"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_cold_snap.toml",
+   "size": 1187,
+   "md5": "ea35b72021568362256a68903379c9e3"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_conjure_water.toml",
+   "size": 1039,
+   "md5": "f828b1e4f435539125c005fa2d271b2a"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_craft.toml",
+   "size": 841,
+   "md5": "7c97e7cf544ce6daeab4f268de6ba65c"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_crush.toml",
+   "size": 1030,
+   "md5": "f8f4c88dac5286dcb083096de0354d0b"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_cut.toml",
+   "size": 995,
+   "md5": "529cb6cac8660ba0cadecadfcc41a70f"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_dampen.toml",
+   "size": 376,
+   "md5": "ec189c9eaa905765a96de77bf760d5bd"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_decelerate.toml",
+   "size": 376,
+   "md5": "ef671a722ce763a2766281ab9ae54a40"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_delay.toml",
+   "size": 1243,
+   "md5": "57fbcfd41806fda73997177542d743ea"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_dispel.toml",
+   "size": 841,
+   "md5": "9c2d626250cd713e255635b9e77a4c29"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_duration_down.toml",
+   "size": 378,
+   "md5": "d4e0d6a2ad7dcffedccd7f29fd1e707c"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_ender_inventory.toml",
+   "size": 841,
+   "md5": "5de69489393ecf62f7a4f54717b3f91c"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_evaporate.toml",
+   "size": 841,
+   "md5": "7c97e7cf544ce6daeab4f268de6ba65c"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_exchange.toml",
+   "size": 841,
+   "md5": "5de69489393ecf62f7a4f54717b3f91c"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_explosion.toml",
+   "size": 1263,
+   "md5": "225c6ebd438be8a1f383145494b7408a"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_extend_time.toml",
+   "size": 378,
+   "md5": "6095d01b07eb3ce6a8be3ef2d4e37382"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_extract.toml",
+   "size": 378,
+   "md5": "69a9236eedd913d2a0fe70e6dbd1abd6"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_fangs.toml",
+   "size": 997,
+   "md5": "e0a53bc60d33c1983e2f5915880c2048"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_fell.toml",
+   "size": 1010,
+   "md5": "b1ab41a942360ee61d6f16788fb8b684"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_firework.toml",
+   "size": 870,
+   "md5": "9780e98ccf6fdf9b0fcb693e5f4efc2d"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_flare.toml",
+   "size": 1081,
+   "md5": "631d6ac8ffcea70c10a9222ebb5a8736"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_fortune.toml",
+   "size": 378,
+   "md5": "b344595b06415810d0c74f5b13531d58"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_freeze.toml",
+   "size": 1037,
+   "md5": "12f02adb4b65dc6ad1e25c24e2b63e38"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_glide.toml",
+   "size": 1014,
+   "md5": "8970c4ddb884da2a40974dc3114cfe08"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_gravity.toml",
+   "size": 1006,
+   "md5": "30baaf7938ee849cc2f0f68914b30f98"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_grow.toml",
+   "size": 841,
+   "md5": "adef91e5730a5879ed95851c5f6eb6e1"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_gust.toml",
+   "size": 1036,
+   "md5": "8398a9fb5ad6df0d9b0e06aaf117707b"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_harm.toml",
+   "size": 1159,
+   "md5": "efc9df6a12a1b9951ace8499ccf3ffbd"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_harvest.toml",
+   "size": 841,
+   "md5": "64c2b2ebeb81d2da63685b219b63c438"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_heal.toml",
+   "size": 1000,
+   "md5": "47c27ac8ca96a00b65f902cd23922e81"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_hex.toml",
+   "size": 1037,
+   "md5": "02c3be71e46d74e5b32ece6c7d42f655"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_ignite.toml",
+   "size": 1035,
+   "md5": "e119742ac7853af395413d2c4fce4df8"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_infuse.toml",
+   "size": 901,
+   "md5": "13b094da69a2524ea37617ee0c855ddc"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_intangible.toml",
+   "size": 995,
+   "md5": "9cedc2db5100e7a32c0222e7a7969956"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_interact.toml",
+   "size": 933,
+   "md5": "ad07f5b419978c9efdfe72fa6b2d6148"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_invisibility.toml",
+   "size": 1006,
+   "md5": "ff377a12567956b9160015b888cc4a48"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_launch.toml",
+   "size": 1034,
+   "md5": "62e197dd3948719381d01a6c2373c8fb"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_leap.toml",
+   "size": 1126,
+   "md5": "b0014a2a3dfb821c67a959947a988df2"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_light.toml",
+   "size": 1068,
+   "md5": "e4444118b1cb7cf3c4417245058eaed1"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_lightning.toml",
+   "size": 1107,
+   "md5": "3ab89aa2558b498dfbaeeae0e2d706d0"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_linger.toml",
+   "size": 858,
+   "md5": "d82f0267c3048dc94ae1a65c28966658"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_name.toml",
+   "size": 841,
+   "md5": "fe9a961d6d4b9cc3aec77a0e57cbc192"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_orbit.toml",
+   "size": 841,
+   "md5": "edd8f3a517d5d724216d23a831279b5e"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_pantomime.toml",
+   "size": 732,
+   "md5": "b9548a4a1c3ae480bf697f96a9289264"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_phantom_block.toml",
+   "size": 868,
+   "md5": "598950e4087204157342c75d469c6641"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_pickup.toml",
+   "size": 841,
+   "md5": "64c2b2ebeb81d2da63685b219b63c438"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_pierce.toml",
+   "size": 378,
+   "md5": "3a9bf0783beaf74b2f82e589b8ea4858"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_place_block.toml",
+   "size": 872,
+   "md5": "9af15e753ca9f846c6dd1df36288efb9"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_prestidigitation.toml",
+   "size": 839,
+   "md5": "1065ab8d7a0b85fbbfadf45586121447"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_projectile.toml",
+   "size": 803,
+   "md5": "5a84edc7bfa7c622810b58486e9302cf"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_pull.toml",
+   "size": 1038,
+   "md5": "5696ea41ad70dc63dbc00d5b158e717e"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_randomize.toml",
+   "size": 376,
+   "md5": "d6afff20ae591f89ece2f549ff64cf97"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_redstone_signal.toml",
+   "size": 1023,
+   "md5": "19df275f4eeaffae4bd5e9736668735f"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_rotate.toml",
+   "size": 905,
+   "md5": "2c9470d28efdfb53cf120f0c4eddc5e1"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_rune.toml",
+   "size": 872,
+   "md5": "4e8259af085edc411efdeef7c928f3f7"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_self.toml",
+   "size": 705,
+   "md5": "7f653ea658c5e9d8471c64fc260f50fb"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_sense_magic.toml",
+   "size": 1008,
+   "md5": "95b8f3fe16c97bfbec90725bb93be0a8"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_sensitive.toml",
+   "size": 378,
+   "md5": "d69dd667fa3d3643aaf80e7dac220281"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_slowfall.toml",
+   "size": 1006,
+   "md5": "ff377a12567956b9160015b888cc4a48"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_smelt.toml",
+   "size": 874,
+   "md5": "6bb972cfcd3beca304fc8c422b294d8d"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_snare.toml",
+   "size": 1006,
+   "md5": "337eab49ba2f378692a63c6d5b259092"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_split.toml",
+   "size": 378,
+   "md5": "a2793c00008223ea81af7074b75b4adc"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_summon_decoy.toml",
+   "size": 1004,
+   "md5": "289ea81bcc96dbcf1ff180405b6bf807"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_summon_steed.toml",
+   "size": 1008,
+   "md5": "8544a7251714f9cf6e17a17e827dfdfb"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_summon_undead.toml",
+   "size": 1004,
+   "md5": "48fb7b31516105e7955e846feb9512b4"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_summon_vex.toml",
+   "size": 1004,
+   "md5": "48fb7b31516105e7955e846feb9512b4"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_summon_wolves.toml",
+   "size": 1004,
+   "md5": "0b37b88580c1b53b2fe53be2c6372db3"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_toss.toml",
+   "size": 841,
+   "md5": "64c2b2ebeb81d2da63685b219b63c438"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_touch.toml",
+   "size": 703,
+   "md5": "4e44c00c8617930398489c8ec21f5433"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_underfoot.toml",
+   "size": 704,
+   "md5": "c66b059fe9efb5614069b9c89824e8be"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_wall.toml",
+   "size": 884,
+   "md5": "0712e84dd87446154577eb8e74aa24de"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_wind_burst.toml",
+   "size": 1036,
+   "md5": "666d4252ff464c4579e05ef21c368757"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_wind_shear.toml",
+   "size": 1105,
+   "md5": "d0c25da179070fa14d1a4312b64c0d9f"
+  },
+  {
+   "path": "config/ars_nouveau/glyph_wither.toml",
+   "size": 1037,
+   "md5": "02c3be71e46d74e5b32ece6c7d42f655"
+  },
+  {
+   "path": "config/ars_nouveau/reset.toml",
+   "size": 839,
+   "md5": "1065ab8d7a0b85fbbfadf45586121447"
+  },
+  {
+   "path": "config/ars_nouveau/rewind.toml",
+   "size": 1362,
+   "md5": "f494176e89c86d98f3ce8727a6901919"
+  },
+  {
+   "path": "config/ars_nouveau/wololo.toml",
+   "size": 872,
+   "md5": "4e8259af085edc411efdeef7c928f3f7"
+  },
+  {
+   "path": "config/ars_nouveau-common.toml",
+   "size": 2910,
+   "md5": "9258cf02092a59062e74daa5d948f49d"
+  },
+  {
+   "path": "config/ars_nouveau-server.toml",
+   "size": 1877,
+   "md5": "1f469db9bd67a37576ac806c67920a96"
+  },
+  {
+   "path": "config/ars_nouveau-startup-1.toml.bak",
+   "size": 97,
+   "md5": "534de8d213eaffaf154792bcfdb3c4e8"
+  },
+  {
+   "path": "config/ars_nouveau-startup.toml",
+   "size": 256,
+   "md5": "e85b0ea696b4e316f550cab0e03b130d"
+  },
+  {
+   "path": "config/arsdelight-common.toml",
+   "size": 27,
+   "md5": "b5e5c7a0ea237d584e7fa44c61dcb065"
+  },
+  {
+   "path": "config/arsdelight-server.toml",
+   "size": 359,
+   "md5": "841f39d6156166d00fad90d407fea21b"
+  },
+  {
+   "path": "config/artifacts/client.toml",
+   "size": 1022,
+   "md5": "b06a5bc15997dae9b29ce3dc02367f6d"
+  },
+  {
+   "path": "config/artifacts/general.toml",
+   "size": 2326,
+   "md5": "22a5352c38f799a318daa611dc67eb92"
+  },
+  {
+   "path": "config/artifacts/items.toml",
+   "size": 20333,
+   "md5": "40481c26a2eaa26544d7f367e2c1700e"
+  },
+  {
+   "path": "config/avaritia-common-1.toml.bak",
+   "size": 3783,
+   "md5": "c5961b1cfe24facb9eaac3df40bb1bab"
+  },
+  {
+   "path": "config/avaritia-common.toml",
+   "size": 4206,
+   "md5": "10e9a05b87dff3d419ae00623ed74b5b"
+  },
+  {
+   "path": "config/avaritia_expand-common-1.toml.bak",
+   "size": 401,
+   "md5": "cfa1ba9d83c5b0a5ecc57dfb66c4b98c"
+  },
+  {
+   "path": "config/avaritia_expand-common.toml",
+   "size": 419,
+   "md5": "f253e0a32694f6e90ada920f630da4de"
+  },
+  {
+   "path": "config/bakeries-common-1.toml.bak",
+   "size": 384,
+   "md5": "00bb1a1bd289c1361b9c53ad4a41eebe"
+  },
+  {
+   "path": "config/bakeries-common.toml",
+   "size": 491,
+   "md5": "9ac5128c1bb1bbb4b91106135c2d4d28"
+  },
+  {
+   "path": "config/beachparty-common.toml",
+   "size": 212,
+   "md5": "f695276c677be1481629019b56f5eb6d"
+  },
+  {
+   "path": "config/beyonddimensions-common-1.toml.bak",
+   "size": 2403,
+   "md5": "d33452b68133796d36aee1214e849b81"
+  },
+  {
+   "path": "config/beyonddimensions-common.toml",
+   "size": 2613,
+   "md5": "f11cc83bcba1de9c89898f6ab5c2c6ce"
+  },
+  {
+   "path": "config/beyonddimensions-server-1.toml.bak",
+   "size": 201,
+   "md5": "ce8394cdcf9f5d7dc13a0a477613c17b"
+  },
+  {
+   "path": "config/beyonddimensions-server.toml",
+   "size": 757,
+   "md5": "f60011ca1768e14657e568c703942802"
+  },
+  {
+   "path": "config/blockbox-common.toml",
+   "size": 151,
+   "md5": "5bf764bd6e41f40b4fd70f16ad7b5b74"
+  },
+  {
+   "path": "config/brewinandchewin-common.toml",
+   "size": 1346,
+   "md5": "1bf521e764d6be539aafe336468710c8"
+  },
+  {
+   "path": "config/buildinggadgets2-common.toml",
+   "size": 1384,
+   "md5": "df716bd2f1f08d7014d771fee9ab70a8"
+  },
+  {
+   "path": "config/cataclysm-common-1.toml.bak",
+   "size": 30666,
+   "md5": "38316ea692a53932e0b2454fbc087009"
+  },
+  {
+   "path": "config/cataclysm-common.toml",
+   "size": 30665,
+   "md5": "858f80e331ac53b9ee3953d78c196b0d"
+  },
+  {
+   "path": "config/catburger-common.toml",
+   "size": 1199,
+   "md5": "f329c2982cb2b3a745e9d21be5a020c9"
+  },
+  {
+   "path": "config/caupona-common.toml",
+   "size": 717,
+   "md5": "87a1b323e6d629672367e4547d2b9344"
+  },
+  {
+   "path": "config/caupona-server.toml",
+   "size": 2439,
+   "md5": "40db40b78e203f92c40ae1570f28f6cf"
+  },
+  {
+   "path": "config/citadel-common.toml",
+   "size": 662,
+   "md5": "8e6b06c8ee3fa3fab7956c82399881b3"
+  },
+  {
+   "path": "config/citadelup-common.toml",
+   "size": 662,
+   "md5": "8e6b06c8ee3fa3fab7956c82399881b3"
+  },
+  {
+   "path": "config/cobblestone_generator-common.toml",
+   "size": 4477,
+   "md5": "b6dcc084d00a0796e4267a5b71794e43"
+  },
+  {
+   "path": "config/collective.json5",
+   "size": 827,
+   "md5": "c1a6c344217a2164ca0db41f9d286d00"
+  },
+  {
+   "path": "config/confluence-common.toml",
+   "size": 4048,
+   "md5": "64d61ca38204d1da606ac74c9936cbc4"
+  },
+  {
+   "path": "config/confluence-startup.toml",
+   "size": 148,
+   "md5": "d1f03465e7cfc7d0c459909419bc627c"
+  },
+  {
+   "path": "config/confluence_magic_lib-startup.toml",
+   "size": 175,
+   "md5": "00b264b49d1f94998917de3bf8db932d"
+  },
+  {
+   "path": "config/cookingforblockheads-common.toml",
+   "size": 1500,
+   "md5": "cdfa1649623167aaba2592aa2c857f23"
+  },
+  {
+   "path": "config/create-common.toml",
+   "size": 153,
+   "md5": "9dabf53d32493d67b0d8985fb72ad083"
+  },
+  {
+   "path": "config/create-server.toml",
+   "size": 16890,
+   "md5": "e84152b02fdded18eedb9bb7eb4a3f41"
+  },
+  {
+   "path": "config/create_connected-common.toml",
+   "size": 1753,
+   "md5": "322c9289013249528e27393fe725f343"
+  },
+  {
+   "path": "config/create_connected-server.toml",
+   "size": 2081,
+   "md5": "12d0e38fc948fad3a696898c627f1f16"
+  },
+  {
+   "path": "config/create_food_filling-common-1.toml.bak",
+   "size": 1131,
+   "md5": "c6735923a4490f2c1e88a4287c203e31"
+  },
+  {
+   "path": "config/create_food_filling-common.toml",
+   "size": 1811,
+   "md5": "2b231d5625aa68fd07db116b3d6ea7e3"
+  },
+  {
+   "path": "config/create_food_filling-server.toml",
+   "size": 698,
+   "md5": "3e08822e4d7155a5de55fad60f6e4676"
+  },
+  {
+   "path": "config/create_power_loader-server.toml",
+   "size": 3107,
+   "md5": "382abe97482c0fc4d5a78e60c7ab53de"
+  },
+  {
+   "path": "config/createaddition-common.toml",
+   "size": 6346,
+   "md5": "0a4a1e65d011c94cdc2e412b27f04d9a"
+  },
+  {
+   "path": "config/createadditionallogistics-common.toml",
+   "size": 1401,
+   "md5": "a1b8d88556bef3fe4d9aa1e4e308fb70"
+  },
+  {
+   "path": "config/createadditionallogistics-server.toml",
+   "size": 958,
+   "md5": "15b63e6552a2e9ff752acb6edfda156a"
+  },
+  {
+   "path": "config/createendertransmission-server.toml",
+   "size": 86,
+   "md5": "a14dc70705be4c5c29b03978f2ba3fd3"
+  },
+  {
+   "path": "config/createentitycontrol-common.toml",
+   "size": 8151,
+   "md5": "892c543b2ba0b1082e366d08ba625724"
+  },
+  {
+   "path": "config/createimp.json",
+   "size": 1637,
+   "md5": "e8e3edee372257863fa4c63c4d8c2af2"
+  },
+  {
+   "path": "config/createlazytick-server-1.toml.bak",
+   "size": 8191,
+   "md5": "3ac5a5f4637679d8210c9d9efe806874"
+  },
+  {
+   "path": "config/createlazytick-server.toml",
+   "size": 8191,
+   "md5": "99ec3c5a9f279bc77776d907e7d17350"
+  },
+  {
+   "path": "config/createmoremachines-startup.toml",
+   "size": 8891,
+   "md5": "4f9ab14f4f19200ad3db8a0e91d9274a"
+  },
+  {
+   "path": "config/creeper_firework-common.toml",
+   "size": 1062,
+   "md5": "6b6e42cddfc36046108a68f270fdda8b"
+  },
+  {
+   "path": "config/croparium/Agricultural Crop Mapping.json",
+   "size": 1033,
+   "md5": "2949d9d7be65ba2cb0eb167870f070e9"
+  },
+  {
+   "path": "config/croparium/Croparium Config.json",
+   "size": 1646,
+   "md5": "593aebe16e77a65f0746ab5e87eecea4"
+  },
+  {
+   "path": "config/Croparium-1.toml.bak",
+   "size": 3608,
+   "md5": "b0f81f35b14c7da82356a8df586047f7"
+  },
+  {
+   "path": "config/Croparium.toml",
+   "size": 3578,
+   "md5": "618f366d571af36a912f55a3527a9834"
+  },
+  {
+   "path": "config/curios-common.toml",
+   "size": 159,
+   "md5": "0addc1c3c75406e6ed98709885d58d7c"
+  },
+  {
+   "path": "config/curios-server.toml",
+   "size": 483,
+   "md5": "3d9e748bba95ccb5983ee30504323e5d"
+  },
+  {
+   "path": "config/delighto_flight-common.toml",
+   "size": 131,
+   "md5": "e487d3a10cef2a980fda506f8d156cf9"
+  },
+  {
+   "path": "config/deployer-server.toml",
+   "size": 276,
+   "md5": "97aa5b7b2ea39ccbb5ebeaa9149a4f8d"
+  },
+  {
+   "path": "config/displaydelight-common.toml",
+   "size": 872,
+   "md5": "05a648243cfc685445c533c4b7c8ada3"
+  },
+  {
+   "path": "config/dragonsurvival-server-1.toml.bak",
+   "size": 19380,
+   "md5": "d404e1f35d0baf6134482e51700481b9"
+  },
+  {
+   "path": "config/dragonsurvival-server-2.toml.bak",
+   "size": 19029,
+   "md5": "c31defee140051d3af277ed6224fbd20"
+  },
+  {
+   "path": "config/dragonsurvival-server.toml",
+   "size": 19379,
+   "md5": "2aba77c608742a4a3e7f5e109a200aa9"
+  },
+  {
+   "path": "config/dungeonsdelight-config.toml",
+   "size": 884,
+   "md5": "047ad68abe0291c48d492210e334dfd6"
+  },
+  {
+   "path": "config/easy_piglins-server.toml",
+   "size": 100,
+   "md5": "0e26fa56e227d6194e3e7ad7e0da621e"
+  },
+  {
+   "path": "config/easy_villagers-server.toml",
+   "size": 1986,
+   "md5": "f13add39fa2e49580f8e02596bbb6335"
+  },
+  {
+   "path": "config/ecologics-common.toml",
+   "size": 636,
+   "md5": "be7d26e7c7833c54a448754bfb60c833"
+  },
+  {
+   "path": "config/elixir.toml",
+   "size": 883,
+   "md5": "7f21333b7a0072943ae403dbf589b374"
+  },
+  {
+   "path": "config/ends_delight-common.toml",
+   "size": 705,
+   "md5": "49c7a2b622e627f664e117499ab59709"
+  },
+  {
+   "path": "config/enigmaticlegacyplus-server-1.toml.bak",
+   "size": 11479,
+   "md5": "113bdee3e22915ea845875f559787264"
+  },
+  {
+   "path": "config/enigmaticlegacyplus-server-2.toml.bak",
+   "size": 10585,
+   "md5": "577f22b5db514c80cbb1b0fa3c6036fe"
+  },
+  {
+   "path": "config/enigmaticlegacyplus-server-3.toml.bak",
+   "size": 9906,
+   "md5": "9ecfcda01ebf20fc0957fac52cffc18e"
+  },
+  {
+   "path": "config/enigmaticlegacyplus-server-4.toml.bak",
+   "size": 8757,
+   "md5": "2b3412f5e4ab57afc6d4376df51fd73b"
+  },
+  {
+   "path": "config/enigmaticlegacyplus-server.toml",
+   "size": 11535,
+   "md5": "7b7d7a26a191a76c9143eea0a78d1b95"
+  },
+  {
+   "path": "config/etched-server.toml",
+   "size": 313,
+   "md5": "5b39c7001f50a8910fb9c5641ccfdb9f"
+  },
+  {
+   "path": "config/eternal_starlight.json",
+   "size": 5248,
+   "md5": "3dbd92aa8f09907b11bac597358f6dfe"
+  },
+  {
+   "path": "config/eternal_starlight_vo.json",
+   "size": 79,
+   "md5": "ac81535633de18cdc2f217a3ea544dfe"
+  },
+  {
+   "path": "config/eternalappetite-common.toml",
+   "size": 275,
+   "md5": "bededc18d051394c37ccb5293e008131"
+  },
+  {
+   "path": "config/exposure-common.toml",
+   "size": 351,
+   "md5": "9da3fa9738c035a7d8097322f5d7ea7c"
+  },
+  {
+   "path": "config/exposure-server.toml",
+   "size": 5376,
+   "md5": "5ee848a4e3a2c3dab21353b9e74b7ec7"
+  },
+  {
+   "path": "config/exposure_polaroid-server.toml",
+   "size": 436,
+   "md5": "cd887ac08640cf2537679c64941a35e0"
+  },
+  {
+   "path": "config/extra_gauges-server.toml",
+   "size": 411,
+   "md5": "aa390e32b3ec9ab087af8355a5d31af3"
+  },
+  {
+   "path": "config/farmersdelight-common-1.toml.bak",
+   "size": 4713,
+   "md5": "8a898a33af8262ace02519f068408a10"
+  },
+  {
+   "path": "config/farmersdelight-common.toml",
+   "size": 3817,
+   "md5": "e77da9197ee80f1960dbf9681b7fe360"
+  },
+  {
+   "path": "config/fdlib/fdlib_client.json",
+   "size": 136,
+   "md5": "e38167c19130c029ab628842d4d5441b"
+  },
+  {
+   "path": "config/fdlib/test.json",
+   "size": 215,
+   "md5": "449963b6fe624d099132e6c8cfb2ecf9"
+  },
+  {
+   "path": "config/fetzis_displays/fetzis-displays-config.json",
+   "size": 197,
+   "md5": "0e46a709886f9493bd04cf5faf1c2264"
+  },
+  {
+   "path": "config/fluidlogistics-common-1.toml.bak",
+   "size": 1449,
+   "md5": "2d8e21fc41c3d3d035e528d195e5b9d2"
+  },
+  {
+   "path": "config/fluidlogistics-common.toml",
+   "size": 3253,
+   "md5": "c4c757a07b59ae84acb7027e8e873acc"
+  },
+  {
+   "path": "config/fluidlogistics-server.toml",
+   "size": 2301,
+   "md5": "f6c80e1afe6ae097868a6b97cb20e1ef"
+  },
+  {
+   "path": "config/fml.toml",
+   "size": 1550,
+   "md5": "61a62e6a2b5b00f324065233e76b9a64"
+  },
+  {
+   "path": "config/framedblocks-server.toml",
+   "size": 1265,
+   "md5": "50e1f6df3b8c019f4784f3a3a28fc83a"
+  },
+  {
+   "path": "config/fruitsdelight-common.toml",
+   "size": 56,
+   "md5": "20713509f0c64873fe46cbd23993c3e8"
+  },
+  {
+   "path": "config/fruitsdelight-server.toml",
+   "size": 526,
+   "md5": "1f3698fe2679b8e9bd8d919ee8b98991"
+  },
+  {
+   "path": "config/ftbchunks-world.snbt",
+   "size": 9334,
+   "md5": "801ec72dc20a11d4b32d657d5519163c"
+  },
+  {
+   "path": "config/ftbessentials.snbt",
+   "size": 10730,
+   "md5": "cd416c388c0c332658ccd5fcc7e3392c"
+  },
+  {
+   "path": "config/ftbteams-server.snbt",
+   "size": 1112,
+   "md5": "7a549cf7724bc981ba1c663af0434f2e"
+  },
+  {
+   "path": "config/ftbultimine-server.snbt",
+   "size": 3477,
+   "md5": "a4c277d6143ee61058b7be08b3c61cba"
+  },
+  {
+   "path": "config/graveyard-common.toml",
+   "size": 6508,
+   "md5": "0da6787e9ad77eb17fc6676002999366"
+  },
+  {
+   "path": "config/guardvillagers-common.toml",
+   "size": 6113,
+   "md5": "56aa68f7e9013c0e02af28c215b815b2"
+  },
+  {
+   "path": "config/guardvillagers-startup.toml",
+   "size": 195,
+   "md5": "d72deb052a193d7ddc9bd40a3ee1f07c"
+  },
+  {
+   "path": "config/gun_scaling/main.toml",
+   "size": 480,
+   "md5": "8a43b6f0b4d1eb8cc21c1f1c7cc18c07"
+  },
+  {
+   "path": "config/iceandfire/iaf-common.json",
+   "size": 4641,
+   "md5": "ec7e65c04ff8ba269a8de0e08064ce38"
+  },
+  {
+   "path": "config/illagerinvasion-server.toml",
+   "size": 1684,
+   "md5": "6982f41619c39002015a346f223acc06"
+  },
+  {
+   "path": "config/immersive_melodies.json",
+   "size": 1188,
+   "md5": "cd02c01e9414c315ce7e0464cb173e58"
+  },
+  {
+   "path": "config/immersive_paintings/client_config.toml",
+   "size": 302,
+   "md5": "1d9b13067c8e3e11812da7ec837de247"
+  },
+  {
+   "path": "config/immersive_paintings/common_config.toml",
+   "size": 412,
+   "md5": "b0c4ef80df020c4df1a829066a3728bb"
+  },
+  {
+   "path": "config/infernalmobs.cfg",
+   "size": 18355,
+   "md5": "8bc11dd375a091908912e5bb68740032"
+  },
+  {
+   "path": "config/infernalmobs.cfg.bak",
+   "size": 14026,
+   "md5": "d8659df55f061df05f4d83f52bbda9d7"
+  },
+  {
+   "path": "config/infiniteupgrades-common.toml",
+   "size": 351,
+   "md5": "cf4d72d224b8d5600bb45452ccdd59d5"
+  },
+  {
+   "path": "config/infiniteupgrades-server.toml",
+   "size": 20742,
+   "md5": "cf13db15964526a7b58e58d38bca1b14"
+  },
+  {
+   "path": "config/irons_spellbooks-server.toml",
+   "size": 37550,
+   "md5": "1dcca9ecfe922bacf1523070879ac6f5"
+  },
+  {
+   "path": "config/jade/server-plugin-overrides.json",
+   "size": 2,
+   "md5": "99914b932bd37a50b983c5e7c90ae93b"
+  },
+  {
+   "path": "config/jade/sort-order.json",
+   "size": 1418,
+   "md5": "5390840ca029c73276482e6582c7a2bf"
+  },
+  {
+   "path": "config/jupiter.json",
+   "size": 171,
+   "md5": "8f4bca3be8047b6a946288be8036fbae"
+  },
+  {
+   "path": "config/kaleidoscope_compat-common-1.toml.bak",
+   "size": 543,
+   "md5": "c83293a93bd1626028d4a7bbe15b05ee"
+  },
+  {
+   "path": "config/kaleidoscope_compat-common-2.toml.bak",
+   "size": 323,
+   "md5": "f65ab61387b791a7cb14ec66051f71a8"
+  },
+  {
+   "path": "config/kaleidoscope_compat-common.toml",
+   "size": 2912,
+   "md5": "c10a45355b4faae54d84e3c904f85e8a"
+  },
+  {
+   "path": "config/kaleidoscope_compat.jsonc",
+   "size": 7864,
+   "md5": "6d853093b45bcf15921e960888874e8c"
+  },
+  {
+   "path": "config/kaleidoscope_cookery-common-1.toml.bak",
+   "size": 225,
+   "md5": "7cdd0c76d1f8076c88c4509c4d348fe1"
+  },
+  {
+   "path": "config/kaleidoscope_cookery-common.toml",
+   "size": 1330,
+   "md5": "76d502b40989da2688d97aec4e5b0359"
+  },
+  {
+   "path": "config/kaleidoscope_doll-common.toml",
+   "size": 1515,
+   "md5": "4edb21477921022e38c07191466ed48a"
+  },
+  {
+   "path": "config/kaleidoscope_grilling-common.toml",
+   "size": 3851,
+   "md5": "8ce3cc488c9aecfbc2d276ee9912a6e4"
+  },
+  {
+   "path": "config/kaleidoscope_tavern-common-1.toml.bak",
+   "size": 301,
+   "md5": "ed8bb1814dcd190b42174a328dbe59e2"
+  },
+  {
+   "path": "config/kaleidoscope_tavern-common.toml",
+   "size": 867,
+   "md5": "66fdb604d0ff1b40d3a6797ee8a27f2c"
+  },
+  {
+   "path": "config/kaleidoscope_world_liquor-common.toml",
+   "size": 128,
+   "md5": "c8859f82263e35b67b63e2406a767547"
+  },
+  {
+   "path": "config/l2configs/l2damagetracker-server.toml",
+   "size": 262,
+   "md5": "536b7490ef860203e799dcb8fbdc9dee"
+  },
+  {
+   "path": "config/l2configs/l2library-server.toml",
+   "size": 35,
+   "md5": "95ad14e1cf8aa92230778720d7fed1c9"
+  },
+  {
+   "path": "config/l2configs/l2menustacker-server.toml",
+   "size": 88,
+   "md5": "d9b30fb7c088205f04f52b5bd26c472b"
+  },
+  {
+   "path": "config/l2configs/modulargolems-server-1.toml.bak",
+   "size": 5132,
+   "md5": "10259248c3834a0b0204455db916df64"
+  },
+  {
+   "path": "config/l2configs/modulargolems-server-2.toml.bak",
+   "size": 4184,
+   "md5": "e9fd989e8fda21d5d174203d91c29e9e"
+  },
+  {
+   "path": "config/l2configs/modulargolems-server.toml",
+   "size": 5195,
+   "md5": "0ada085086b697c97e50cf7da351e03d"
+  },
+  {
+   "path": "config/lmft.json",
+   "size": 66,
+   "md5": "8454fb0618d6203bd43c5f02ae90174f"
+  },
+  {
+   "path": "config/logistics-network/common-1.toml.bak",
+   "size": 615,
+   "md5": "14fc54eeac31b1549256c65160f19360"
+  },
+  {
+   "path": "config/logistics-network/common.toml",
+   "size": 1288,
+   "md5": "c1a731d3080c7d5cb68a9d87b2b5c797"
+  },
+  {
+   "path": "config/logistics-network/upgrades.json",
+   "size": 818,
+   "md5": "c8102a6b970993be3e2cd988539a9a2a"
+  },
+  {
+   "path": "config/lootr-common-1.toml.bak",
+   "size": 8199,
+   "md5": "02564303dc5b0d47e497c9a1192c1bb4"
+  },
+  {
+   "path": "config/lootr-common.toml",
+   "size": 8415,
+   "md5": "ad13d2ed91cc2892af357fecc63b6f8e"
+  },
+  {
+   "path": "config/meadow-common.toml",
+   "size": 61,
+   "md5": "1918ccb1e201e23aed02f809314f4daa"
+  },
+  {
+   "path": "config/Mekanism/common.toml",
+   "size": 1075,
+   "md5": "e8fd04c32d99a85d6474f15b07feb773"
+  },
+  {
+   "path": "config/Mekanism/gear.toml",
+   "size": 13420,
+   "md5": "aa43701bfceb7f664278a4fb7987bf6c"
+  },
+  {
+   "path": "config/Mekanism/general.toml",
+   "size": 13417,
+   "md5": "499adab04a0f2db264bad01cfcb0bf3e"
+  },
+  {
+   "path": "config/Mekanism/generator-storage.toml",
+   "size": 657,
+   "md5": "8c2e63f35b9857557f9ce79a7d0c7979"
+  },
+  {
+   "path": "config/Mekanism/generators-gear.toml",
+   "size": 773,
+   "md5": "93c8e9d57117cd57b194c9d859a1326e"
+  },
+  {
+   "path": "config/Mekanism/generators.toml",
+   "size": 8482,
+   "md5": "8958c8c8f4eb9da9fb212f117687ed11"
+  },
+  {
+   "path": "config/Mekanism/machine-storage.toml",
+   "size": 4880,
+   "md5": "acc2c565a846e1048e24fd16ff2cf19c"
+  },
+  {
+   "path": "config/Mekanism/machine-usage.toml",
+   "size": 4770,
+   "md5": "dd241a328de422d6647d103d26d4e01e"
+  },
+  {
+   "path": "config/Mekanism/startup.toml",
+   "size": 1792,
+   "md5": "d864fe37ed567d6a6663be36b0941f2c"
+  },
+  {
+   "path": "config/Mekanism/tiers.toml",
+   "size": 12196,
+   "md5": "adcc51be8b45a95cf4e7ef6c2ed45a3b"
+  },
+  {
+   "path": "config/Mekanism/tools-materials-startup.toml",
+   "size": 23929,
+   "md5": "0efb59da3b5e176361f09e1d8de222ae"
+  },
+  {
+   "path": "config/Mekanism/tools.toml",
+   "size": 12770,
+   "md5": "b641b83c3a52e709605edbea7ca7e1a5"
+  },
+  {
+   "path": "config/Mekanism/world.toml",
+   "size": 21047,
+   "md5": "ff6af46b7a7f6b457a0ca6455c0f49d7"
+  },
+  {
+   "path": "config/MekanismMoreMachine/general.toml",
+   "size": 1966,
+   "md5": "628c36d2e7e0f3f95c88264d614a6b1c"
+  },
+  {
+   "path": "config/MekanismMoreMachine/generators.toml",
+   "size": 1376,
+   "md5": "13b65e3c617811758157fc36b41022da"
+  },
+  {
+   "path": "config/MekanismMoreMachine/machine-storage-1.toml.bak",
+   "size": 2169,
+   "md5": "1abf99f1065b02cf54e642d990aca9b5"
+  },
+  {
+   "path": "config/MekanismMoreMachine/machine-storage.toml",
+   "size": 2489,
+   "md5": "cb670baaca8f6326af79c5daa6d862b7"
+  },
+  {
+   "path": "config/MekanismMoreMachine/machine-usage-1.toml.bak",
+   "size": 1492,
+   "md5": "a8ac998ffa5d9cdecd49424d8650887c"
+  },
+  {
+   "path": "config/MekanismMoreMachine/machine-usage.toml",
+   "size": 1796,
+   "md5": "9725e26c4554dd6431458295575df653"
+  },
+  {
+   "path": "config/MekanismMoreMachine/tiers.toml",
+   "size": 2264,
+   "md5": "ea494aa1c9f75f44bbfb3edc58e7f447"
+  },
+  {
+   "path": "config/Mekltgt.toml",
+   "size": 745,
+   "md5": "a3c8aa6d18fabc05015e3c99a7e76994"
+  },
+  {
+   "path": "config/mffs-common.toml",
+   "size": 2178,
+   "md5": "eb79c1252952cc472a4dc214350b5365"
+  },
+  {
+   "path": "config/mixed_litter-startup.toml",
+   "size": 1065,
+   "md5": "630e9226169d613543c35df16537fc9a"
+  },
+  {
+   "path": "config/mobconversion-common.toml",
+   "size": 3720,
+   "md5": "bbe6504669a9b03843855ca8b142b60c"
+  },
+  {
+   "path": "config/moreornplants-common-1.toml.bak",
+   "size": 2488,
+   "md5": "bb97c64402a5b62f4420fce6621c8021"
+  },
+  {
+   "path": "config/moreornplants-common-2.toml.bak",
+   "size": 3889,
+   "md5": "da28be0e88e4e551b1c82b80fc46f193"
+  },
+  {
+   "path": "config/moreornplants-common-3.toml.bak",
+   "size": 2725,
+   "md5": "753ee81b8fb506426c0caab3cec8e32b"
+  },
+  {
+   "path": "config/moreornplants-common-4.toml.bak",
+   "size": 2650,
+   "md5": "070129594eb5a99cfb37882299d09feb"
+  },
+  {
+   "path": "config/moreornplants-common.toml",
+   "size": 2518,
+   "md5": "4425359b1fad46919513ec0659bad47a"
+  },
+  {
+   "path": "config/moresnifferflowers-server.toml",
+   "size": 1281,
+   "md5": "24d44893b83142293a56af25211480d3"
+  },
+  {
+   "path": "config/mynethersdelight-common.toml",
+   "size": 1912,
+   "md5": "60c93b3ca1a3d6660126b8fd21eb408e"
+  },
+  {
+   "path": "config/naturescompass-common-1.toml.bak",
+   "size": 1194,
+   "md5": "d6514900ef0e1ec7345c863dafcabc82"
+  },
+  {
+   "path": "config/naturescompass-common.toml",
+   "size": 2227,
+   "md5": "365d5f8d638c84a03373ba9ed4de1f81"
+  },
+  {
+   "path": "config/nebula/industrial_platform/common.toml",
+   "size": 838,
+   "md5": "b5a6bff60df1338b75ba735afe60bf89"
+  },
+  {
+   "path": "config/neoforge-common.toml",
+   "size": 772,
+   "md5": "914110a675baa858ef6725e3f56e513c"
+  },
+  {
+   "path": "config/neoforge-server.toml",
+   "size": 1177,
+   "md5": "5fad417d8fbff12e98bf3bbaa3782864"
+  },
+  {
+   "path": "config/netherman-common.toml",
+   "size": 3867,
+   "md5": "838606548025574e7393282f5ecc911c"
+  },
+  {
+   "path": "config/nomansland-common.toml",
+   "size": 6852,
+   "md5": "28d112c76e46e3cd1d65e7b3154e46e5"
+  },
+  {
+   "path": "config/nomansland-startup.toml",
+   "size": 468,
+   "md5": "b6016f2c5e4a825bf764f8f9940c2254"
+  },
+  {
+   "path": "config/obscuria/pillager_caravans-common.toml",
+   "size": 1080,
+   "md5": "5bebe2342f0db8262a10bd9af15aaa8e"
+  },
+  {
+   "path": "config/observable.json",
+   "size": 2,
+   "md5": "99914b932bd37a50b983c5e7c90ae93b"
+  },
+  {
+   "path": "config/overlapless-common.toml",
+   "size": 2226,
+   "md5": "e8f81b4f8a4241e5d1871cbe534934c2"
+  },
+  {
+   "path": "config/particlestorm-common.toml",
+   "size": 27,
+   "md5": "cd6679593d085ea6314de82b690b768d"
+  },
+  {
+   "path": "config/pizzadelight-server.toml",
+   "size": 143,
+   "md5": "1d7c1b8801cdb687872f1bc7e3b55c32"
+  },
+  {
+   "path": "config/raidsenhanced/raidsenhanced.json",
+   "size": 605,
+   "md5": "67868e325c3a576ecb6ff063b0dfc29f"
+  },
+  {
+   "path": "config/raritycore/auto/auto_rarity.json",
+   "size": 116910,
+   "md5": "29a0f8b071a1cd501909a1f7f6912fff"
+  },
+  {
+   "path": "config/raritycore/client.json",
+   "size": 143,
+   "md5": "a4ce8ea26a57a9fd6f2a0c37ba92ce5b"
+  },
+  {
+   "path": "config/raritycore/FinalRarity.json",
+   "size": 2,
+   "md5": "99914b932bd37a50b983c5e7c90ae93b"
+  },
+  {
+   "path": "config/raritycore/RarityStyle.json",
+   "size": 1133,
+   "md5": "7d0252b83e8c243e77200e8c527aaa97"
+  },
+  {
+   "path": "config/raritycore/server.json",
+   "size": 140,
+   "md5": "fb4576279263a33ceffba4902cfc4e24"
+  },
+  {
+   "path": "config/raritycore/TagRarity.json",
+   "size": 223,
+   "md5": "bec4e3f3e4c6ec170267403ed1303c2b"
+  },
+  {
+   "path": "config/ratatouille-server.toml",
+   "size": 494,
+   "md5": "c257510ddb0965041203304c34f0947c"
+  },
+  {
+   "path": "config/ratatouille_fried_delights-common.toml",
+   "size": 330,
+   "md5": "f00907c3f3c80427d908902542b4dee4"
+  },
+  {
+   "path": "config/ratatouille_fried_delights-server.toml",
+   "size": 675,
+   "md5": "eb8cf7bab0a0639213106ecb19597ff1"
+  },
+  {
+   "path": "config/refinedstorage-common-1.toml.bak",
+   "size": 6168,
+   "md5": "a298e5201bd9a7b6d97ee43f27eb2501"
+  },
+  {
+   "path": "config/refinedstorage-common.toml",
+   "size": 6190,
+   "md5": "b85df8cbbb698c323b44a9e3fae0552c"
+  },
+  {
+   "path": "config/refinedstorage_mekanism_integration-common.toml",
+   "size": 391,
+   "md5": "1f2efd94c0a5039faf1f518150bc42c7"
+  },
+  {
+   "path": "config/refinedstorage_quartz_arsenal-common.toml",
+   "size": 492,
+   "md5": "cf2f220a6273997d1c0d31d473a9e7a3"
+  },
+  {
+   "path": "config/resource_replicator-common.toml",
+   "size": 15596,
+   "md5": "675d7b5ffa94ed03a8ce03a0839ced5d"
+  },
+  {
+   "path": "config/resourceful-config-web.json",
+   "size": 196,
+   "md5": "5483f7d46ac9360996fb85ddf9c2df68"
+  },
+  {
+   "path": "config/rottencreatures-common.toml",
+   "size": 616,
+   "md5": "b9d7709feb27c334245a73eeaf931d1e"
+  },
+  {
+   "path": "config/royalvariations-1.toml.bak",
+   "size": 15,
+   "md5": "086b4194d7c0c092b24133749e8bf52e"
+  },
+  {
+   "path": "config/royalvariations.toml",
+   "size": 1970,
+   "md5": "8e6678019e3a7d3ae3b56ffc2c83d01d"
+  },
+  {
+   "path": "config/rsinfinitybooster-server.toml",
+   "size": 232,
+   "md5": "d7f5817a79cf0c6df6f43115f15b07d8"
+  },
+  {
+   "path": "config/runiclib.json",
+   "size": 31,
+   "md5": "3ffa1c3a7842e25c68144e4a4480240c"
+  },
+  {
+   "path": "config/saintsdragons-attributes.toml",
+   "size": 9887,
+   "md5": "d23e8797ad1dc7f2dd19f39a24fbd92a"
+  },
+  {
+   "path": "config/saintsdragonsspawning.toml",
+   "size": 3320,
+   "md5": "d3894c2cc618f562ff7a42dff740480b"
+  },
+  {
+   "path": "config/scguns-common.toml",
+   "size": 14973,
+   "md5": "931af221c9b3b278edd70ca36e8d2b03"
+  },
+  {
+   "path": "config/scguns-server.toml",
+   "size": 2858,
+   "md5": "1f9d584edafb1bd83a9022d80acc8b2a"
+  },
+  {
+   "path": "config/serverwarashi-server.toml",
+   "size": 263,
+   "md5": "9f386575e50af7c56c57f458379d8ce9"
+  },
+  {
+   "path": "config/skeletonhorsespawn.json5",
+   "size": 376,
+   "md5": "c992f03ee6f058c1bfdaa8c2148dbc15"
+  },
+  {
+   "path": "config/someassemblyrequired-server.toml",
+   "size": 833,
+   "md5": "a711dd20f204c1661dff6cb60dece36b"
+  },
+  {
+   "path": "config/sophisticatedbackpacks-common.toml",
+   "size": 118,
+   "md5": "3c220b8881045a5364a3a8d7395974a8"
+  },
+  {
+   "path": "config/sophisticatedbackpacks-server-1.toml.bak",
+   "size": 23507,
+   "md5": "5a0905e7a688397b5e043da6682d2938"
+  },
+  {
+   "path": "config/sophisticatedbackpacks-server-2.toml.bak",
+   "size": 21725,
+   "md5": "f7a668d9910e79548e06e34fe2b3fba0"
+  },
+  {
+   "path": "config/sophisticatedbackpacks-server.toml",
+   "size": 24153,
+   "md5": "c665c84a7e879a4707f90d6339b72421"
+  },
+  {
+   "path": "config/sophisticatedcore-common.toml",
+   "size": 10587,
+   "md5": "3391ee4e7ad3397f819f442aa9b0cc25"
+  },
+  {
+   "path": "config/sophisticatedstorage-common.toml",
+   "size": 186,
+   "md5": "985f0395653070b4c10157c48ddc6319"
+  },
+  {
+   "path": "config/sophisticatedstorage-server.toml",
+   "size": 25915,
+   "md5": "52e473801a6c83a83099a0ef60100fd7"
+  },
+  {
+   "path": "config/star_dragon-common.toml",
+   "size": 113,
+   "md5": "34467a96d03b1c679bcc64b88c98e312"
+  },
+  {
+   "path": "config/structure_layout_optimizer.jsonc",
+   "size": 1058,
+   "md5": "8164106afd7410cdd1bc9cab4e153654"
+  },
+  {
+   "path": "config/tarotcards/tarotcards.toml",
+   "size": 1261,
+   "md5": "35815d17d7c166b0790f4f9528ec91a8"
+  },
+  {
+   "path": "config/tempad.jsonc",
+   "size": 4823,
+   "md5": "6a8e6fff0d31960dc8fa0e34cc09f086"
+  },
+  {
+   "path": "config/terra_curio-common.toml",
+   "size": 2826,
+   "md5": "ea99906cd640dac6dc0233ee76a628fb"
+  },
+  {
+   "path": "config/terra_curio-startup.toml",
+   "size": 320,
+   "md5": "efccbd12c8915335cb610faf90a1f8f4"
+  },
+  {
+   "path": "config/terra_entity/attribute_config.json",
+   "size": 726,
+   "md5": "f43b4f46e45bca370d1b92680740f81e"
+  },
+  {
+   "path": "config/terra_entity-server.toml",
+   "size": 1440,
+   "md5": "78d0cc0dba9007551feb81b9a887897f"
+  },
+  {
+   "path": "config/terrablender.toml",
+   "size": 988,
+   "md5": "f833bc1281a0152f4e2abf27ee1ad512"
+  },
+  {
+   "path": "config/the_beyond-common.toml",
+   "size": 791,
+   "md5": "dbdc078694ad988eb69e684271d9ba66"
+  },
+  {
+   "path": "config/thirst/item_settings.toml",
+   "size": 1461,
+   "md5": "d2e37bdfa68d2b2e2721868aab90e2c6"
+  },
+  {
+   "path": "config/tide/tide_client.json",
+   "size": 325,
+   "md5": "ed2113e1ffc514c7acb7d70387a4974c"
+  },
+  {
+   "path": "config/tide/tide_server.json",
+   "size": 1057,
+   "md5": "9e1a8e2b4a8aeb59e3d9482aaab7e094"
+  },
+  {
+   "path": "config/tide.json",
+   "size": 1191,
+   "md5": "10cad768cd5237a1c915f13cfff01bea"
+  },
+  {
+   "path": "config/tide.json5",
+   "size": 2627,
+   "md5": "8964db27ce5794198521bd99be1413c9"
+  },
+  {
+   "path": "config/tide_client.json5",
+   "size": 299,
+   "md5": "c3e710a01747f37e4b868273bfa28880"
+  },
+  {
+   "path": "config/torchmaster.toml",
+   "size": 2789,
+   "md5": "f18e056dd35594018b797eb607ac0e1e"
+  },
+  {
+   "path": "config/untitledduckmod-server.toml",
+   "size": 1937,
+   "md5": "c4e6ebd758bb1202561b9bcd2a6b9554"
+  },
+  {
+   "path": "config/vinery.toml",
+   "size": 3248,
+   "md5": "6259100f10f6bba73995fa4ac71d88a1"
+  },
+  {
+   "path": "config/Vital Herbs Config.toml",
+   "size": 792,
+   "md5": "948f6f6adcaddeaaf058f1f9af889b99"
+  },
+  {
+   "path": "config/waterwheelimmortal-common.toml",
+   "size": 113,
+   "md5": "011eac8c60ea462e15caba2cbac3ab99"
+  },
+  {
+   "path": "config/waystones-common-1.toml.bak",
+   "size": 6295,
+   "md5": "eb93eb9e9bbba35ff2b848cab6483cf0"
+  },
+  {
+   "path": "config/waystones-common-2.toml.bak",
+   "size": 6236,
+   "md5": "e8c2177a3bdc4386e59e012d43ae42f1"
+  },
+  {
+   "path": "config/waystones-common.toml",
+   "size": 6604,
+   "md5": "e6b44bf2a88efb58914ca2aeb3bf4f36"
+  },
+  {
+   "path": "config/wildernature-common-1.toml.bak",
+   "size": 2686,
+   "md5": "bdc1fec1bb2c7929f9f1e17763322935"
+  },
+  {
+   "path": "config/wildernature-common.toml",
+   "size": 3056,
+   "md5": "2867d9218b7756ad200741e4ac870107"
+  },
+  {
+   "path": "config/wing_kirin-server-1.toml.bak",
+   "size": 1115,
+   "md5": "c37390e0334e4f0a650659d9916725e8"
+  },
+  {
+   "path": "config/wing_kirin-server.toml",
+   "size": 2256,
+   "md5": "2b31c7747c3f491cd81d45366e1dd98f"
+  },
+  {
+   "path": "config/winterly.json",
+   "size": 284,
+   "md5": "d0792838684bebfa6ed2990f9c68a9a3"
+  },
+  {
+   "path": "config/xaero/lib/common.cfg",
+   "size": 236,
+   "md5": "e085e122e32132e1fa73ac927f7ece81"
+  },
+  {
+   "path": "config/xaero/lib/server_profiles/default.cfg",
+   "size": 75,
+   "md5": "a7ba1c4e531ad6afe1fa89e86f7dfd6f"
+  },
+  {
+   "path": "config/xaero/world-map/common.cfg",
+   "size": 141,
+   "md5": "b5ddb993fe4200e02fec18254463b2c2"
+  },
+  {
+   "path": "config/xaero/world-map/server_profiles/default.cfg",
+   "size": 75,
+   "md5": "a7ba1c4e531ad6afe1fa89e86f7dfd6f"
+  },
+  {
+   "path": "config/youkaisfeasts-server.toml",
+   "size": 343,
+   "md5": "c1ebad3e18a69df04774daec6f26aeab"
+  },
+  {
+   "path": "config/zenith-startup.toml",
+   "size": 130,
+   "md5": "da188f7717d578e41acb0dc951ebae4f"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-07-20.json",
+   "size": 288,
+   "md5": "75bb55abeb0d4a8873cfb053e6d21d1f"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-07-21.json",
+   "size": 295,
+   "md5": "8899b01f5f1899d877aa9c801909a9e9"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-07-22.json",
+   "size": 277,
+   "md5": "8261e5457d75304bc34d7a2ca81c1404"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-07-23.json",
+   "size": 293,
+   "md5": "ca4fed4540ec2328431af6729943cc6f"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-08-05.json",
+   "size": 267,
+   "md5": "65aee65238060845c767738639cacdfd"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-08-06.json",
+   "size": 267,
+   "md5": "ab2d8469ac7905de90d38eb67e328913"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-08-07.json",
+   "size": 273,
+   "md5": "3fa7ad7876d9a4a47f034dd8174dc8ff"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-08-08.json",
+   "size": 273,
+   "md5": "0963866ded5c087330112f14cb73f4f0"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-08-09.json",
+   "size": 273,
+   "md5": "6c2b97918278523fb606d734bd7b7fbf"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-08-10.json",
+   "size": 273,
+   "md5": "2ece96cedb69a7cfa16ce66df9317c98"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-09-03.json",
+   "size": 266,
+   "md5": "164f7f9555cf9b0a71fe9526d1ffbfd0"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-09-04.json",
+   "size": 266,
+   "md5": "6014f669b3258c3c0ddfb835e274c2f4"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-09-05.json",
+   "size": 292,
+   "md5": "cdac116299df0c1bc78a2135f6a464e2"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-09-06.json",
+   "size": 273,
+   "md5": "67d826f7fb56be0e376b934edf70ed0d"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-09-07.json",
+   "size": 297,
+   "md5": "711f7f1cef29a5f94a40872d89da4f7e"
+  },
+  {
+   "path": "config/zstdnet/stats/daily/2026-09-08.json",
+   "size": 295,
+   "md5": "8ea9cac9b7f7e4169fc1e535ebb5584f"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1784550504993-e10d6fd8.json",
+   "size": 340,
+   "md5": "9500c48dbc17aa53ba77d1de9542caf4"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1785922877107-16d0dfbd.json",
+   "size": 308,
+   "md5": "aef0132304686ac06552fadbbd515e49"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1785928551947-af30ae1a.json",
+   "size": 311,
+   "md5": "7dae82d92745512a6a760ffb2aef2195"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1785991371535-92f42e1d.json",
+   "size": 310,
+   "md5": "d38b2eb39024ba822f2bb552e16005ff"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1786006881049-9f4e9cbc.json",
+   "size": 322,
+   "md5": "ae523946b87255549d04e00047dc7f47"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1788435879289-2a5352f3.json",
+   "size": 308,
+   "md5": "d37be1e044a51493ec0230ad06cfdd3a"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1788436921456-95d2f7a3.json",
+   "size": 308,
+   "md5": "cf16d37d4402b7bc0fc83bd730fd010d"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1788499136009-f4eb0cda.json",
+   "size": 308,
+   "md5": "43b43d116dc7a3747326603b5ccdecc0"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1788499706019-d8b43022.json",
+   "size": 308,
+   "md5": "a22ae23904030b9ad142109678738348"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1788507272745-bb84e674.json",
+   "size": 308,
+   "md5": "e75c46bd214ad9199dde3dfd7ea9b004"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1788507864671-7477f510.json",
+   "size": 303,
+   "md5": "f5d7cd2591388c5ab54ec56258743dc4"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1788588017101-411a272e.json",
+   "size": 309,
+   "md5": "3cc6d61e1ddb33c664464a2ac85e6b3f"
+  },
+  {
+   "path": "config/zstdnet/stats/runs/1788588729692-e5680f92.json",
+   "size": 309,
+   "md5": "8cfa5c0d302b762988849d7f9bd41c6f"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-07-20.json",
+   "size": 10834,
+   "md5": "34b69ed99ba8f26e44de1ed2ced0629e"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-07-21.json",
+   "size": 72261,
+   "md5": "ddfee31f413c4c2dc3a3b6c25c19e1f5"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-07-22.json",
+   "size": 72124,
+   "md5": "207d784a2fe47e59c4478f56db640c0c"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-07-23.json",
+   "size": 36845,
+   "md5": "709e7d6fd1a409afe80eb6ae0e7bef55"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-08-05.json",
+   "size": 14544,
+   "md5": "4cd14e73cef7221aa661f0c0325a94c6"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-08-06.json",
+   "size": 64545,
+   "md5": "22781b3b95ea7a3da054f0631f512688"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-08-07.json",
+   "size": 72063,
+   "md5": "913894b7e65f314ce88b2be706bd4463"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-08-08.json",
+   "size": 72063,
+   "md5": "42950199f10ec19584333cf749308cd7"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-08-09.json",
+   "size": 72063,
+   "md5": "6daeb11d8293736d7df45707512dde34"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-08-10.json",
+   "size": 59311,
+   "md5": "866ffdaa5d40e5e35333d90733eb781e"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-09-03.json",
+   "size": 1794,
+   "md5": "492df12f6b46c484b8f1915ed9c8b70a"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-09-04.json",
+   "size": 1791,
+   "md5": "398809a3c97b76ee969ad3bb33fa015c"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-09-05.json",
+   "size": 30090,
+   "md5": "8cb625be7b808189b52e5647b2fc044a"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-09-06.json",
+   "size": 72063,
+   "md5": "1b41d5a92c348cb5d9f1eb18a57e7ab5"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-09-07.json",
+   "size": 72566,
+   "md5": "5a90dab66cc63f1245d94119e9b07ebb"
+  },
+  {
+   "path": "config/zstdnet/stats/series/2026-09-08.json",
+   "size": 49942,
+   "md5": "5eff12a99c7afddb1046adee3e72149c"
+  },
+  {
+   "path": "config/zstdnet/stats/state-v1.json",
+   "size": 328,
+   "md5": "50c31ca81d2743319e71b3ae337d0955"
+  },
+  {
+   "path": "config/zstdnet-server.properties",
+   "size": 2550,
+   "md5": "2efc5037a39d02e42650271669ce9864"
+  },
+  {
+   "path": "crash-reports/crash-2026-09-14_21.02.56-server.txt",
+   "size": 129283,
+   "md5": "5ee3d3a3becea4e9e60c338a5209402b"
+  },
+  {
+   "path": "defaultconfigs/biolith/general.json",
+   "size": 172,
+   "md5": "bf32b0b9d0a132059dcf220165758c55"
+  },
+  {
+   "path": "defaultconfigs/dragonsurvival-server.toml",
+   "size": 19379,
+   "md5": "2aba77c608742a4a3e7f5e109a200aa9"
+  },
+  {
+   "path": "defaultconfigs/ftbessentials-server.snbt",
+   "size": 234,
+   "md5": "404691f7296d825c645c1ecb9771e026"
+  },
+  {
+   "path": "eula.txt",
+   "size": 160,
+   "md5": "9310b37aaaff8ecf09db2c3c3270714c"
+  },
+  {
+   "path": "hs_err_pid42364.log",
+   "size": 203687,
+   "md5": "413744893564f1ef8aa36da16862bb07"
+  },
+  {
+   "path": "hs_err_pid60956.log",
+   "size": 239989,
+   "md5": "1cb5709465587979c225f901c2621945"
+  },
+  {
+   "path": "kubejs/config/common.json",
+   "size": 446,
+   "md5": "d73ac7084e0fe6a4a05ed432f6fec7d6"
+  },
+  {
+   "path": "kubejs/config/web_server.json",
+   "size": 120,
+   "md5": "0ca9d248b62e95e02fb472642c8abd67"
+  },
+  {
+   "path": "kubejs/README.txt",
+   "size": 1203,
+   "md5": "9b7dd698e2035090afd6f76f2d493cc6"
+  },
+  {
+   "path": "kubejs/server_scripts/main.js",
+   "size": 116,
+   "md5": "ceb7279d74244398c8ca0ff396587b22"
+  },
+  {
+   "path": "kubejs/startup_scripts/main.js",
+   "size": 117,
+   "md5": "bbdeb7792f10d6bb99b7c5678646cde3"
+  },
+  {
+   "path": "libraries/com/electronwill/night-config/core/3.8.3/core-3.8.3.jar",
+   "size": 382911,
+   "md5": "a69db71d5c9c274ff08f175d7c12cb1a"
+  },
+  {
+   "path": "libraries/com/electronwill/night-config/toml/3.8.3/toml-3.8.3.jar",
+   "size": 39516,
+   "md5": "71c9f7b86422f206c0d78c1a0600fd3a"
+  },
+  {
+   "path": "libraries/com/github/oshi/oshi-core/6.4.10/oshi-core-6.4.10.jar",
+   "size": 979212,
+   "md5": "75676ac6c1a3c4b0938f73e03eef8cad"
+  },
+  {
+   "path": "libraries/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar",
+   "size": 19936,
+   "md5": "dd83accb899363c32b07d7a1b2e4ce40"
+  },
+  {
+   "path": "libraries/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar",
+   "size": 283367,
+   "md5": "df6097815738cb31fc56391553210843"
+  },
+  {
+   "path": "libraries/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
+   "size": 258075,
+   "md5": "e67627f67e03301092dc7de0a2d7cef8"
+  },
+  {
+   "path": "libraries/com/google/errorprone/error_prone_annotations/2.18.0/error_prone_annotations-2.18.0.jar",
+   "size": 16017,
+   "md5": "64145d0e7fee5a69ed7b84cf402de998"
+  },
+  {
+   "path": "libraries/com/google/guava/failureaccess/1.0.1/failureaccess-1.0.1.jar",
+   "size": 4617,
+   "md5": "091883993ef5bfa91da01dcc8fc52236"
+  },
+  {
+   "path": "libraries/com/google/guava/guava/20.0/guava-20.0.jar",
+   "size": 2442625,
+   "md5": "f32a8a2524620dbecc9f6bf6a20c293f"
+  },
+  {
+   "path": "libraries/com/google/guava/guava/32.1.2-jre/guava-32.1.2-jre.jar",
+   "size": 3041591,
+   "md5": "5fe031b3b35ed56182478811a931d617"
+  },
+  {
+   "path": "libraries/com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar",
+   "size": 2199,
+   "md5": "d094c22570d65e132c19cea5d352e381"
+  },
+  {
+   "path": "libraries/com/google/j2objc/j2objc-annotations/2.8/j2objc-annotations-2.8.jar",
+   "size": 9301,
+   "md5": "c50af69b704dc91050efb98e0dff66d1"
+  },
+  {
+   "path": "libraries/com/machinezoo/noexception/noexception/1.7.1/noexception-1.7.1.jar",
+   "size": 250861,
+   "md5": "fcc3e4df4990088c964f687b62f7c448"
+  },
+  {
+   "path": "libraries/com/mojang/authlib/6.0.54/authlib-6.0.54.jar",
+   "size": 115242,
+   "md5": "8d5cc32d757f204ed369e6b27ff99469"
+  },
+  {
+   "path": "libraries/com/mojang/brigadier/1.3.10/brigadier-1.3.10.jar",
+   "size": 80082,
+   "md5": "a755b426eb7942bb74b46a95b02f1de4"
+  },
+  {
+   "path": "libraries/com/mojang/datafixerupper/8.0.16/datafixerupper-8.0.16.jar",
+   "size": 724313,
+   "md5": "d932ac637b6d83e6c45a8f269fe81e3b"
+  },
+  {
+   "path": "libraries/com/mojang/logging/1.2.7/logging-1.2.7.jar",
+   "size": 15343,
+   "md5": "d01ea99740509a58222a426cc36f5456"
+  },
+  {
+   "path": "libraries/com/opencsv/opencsv/4.4/opencsv-4.4.jar",
+   "size": 167167,
+   "md5": "0a370fa0055d9d2840599332bd5cbf47"
+  },
+  {
+   "path": "libraries/commons-beanutils/commons-beanutils/1.9.3/commons-beanutils-1.9.3.jar",
+   "size": 246174,
+   "md5": "4a105c9d029a7edc6f2b16567d37eab6"
+  },
+  {
+   "path": "libraries/commons-collections/commons-collections/3.2.2/commons-collections-3.2.2.jar",
+   "size": 588337,
+   "md5": "f54a8510f834a1a57166970bfc982e94"
+  },
+  {
+   "path": "libraries/commons-io/commons-io/2.15.1/commons-io-2.15.1.jar",
+   "size": 501218,
+   "md5": "84351f7991a0e6722f00e96a4ccc376f"
+  },
+  {
+   "path": "libraries/commons-logging/commons-logging/1.2/commons-logging-1.2.jar",
+   "size": 61829,
+   "md5": "040b4b4d8eac886f6b4a2a3bd2f31b00"
+  },
+  {
+   "path": "libraries/cpw/mods/bootstraplauncher/2.0.2/bootstraplauncher-2.0.2.jar",
+   "size": 11116,
+   "md5": null
+  },
+  {
+   "path": "libraries/cpw/mods/modlauncher/11.0.5/modlauncher-11.0.5.jar",
+   "size": 116486,
+   "md5": null
+  },
+  {
+   "path": "libraries/cpw/mods/securejarhandler/3.0.8/securejarhandler-3.0.8.jar",
+   "size": 103765,
+   "md5": null
+  },
+  {
+   "path": "libraries/de/siegmar/fastcsv/2.0.0/fastcsv-2.0.0.jar",
+   "size": 29476,
+   "md5": "4addb828f7bf861180ff219027707f7e"
+  },
+  {
+   "path": "libraries/io/netty/netty-buffer/4.1.97.Final/netty-buffer-4.1.97.Final.jar",
+   "size": 306590,
+   "md5": "dd92171035f73671187d7b9f4bab466b"
+  },
+  {
+   "path": "libraries/io/netty/netty-codec/4.1.97.Final/netty-codec-4.1.97.Final.jar",
+   "size": 345274,
+   "md5": "aa46c70ffdf48e421e8139a2a5ef452a"
+  },
+  {
+   "path": "libraries/io/netty/netty-common/4.1.97.Final/netty-common-4.1.97.Final.jar",
+   "size": 659930,
+   "md5": "764a6c7a71718d4472250aaceff85199"
+  },
+  {
+   "path": "libraries/io/netty/netty-handler/4.1.97.Final/netty-handler-4.1.97.Final.jar",
+   "size": 560040,
+   "md5": "d8c1f0f03557c6b811c6781e84f7df09"
+  },
+  {
+   "path": "libraries/io/netty/netty-resolver/4.1.97.Final/netty-resolver-4.1.97.Final.jar",
+   "size": 37792,
+   "md5": "d7efcf0f736048a170bedbf5d52de366"
+  },
+  {
+   "path": "libraries/io/netty/netty-transport/4.1.97.Final/netty-transport-4.1.97.Final.jar",
+   "size": 489624,
+   "md5": "bd95f799cb2b783f198e3b387c6fc856"
+  },
+  {
+   "path": "libraries/io/netty/netty-transport-classes-epoll/4.1.97.Final/netty-transport-classes-epoll-4.1.97.Final.jar",
+   "size": 147139,
+   "md5": "be03cdf7e86624fa23bbbc1469d7b699"
+  },
+  {
+   "path": "libraries/io/netty/netty-transport-native-epoll/4.1.97.Final/netty-transport-native-epoll-4.1.97.Final-linux-aarch_64.jar",
+   "size": 40427,
+   "md5": "64770a7130a5b55ba9f907c9a3cd747c"
+  },
+  {
+   "path": "libraries/io/netty/netty-transport-native-epoll/4.1.97.Final/netty-transport-native-epoll-4.1.97.Final-linux-x86_64.jar",
+   "size": 38954,
+   "md5": "97bdbcb1d2bbe59508650de89d1a55e3"
+  },
+  {
+   "path": "libraries/io/netty/netty-transport-native-unix-common/4.1.97.Final/netty-transport-native-unix-common-4.1.97.Final.jar",
+   "size": 43897,
+   "md5": "8e4202feb40bc15c17577034852c74cb"
+  },
+  {
+   "path": "libraries/it/unimi/dsi/fastutil/8.5.12/fastutil-8.5.12.jar",
+   "size": 23326598,
+   "md5": "b14a620f5d2a052f5b59d0ae02bc8f2a"
+  },
+  {
+   "path": "libraries/net/fabricmc/sponge-mixin/0.15.2+mixin.0.8.7/sponge-mixin-0.15.2+mixin.0.8.7.jar",
+   "size": 1494751,
+   "md5": "4808c070bf19415a5cb4a0cb5e569b12"
+  },
+  {
+   "path": "libraries/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar",
+   "size": 1878533,
+   "md5": "8b3cc652920435ad9f801e6d9b2a3497"
+  },
+  {
+   "path": "libraries/net/java/dev/jna/jna-platform/5.14.0/jna-platform-5.14.0.jar",
+   "size": 1369287,
+   "md5": "3bc3f09a698e6ad250dd093f64fbb8a7"
+  },
+  {
+   "path": "libraries/net/jodah/typetools/0.6.3/typetools-0.6.3.jar",
+   "size": 18281,
+   "md5": "d4a375bf382f726cf1a650ccb38a736c"
+  },
+  {
+   "path": "libraries/net/md-5/SpecialSource/1.11.0/SpecialSource-1.11.0.jar",
+   "size": 88737,
+   "md5": "815529d90faff79cb61c12f47a4259b5"
+  },
+  {
+   "path": "libraries/net/minecraft/server/1.21.1/server-1.21.1.jar",
+   "size": 51627615,
+   "md5": "54927a5605b8c0b4e708069770d0585e"
+  },
+  {
+   "path": "libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-extra.jar",
+   "size": 6591051,
+   "md5": "34ae83aa8c95e24ad92831a9e854b498"
+  },
+  {
+   "path": "libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-extra.jar.cache",
+   "size": 142,
+   "md5": "a3206ea50c599bd67972214cfeee8ea6"
+  },
+  {
+   "path": "libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-mappings.txt",
+   "size": 7456063,
+   "md5": "23c631bca86bc66b5f472551ae443b34"
+  },
+  {
+   "path": "libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-slim.jar",
+   "size": 11044900,
+   "md5": "9417960de7f66f2c53cadb61bd58acca"
+  },
+  {
+   "path": "libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-slim.jar.cache",
+   "size": 142,
+   "md5": "a0503bca95009ec1dd13c62cd68a434b"
+  },
+  {
+   "path": "libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar",
+   "size": 14246609,
+   "md5": "c7f92f684614d5ab9f3371e56afaffdb"
+  },
+  {
+   "path": "libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-unpacked.jar",
+   "size": 17635929,
+   "md5": "43beb746ad432cefe2a4cbc4e3d5a7a9"
+  },
+  {
+   "path": "libraries/net/minecraftforge/srgutils/0.4.15/srgutils-0.4.15.jar",
+   "size": 69393,
+   "md5": "79812fd073afe1c046bc1ea46ad28095"
+  },
+  {
+   "path": "libraries/net/minecrell/terminalconsoleappender/1.3.0/terminalconsoleappender-1.3.0.jar",
+   "size": 16949,
+   "md5": "179d3abaf9736dbd8fbd4fa98e1c6ea1"
+  },
+  {
+   "path": "libraries/net/neoforged/accesstransformers/10.0.1/accesstransformers-10.0.1.jar",
+   "size": 67234,
+   "md5": "3a01a09a2b0900381dce48e118882849"
+  },
+  {
+   "path": "libraries/net/neoforged/accesstransformers/at-modlauncher/10.0.1/at-modlauncher-10.0.1.jar",
+   "size": 2347,
+   "md5": "f65434f122b97b1ac8fe56ff54873b5f"
+  },
+  {
+   "path": "libraries/net/neoforged/AutoRenamingTool/2.0.3/AutoRenamingTool-2.0.3-all.jar",
+   "size": 746919,
+   "md5": "6bf62b8d8db81c286fd0c23e9039afc5"
+  },
+  {
+   "path": "libraries/net/neoforged/bus/8.0.5/bus-8.0.5.jar",
+   "size": 30340,
+   "md5": "95eee080d9de7cb764adcb8fa2ecf3fb"
+  },
+  {
+   "path": "libraries/net/neoforged/coremods/7.0.3/coremods-7.0.3.jar",
+   "size": 22659,
+   "md5": "4527abf6b7116dae1c2178f7beab0ba2"
+  },
+  {
+   "path": "libraries/net/neoforged/fancymodloader/earlydisplay/4.0.42/earlydisplay-4.0.42.jar",
+   "size": 261718,
+   "md5": "6df1105e4016ee9992ca93cd0103e218"
+  },
+  {
+   "path": "libraries/net/neoforged/fancymodloader/earlydisplay/4.0.44/earlydisplay-4.0.44.jar",
+   "size": 261718,
+   "md5": "7646fcabfb8a5f608361f03b8d68dddb"
+  },
+  {
+   "path": "libraries/net/neoforged/fancymodloader/loader/4.0.42/loader-4.0.42.jar",
+   "size": 504899,
+   "md5": "1722666ba373811ef9b7022c0c4a5a73"
+  },
+  {
+   "path": "libraries/net/neoforged/fancymodloader/loader/4.0.44/loader-4.0.44.jar",
+   "size": 505708,
+   "md5": "552c6cb730601460b332545e18ce33fc"
+  },
+  {
+   "path": "libraries/net/neoforged/installertools/binarypatcher/2.1.2/binarypatcher-2.1.2-fatjar.jar",
+   "size": 624217,
+   "md5": "a471b786db3abba1270c5e7e776733d5"
+  },
+  {
+   "path": "libraries/net/neoforged/installertools/cli-utils/2.1.2/cli-utils-2.1.2.jar",
+   "size": 9379,
+   "md5": "5259159c1f29cb3c532e381601933602"
+  },
+  {
+   "path": "libraries/net/neoforged/installertools/installertools/2.1.2/installertools-2.1.2.jar",
+   "size": 83543,
+   "md5": "bb7fc109b8134524971cb649ef9efc2a"
+  },
+  {
+   "path": "libraries/net/neoforged/installertools/jarsplitter/2.1.2/jarsplitter-2.1.2.jar",
+   "size": 7790,
+   "md5": "949ae0f3b5f690b8426459349d96fccf"
+  },
+  {
+   "path": "libraries/net/neoforged/JarJarFileSystems/0.4.1/JarJarFileSystems-0.4.1.jar",
+   "size": 31807,
+   "md5": "8d75021e5aeb04652b4b9ae3df500b9e"
+  },
+  {
+   "path": "libraries/net/neoforged/JarJarMetadata/0.4.1/JarJarMetadata-0.4.1.jar",
+   "size": 15648,
+   "md5": "c2f30969dd8b1dc8e3f78c731bd2c5c8"
+  },
+  {
+   "path": "libraries/net/neoforged/JarJarSelector/0.4.1/JarJarSelector-0.4.1.jar",
+   "size": 17168,
+   "md5": "20d1fe8972655189f69845554ee1a4d1"
+  },
+  {
+   "path": "libraries/net/neoforged/mergetool/2.0.0/mergetool-2.0.0-api.jar",
+   "size": 2550,
+   "md5": "818b398f65b8dc5af802b721fd1d0b56"
+  },
+  {
+   "path": "libraries/net/neoforged/neoforge/21.1.233/neoforge-21.1.233-server.jar",
+   "size": 5673828,
+   "md5": "81561b10a9e5ff3d88193540ac3ae889"
+  },
+  {
+   "path": "libraries/net/neoforged/neoforge/21.1.233/neoforge-21.1.233-universal.jar",
+   "size": 3542450,
+   "md5": "0d8b04926d967a337c05c75bf93f9c70"
+  },
+  {
+   "path": "libraries/net/neoforged/neoforge/21.1.233/unix_args.txt",
+   "size": 6044,
+   "md5": "a9d81e2c3c4b89d61884552ffb282403"
+  },
+  {
+   "path": "libraries/net/neoforged/neoforge/21.1.233/win_args.txt",
+   "size": 6044,
+   "md5": "7f0a9bb35ec4f0da6fbe51342a16f4ea"
+  },
+  {
+   "path": "libraries/net/neoforged/neoforge/21.1.249/neoforge-21.1.249-server.jar",
+   "size": 5675624,
+   "md5": "755a88496628b59a6a81d93035e38cee"
+  },
+  {
+   "path": "libraries/net/neoforged/neoforge/21.1.249/neoforge-21.1.249-universal.jar",
+   "size": 3551266,
+   "md5": "a05adc8abaa18e93671075162255c435"
+  },
+  {
+   "path": "libraries/net/neoforged/neoforge/21.1.249/unix_args.txt",
+   "size": 6119,
+   "md5": "d4b05501db5c8ccf757e6c137907e858"
+  },
+  {
+   "path": "libraries/net/neoforged/neoforge/21.1.249/win_args.txt",
+   "size": 6119,
+   "md5": "083ef03abc5e51681fe764258abfd44d"
+  },
+  {
+   "path": "libraries/net/neoforged/neoform/1.21.1-20240808.144430/neoform-1.21.1-20240808.144430-mappings-merged.txt",
+   "size": 5283350,
+   "md5": "7dfb6c66731b218971e5993d638356d9"
+  },
+  {
+   "path": "libraries/net/neoforged/neoform/1.21.1-20240808.144430/neoform-1.21.1-20240808.144430-mappings.txt",
+   "size": 5601343,
+   "md5": "a74fdef5f9e56d66ea2999fa3e106cbb"
+  },
+  {
+   "path": "libraries/net/neoforged/neoform/1.21.1-20240808.144430/neoform-1.21.1-20240808.144430.zip",
+   "size": 1683830,
+   "md5": null
+  },
+  {
+   "path": "libraries/net/neoforged/srgutils/1.0.0/srgutils-1.0.0.jar",
+   "size": 71421,
+   "md5": "c40ea8b866b3d98885391460392508be"
+  },
+  {
+   "path": "libraries/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
+   "size": 78146,
+   "md5": "eb0d9dffe9b0eddead68fe678be76c49"
+  },
+  {
+   "path": "libraries/org/antlr/antlr4-runtime/4.13.1/antlr4-runtime-4.13.1.jar",
+   "size": 326305,
+   "md5": "dd465ddb2a8dbf69eb6c94e69a0d5f0f"
+  },
+  {
+   "path": "libraries/org/apache/commons/commons-collections4/4.2/commons-collections4-4.2.jar",
+   "size": 752798,
+   "md5": "b290524be8a0dbb6521df95f4ce80c8d"
+  },
+  {
+   "path": "libraries/org/apache/commons/commons-lang3/3.14.0/commons-lang3-3.14.0.jar",
+   "size": 657952,
+   "md5": "4e5c3f5e6b0b965ef241d7d72ac8971f"
+  },
+  {
+   "path": "libraries/org/apache/commons/commons-lang3/3.8.1/commons-lang3-3.8.1.jar",
+   "size": 501879,
+   "md5": "540b1256d887a6993ecbef23371a3302"
+  },
+  {
+   "path": "libraries/org/apache/commons/commons-text/1.3/commons-text-1.3.jar",
+   "size": 182954,
+   "md5": "e12b93c4a7fa6326e8afe557243c8651"
+  },
+  {
+   "path": "libraries/org/apache/logging/log4j/log4j-api/2.22.1/log4j-api-2.22.1.jar",
+   "size": 335001,
+   "md5": "27db0eb89ae965179480df00d8d1cf03"
+  },
+  {
+   "path": "libraries/org/apache/logging/log4j/log4j-core/2.22.1/log4j-core-2.22.1.jar",
+   "size": 1900022,
+   "md5": "b5987ee449d4be4244e2e214683c45af"
+  },
+  {
+   "path": "libraries/org/apache/logging/log4j/log4j-slf4j2-impl/2.22.1/log4j-slf4j2-impl-2.22.1.jar",
+   "size": 27364,
+   "md5": "82cc94f378ffb853efe084ee9bf4c463"
+  },
+  {
+   "path": "libraries/org/apache/maven/maven-artifact/3.8.5/maven-artifact-3.8.5.jar",
+   "size": 58077,
+   "md5": "ce473b0d9fbfd10fe147f03fe8707d67"
+  },
+  {
+   "path": "libraries/org/checkerframework/checker-qual/3.33.0/checker-qual-3.33.0.jar",
+   "size": 223979,
+   "md5": "fc9418b779d9d57dcd52197006cbdb9b"
+  },
+  {
+   "path": "libraries/org/codehaus/plexus/plexus-utils/3.3.0/plexus-utils-3.3.0.jar",
+   "size": 263253,
+   "md5": "3ae76ff0195ada460d495efe1fb50d17"
+  },
+  {
+   "path": "libraries/org/jline/jline-reader/3.20.0/jline-reader-3.20.0.jar",
+   "size": 171052,
+   "md5": "9ece57ca56a1688d1d09fe2c48e7a292"
+  },
+  {
+   "path": "libraries/org/jline/jline-terminal/3.20.0/jline-terminal-3.20.0.jar",
+   "size": 228481,
+   "md5": "e45dace437743e6b5e75c81eb455fd3e"
+  },
+  {
+   "path": "libraries/org/joml/joml/1.10.5/joml-1.10.5.jar",
+   "size": 712082,
+   "md5": "406b22ecc091923bbd37ecf8141a9576"
+  },
+  {
+   "path": "libraries/org/lz4/lz4-java/1.8.0/lz4-java-1.8.0.jar",
+   "size": 682804,
+   "md5": "936a927700aa8fc3b75d21d7571171f6"
+  },
+  {
+   "path": "libraries/org/openjdk/nashorn/nashorn-core/15.4/nashorn-core-15.4.jar",
+   "size": 2167292,
+   "md5": "a9b3360e6a486cf62c1952c7816b7d97"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm/9.10.1/asm-9.10.1.jar",
+   "size": 126151,
+   "md5": "9cb72080438acf27f2607002e1444a7b"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm/9.3/asm-9.3.jar",
+   "size": 122176,
+   "md5": "e1c3b96035117ab516ffe0de9bd696e0"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm/9.8/asm-9.8.jar",
+   "size": 126113,
+   "md5": "f5adf3bfc54fb3d2cd8e3a1f275084bc"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-analysis/9.10.1/asm-analysis-9.10.1.jar",
+   "size": 35140,
+   "md5": "6dd9011ec87f65e4b2e14e938c4118e4"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-analysis/9.3/asm-analysis-9.3.jar",
+   "size": 34276,
+   "md5": "11e43c0220b3f6b4791b8abf7b4cc7ef"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-analysis/9.8/asm-analysis-9.8.jar",
+   "size": 35151,
+   "md5": "3d63508405f5610fc2ea673ff5471553"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-commons/9.10.1/asm-commons-9.10.1.jar",
+   "size": 74840,
+   "md5": "8eee0b1bdd046baf472eb83dd5e6bb44"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-commons/9.3/asm-commons-9.3.jar",
+   "size": 72716,
+   "md5": "16e6ac17d33ad97baa415c42e9d93d38"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-commons/9.8/asm-commons-9.8.jar",
+   "size": 73498,
+   "md5": "c8c3d9ccf240144e74d94ff658b024c9"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-tree/9.10.1/asm-tree-9.10.1.jar",
+   "size": 51958,
+   "md5": "62541e1dc62331408ef31317555bf4fa"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-tree/9.3/asm-tree-9.3.jar",
+   "size": 52669,
+   "md5": "f087bfb911ff93957e44860de3e73c46"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-tree/9.8/asm-tree-9.8.jar",
+   "size": 51934,
+   "md5": "4ab1aaec43c77a2d9b56e6d6d496f705"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-util/9.10.1/asm-util-9.10.1.jar",
+   "size": 95628,
+   "md5": "d0892ecb209867805e7d2418e5dc6c42"
+  },
+  {
+   "path": "libraries/org/ow2/asm/asm-util/9.8/asm-util-9.8.jar",
+   "size": 94559,
+   "md5": "62498ef324bdab15f407d703f7d78d19"
+  },
+  {
+   "path": "libraries/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar",
+   "size": 64579,
+   "md5": "45630e54b0f0ac2b3c80462515ad8fda"
+  },
+  {
+   "path": "local/kubejs/dev.json",
+   "size": 706,
+   "md5": "10e5832ea015b739c528b5553dfd9aca"
+  },
+  {
+   "path": "logs/2026-09-04-1.log.gz",
+   "size": 35860,
+   "md5": "ad96bcedaba620fbb5ed04c040463fb4"
+  },
+  {
+   "path": "logs/2026-09-04-2.log.gz",
+   "size": 36173,
+   "md5": "bb649888132e0b32a58e787696e774f0"
+  },
+  {
+   "path": "logs/2026-09-04-3.log.gz",
+   "size": 36036,
+   "md5": "5ec385c047b0ffe26e1176581f3405d1"
+  },
+  {
+   "path": "logs/2026-09-05-1.log.gz",
+   "size": 40870,
+   "md5": "82500a53a89ab4e81b7a468f2b7e9971"
+  },
+  {
+   "path": "logs/2026-09-05-2.log.gz",
+   "size": 36313,
+   "md5": "7f12fe4a25ca92f3a5b3abe77b20ff8b"
+  },
+  {
+   "path": "logs/2026-09-05-3.log.gz",
+   "size": 36014,
+   "md5": "72ae813004de6b3397adf1df8c2500c5"
+  },
+  {
+   "path": "logs/2026-09-06-1.log.gz",
+   "size": 4057,
+   "md5": "6231f6d27032f54ea2b23b7c56b5604c"
+  },
+  {
+   "path": "logs/2026-09-07-1.log.gz",
+   "size": 55525,
+   "md5": "4a9efb87b5a44530271f6f5e950b0061"
+  },
+  {
+   "path": "logs/2026-09-08-1.log.gz",
+   "size": 31754,
+   "md5": "2f78cbd670a3286bdcc0fc069c75069d"
+  },
+  {
+   "path": "logs/2026-09-08-2.log.gz",
+   "size": 5468,
+   "md5": "d3a38cdc567e3c738b91dd96c4369855"
+  },
+  {
+   "path": "logs/2026-09-08-3.log.gz",
+   "size": 31775,
+   "md5": "a6a1983921eefd5b80ddbec0289196ab"
+  },
+  {
+   "path": "logs/2026-09-09-1.log.gz",
+   "size": 35100,
+   "md5": "4dda2b01a9c99f9a16a66b13e78a60dd"
+  },
+  {
+   "path": "logs/2026-09-10-1.log.gz",
+   "size": 9658,
+   "md5": "a543c3d01a91dc21302d97943eb4bc6f"
+  },
+  {
+   "path": "logs/2026-09-11-1.log.gz",
+   "size": 47354,
+   "md5": "5600d8f5a7b4163c73ee5ef43bd8b4e1"
+  },
+  {
+   "path": "logs/2026-09-12-1.log.gz",
+   "size": 20754,
+   "md5": "035fbe939c42a348a9b08e54da630cb9"
+  },
+  {
+   "path": "logs/2026-09-12-2.log.gz",
+   "size": 11933,
+   "md5": "725f3067ac892019f006d0b32b64ecec"
+  },
+  {
+   "path": "logs/2026-09-12-3.log.gz",
+   "size": 31800,
+   "md5": "493c324ab57a3cf55d0685a25e079b77"
+  },
+  {
+   "path": "logs/2026-09-12-4.log.gz",
+   "size": 31094,
+   "md5": "66aebb486fa2453e7919ce4b4bea9f8f"
+  },
+  {
+   "path": "logs/2026-09-12-5.log.gz",
+   "size": 10364,
+   "md5": "3bdb3044d98e9fd76a34631711393b58"
+  },
+  {
+   "path": "logs/2026-09-13-1.log.gz",
+   "size": 30581,
+   "md5": "716063187e4d0ae3d138b5406605d0e6"
+  },
+  {
+   "path": "logs/2026-09-13-2.log.gz",
+   "size": 9491,
+   "md5": "3d3993663cb95a6bbd391fbd5bbee29c"
+  },
+  {
+   "path": "logs/2026-09-14-1.log.gz",
+   "size": 51063,
+   "md5": "df5245c7df076eba1b185beb66e6342f"
+  },
+  {
+   "path": "logs/2026-09-14-2.log.gz",
+   "size": 31058,
+   "md5": "ef9f3800ec817e13f9b78e38483d664b"
+  },
+  {
+   "path": "logs/2026-09-14-3.log.gz",
+   "size": 11251,
+   "md5": "5f298283a589497453f42ff7e6c47327"
+  },
+  {
+   "path": "logs/2026-09-14-4.log.gz",
+   "size": 53098,
+   "md5": "56c5dc81949d0c2120e2256f31a273bc"
+  },
+  {
+   "path": "logs/2026-09-15-1.log.gz",
+   "size": 4495,
+   "md5": "8de9b373d296cb4ee746fbfda7b1188f"
+  },
+  {
+   "path": "logs/2026-09-16-1.log.gz",
+   "size": 8884,
+   "md5": "e821280c193425b154a9944671c5cb1a"
+  },
+  {
+   "path": "logs/2026-09-17-1.log.gz",
+   "size": 5352,
+   "md5": "03a543a6135ac50a0d5de823490562c5"
+  },
+  {
+   "path": "logs/2026-09-18-1.log.gz",
+   "size": 1578,
+   "md5": "b5e4f80fb33070a1f4f22db53d5970b4"
+  },
+  {
+   "path": "logs/debug-1.log.gz",
+   "size": 248379,
+   "md5": "743c20336bf49482e5e860a301d2ba3d"
+  },
+  {
+   "path": "logs/debug-2.log.gz",
+   "size": 123204,
+   "md5": "ee3d9b145670f94efef3bca1a4233657"
+  },
+  {
+   "path": "logs/debug-3.log.gz",
+   "size": 162241,
+   "md5": "19ba04faa789436cb08e125a82c61509"
+  },
+  {
+   "path": "logs/debug-4.log.gz",
+   "size": 199028,
+   "md5": "8e9e4f731788854a21e9d36ca62296b5"
+  },
+  {
+   "path": "logs/debug-5.log.gz",
+   "size": 198304,
+   "md5": "24a0f6e3322e672c8101e9e2c87ef463"
+  },
+  {
+   "path": "logs/debug.log",
+   "size": 6173027,
+   "md5": "bc10ba313234a858980f4d317be76285"
+  },
+  {
+   "path": "logs/gc.log",
+   "size": 2147661,
+   "md5": "a96e4d26a4111c267b20f769e90f3658"
+  },
+  {
+   "path": "logs/gc.log.0",
+   "size": 20921,
+   "md5": "0d1dc16a25defdc8d574e5a52958d788"
+  },
+  {
+   "path": "logs/gc.log.1",
+   "size": 263986,
+   "md5": "e45d375d3b8f8679dfdcfbd442f136d7"
+  },
+  {
+   "path": "logs/gc.log.2",
+   "size": 65906,
+   "md5": "36cb66e343e6f8b12b14b1f3b77492d4"
+  },
+  {
+   "path": "logs/gc.log.3",
+   "size": 375610,
+   "md5": "ffa080899007e8d6731299ccfcd686c2"
+  },
+  {
+   "path": "logs/gc.log.4",
+   "size": 39542,
+   "md5": "37083ffde1e41848e65a3bdd9d75a0be"
+  },
+  {
+   "path": "logs/kubejs/client.log",
+   "size": 0,
+   "md5": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  {
+   "path": "logs/kubejs/server.log",
+   "size": 914,
+   "md5": "ae726ce1ab295a5da666aa1fa2468d76"
+  },
+  {
+   "path": "logs/kubejs/startup.log",
+   "size": 926,
+   "md5": "85716a3786cfef62b0417d29734321e0"
+  },
+  {
+   "path": "logs/latest.log",
+   "size": 4700,
+   "md5": "fbcdd8267380b242967f9e1bc0828f02"
+  },
+  {
+   "path": "mods/[FTB 区块] ftb-chunks-neoforge-2101.1.22.jar",
+   "size": 655807,
+   "md5": null
+  },
+  {
+   "path": "mods/[FTB 团队] ftb-teams-neoforge-2101.1.11.jar",
+   "size": 308236,
+   "md5": null
+  },
+  {
+   "path": "mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.45.jar",
+   "size": 1219809,
+   "md5": null
+  },
+  {
+   "path": "mods/[农夫乐事] FarmersDelight-1.21.1-1.3.4.jar",
+   "size": 3160490,
+   "md5": null
+  },
+  {
+   "path": "mods/[冰焰龙] frostfire_dragon-1.6.0.jar",
+   "size": 806243,
+   "md5": null
+  },
+  {
+   "path": "mods/[奇异饰品] artifacts-neoforge-13.2.5.jar",
+   "size": 1086922,
+   "md5": null
+  },
+  {
+   "path": "mods/[无尽贪婪：重生] Re-Avaritia-neoforge-1.21.1-1.4.2-release.jar",
+   "size": 3764805,
+   "md5": null
+  },
+  {
+   "path": "mods/[晶咒龙] crystcursed_dragon-1.4.0.jar",
+   "size": 2116497,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力] create-1.21.1-6.0.10.jar",
+   "size": 19123767,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：创意传动] create_connected-1.3.3-mc1.21.1.jar",
+   "size": 6786783,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：懒惰刻] CreateLazyTick-2.6.25-6.0.10-neoforge-1.21.1.jar",
+   "size": 473591,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：改进] createimp-1.4.1.jar",
+   "size": 1499777,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：食物注药] Create-Food-Filling-1.21.1-1.5.1.jar",
+   "size": 43010,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：齿轮与麦穗] create_ratatouille-1.21.1-1.4.0.jar",
+   "size": 918946,
+   "md5": null
+  },
+  {
+   "path": "mods/[村民物品化／简单村民] easy-villagers-neoforge-1.21.1-1.1.42.jar",
+   "size": 456700,
+   "md5": null
+  },
+  {
+   "path": "mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1.jar",
+   "size": 1357431,
+   "md5": null
+  },
+  {
+   "path": "mods/[森罗酒馆：世界名酒] kaleidoscope_world_liquor-1.1.8-neoforge+1.21.1-feature.jar",
+   "size": 6772207,
+   "md5": null
+  },
+  {
+   "path": "mods/[沉浸式奏乐] immersive_melodies-neoforge-0.7.1+1.21.1.jar",
+   "size": 5534299,
+   "md5": null
+  },
+  {
+   "path": "mods/[潮汐] tide-neoforge-1.21.1-2.1.1.jar",
+   "size": 2155309,
+   "md5": null
+  },
+  {
+   "path": "mods/[火炬大师] torchmaster-neoforge-1.21.1-21.1.12.jar",
+   "size": 160657,
+   "md5": null
+  },
+  {
+   "path": "mods/[灾变] L_Ender's Cataclysm 1.21.1-3.33.jar",
+   "size": 73375661,
+   "md5": null
+  },
+  {
+   "path": "mods/[烘焙坊] bakeries-1.21.1-NeoForge-1.0.4.jar",
+   "size": 2528698,
+   "md5": null
+  },
+  {
+   "path": "mods/[矿石种植工艺] cp_lib-5.0.26-neoforge-1.21.1.jar",
+   "size": 1842764,
+   "md5": null
+  },
+  {
+   "path": "mods/[神秘遗物+] enigmaticlegacyplus-1.21.1-1.1.1.jar",
+   "size": 7233336,
+   "md5": null
+  },
+  {
+   "path": "mods/[稀有度核心] raritycore-1211.14.7.jar",
+   "size": 403381,
+   "md5": null
+  },
+  {
+   "path": "mods/[稀有精英怪] infernalmobs-1.21.1.3NF.jar",
+   "size": 141468,
+   "md5": null
+  },
+  {
+   "path": "mods/[精妙存储] sophisticatedstorage-1.21.1-1.5.91.2127.jar",
+   "size": 1869204,
+   "md5": null
+  },
+  {
+   "path": "mods/[精妙核心] sophisticatedcore-1.21.1-1.5.1.2341.jar",
+   "size": 1785221,
+   "md5": null
+  },
+  {
+   "path": "mods/[精妙背包] sophisticatedbackpacks-1.21.1-3.26.3.2158.jar",
+   "size": 1251706,
+   "md5": null
+  },
+  {
+   "path": "mods/[超越维度] beyonddimensions-1.21.1-neoforge-0.7.30.jar",
+   "size": 3550119,
+   "md5": null
+  },
+  {
+   "path": "mods/[龙之生存] DragonSurvival-1.21.1-v2.0.70-13.09.2026-all.jar",
+   "size": 13736896,
+   "md5": null
+  },
+  {
+   "path": "mods/alexscaves-up-0.1.3.jar",
+   "size": 82565232,
+   "md5": null
+  },
+  {
+   "path": "mods/alltheleaks-1.1.12+1.21.1-neoforge.jar",
+   "size": 562895,
+   "md5": null
+  },
+  {
+   "path": "mods/architectury-13.0.11-neoforge.jar",
+   "size": 584734,
+   "md5": null
+  },
+  {
+   "path": "mods/automobility-0.5.0.h+1.21.1-neoforge.jar",
+   "size": 1331432,
+   "md5": null
+  },
+  {
+   "path": "mods/avaritia_expand-0.3.6.jar",
+   "size": 530975,
+   "md5": null
+  },
+  {
+   "path": "mods/balm-neoforge-1.21.1-21.0.65.jar",
+   "size": 783793,
+   "md5": null
+  },
+  {
+   "path": "mods/biolith-neoforge-3.0.14.jar",
+   "size": 218062,
+   "md5": null
+  },
+  {
+   "path": "mods/biomespy-neoforge-1.21.1-1.3.3.jar",
+   "size": 38566,
+   "md5": null
+  },
+  {
+   "path": "mods/blackaures_paintings-1.3-neoforge-1.21.1.jar",
+   "size": 331498,
+   "md5": null
+  },
+  {
+   "path": "mods/BlockBox-1.21.1-0.1.3.jar",
+   "size": 909114,
+   "md5": null
+  },
+  {
+   "path": "mods/caelus-neoforge-7.0.1+1.21.1.jar",
+   "size": 50235,
+   "md5": null
+  },
+  {
+   "path": "mods/catburger_neoforge1.21.1-1.0.7.jar",
+   "size": 57205,
+   "md5": null
+  },
+  {
+   "path": "mods/citadel-up-0.2.0.jar",
+   "size": 2983630,
+   "md5": null
+  },
+  {
+   "path": "mods/cloth-config-15.0.140-neoforge.jar",
+   "size": 1163890,
+   "md5": null
+  },
+  {
+   "path": "mods/cobblestone_generator-1.2.0-mc1.21.1-neoforge.jar",
+   "size": 116896,
+   "md5": null
+  },
+  {
+   "path": "mods/cp_create-3.0.3-neoforge-1.21.1.jar",
+   "size": 434708,
+   "md5": null
+  },
+  {
+   "path": "mods/cp_mek-3.0.2-neoforge-1.21.1.jar",
+   "size": 243200,
+   "md5": null
+  },
+  {
+   "path": "mods/create-confectionery1.21.1_v1.1.3b.jar",
+   "size": 2128923,
+   "md5": null
+  },
+  {
+   "path": "mods/create_compressed-2.2.0-neoforge-1.21.1.jar",
+   "size": 159734,
+   "md5": null
+  },
+  {
+   "path": "mods/create_power_loader-2.0.5-mc1.21.1.jar",
+   "size": 442369,
+   "md5": null
+  },
+  {
+   "path": "mods/create_wrapped-1.0.3-neoforge-1.21.1.jar",
+   "size": 725708,
+   "md5": null
+  },
+  {
+   "path": "mods/createmoremachines-1.21.1-2.7.jar",
+   "size": 2141416,
+   "md5": null
+  },
+  {
+   "path": "mods/createprism-1.2.2.jar",
+   "size": 1287223,
+   "md5": null
+  },
+  {
+   "path": "mods/CreeperFirework-neoforge-2.2.0.jar",
+   "size": 41106,
+   "md5": null
+  },
+  {
+   "path": "mods/curios-neoforge-9.5.1+1.21.1.jar",
+   "size": 410690,
+   "md5": null
+  },
+  {
+   "path": "mods/Cyberspace 5.0.2 (NF1.21.1).jar",
+   "size": 2566515,
+   "md5": null
+  },
+  {
+   "path": "mods/dragon_rings-1.0.0-neoforge-1.21.1.jar",
+   "size": 16092574,
+   "md5": null
+  },
+  {
+   "path": "mods/easy-piglins-neoforge-1.21.1-1.1.0.jar",
+   "size": 226948,
+   "md5": null
+  },
+  {
+   "path": "mods/etched-5.1.0.jar",
+   "size": 628299,
+   "md5": null
+  },
+  {
+   "path": "mods/eternalappetite-1.3.1.jar",
+   "size": 17180,
+   "md5": null
+  },
+  {
+   "path": "mods/fetzisdisplays-neoforge-1.1.0-1.21.jar",
+   "size": 1374210,
+   "md5": null
+  },
+  {
+   "path": "mods/framework-neoforge-1.21.1-0.13.11.jar",
+   "size": 387334,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-essentials-neoforge-2101.1.10.jar",
+   "size": 217288,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-library-neoforge-2101.1.36.jar",
+   "size": 1439427,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-ultimine-neoforge-2101.1.15.jar",
+   "size": 177109,
+   "md5": null
+  },
+  {
+   "path": "mods/fzzy_config-0.7.6+1.21+neoforge.jar",
+   "size": 2369895,
+   "md5": null
+  },
+  {
+   "path": "mods/gachaaddiction-1.1.4.jar",
+   "size": 1577084,
+   "md5": null
+  },
+  {
+   "path": "mods/geckolib-neoforge-1.21.1-4.9.2.jar",
+   "size": 630584,
+   "md5": null
+  },
+  {
+   "path": "mods/irons_spellbooks-1.21.1-3.14.8.jar",
+   "size": 12529766,
+   "md5": null
+  },
+  {
+   "path": "mods/just_sink-neoforge-1.2.0-1.21.1.jar",
+   "size": 60897,
+   "md5": null
+  },
+  {
+   "path": "mods/kaleidoscope_grilling-1.1.1-neoforge1.21.1.jar",
+   "size": 3245725,
+   "md5": null
+  },
+  {
+   "path": "mods/kaleidoscopecookery-1.4.1-neoforge+mc1.21.1.jar",
+   "size": 5018991,
+   "md5": null
+  },
+  {
+   "path": "mods/kaleidoscopetavern-1.2.0-neoforge+mc1.21.1.jar",
+   "size": 1708047,
+   "md5": null
+  },
+  {
+   "path": "mods/kotlinforforge-5.12.0-all.jar",
+   "size": 7279276,
+   "md5": null
+  },
+  {
+   "path": "mods/letsdo-beachparty-neoforge-2.1.4.jar",
+   "size": 7759926,
+   "md5": null
+  },
+  {
+   "path": "mods/letsdo-wildernature-neoforge-1.1.5.jar",
+   "size": 3352801,
+   "md5": null
+  },
+  {
+   "path": "mods/lionfishapi-3.1.jar",
+   "size": 91596,
+   "md5": null
+  },
+  {
+   "path": "mods/logisticsnetworks-1.21.1-1.16.1.jar",
+   "size": 1811115,
+   "md5": null
+  },
+  {
+   "path": "mods/lootr-neoforge-1.21.1-1.11.38.125.jar",
+   "size": 1000464,
+   "md5": null
+  },
+  {
+   "path": "mods/lukis-grand-capitals-1.1.2.jar",
+   "size": 11217284,
+   "md5": null
+  },
+  {
+   "path": "mods/luncheon-meat-s-delight-1.0.6-neoforge-1.21.1.jar",
+   "size": 139930,
+   "md5": null
+  },
+  {
+   "path": "mods/mekanicalcreate-0.2.7.jar",
+   "size": 325815,
+   "md5": null
+  },
+  {
+   "path": "mods/Mekanism-1.21.1-10.7.19.85.jar",
+   "size": 11976009,
+   "md5": null
+  },
+  {
+   "path": "mods/MekanismGenerators-1.21.1-10.7.19.85.jar",
+   "size": 1114598,
+   "md5": null
+  },
+  {
+   "path": "mods/MekanismOutputFaster-1.21.1-0.0.1.jar",
+   "size": 10422,
+   "md5": null
+  },
+  {
+   "path": "mods/MekanismTools-1.21.1-10.7.19.85.jar",
+   "size": 526620,
+   "md5": null
+  },
+  {
+   "path": "mods/mekltgt-1.5.3.jar",
+   "size": 357923,
+   "md5": null
+  },
+  {
+   "path": "mods/meowmere-0.0.6-3DGui.jar",
+   "size": 46733,
+   "md5": null
+  },
+  {
+   "path": "mods/mobbottle-neoforge-1.21.1-0.1.jar",
+   "size": 40260,
+   "md5": null
+  },
+  {
+   "path": "mods/NaturesCompass-1.21.1-3.4.0-neoforge.jar",
+   "size": 224657,
+   "md5": null
+  },
+  {
+   "path": "mods/nenus_pop_plushies-2.9.0-neoforge-1.21.1.jar",
+   "size": 3010291,
+   "md5": null
+  },
+  {
+   "path": "mods/nomansland-1.5.12.jar",
+   "size": 30302164,
+   "md5": null
+  },
+  {
+   "path": "mods/Patchouli-1.21.1-93-NEOFORGE.jar",
+   "size": 646777,
+   "md5": null
+  },
+  {
+   "path": "mods/player-animation-lib-forge-2.0.4+1.21.1.jar",
+   "size": 203149,
+   "md5": null
+  },
+  {
+   "path": "mods/ratatouille_fried_delights-1.0.4.jar",
+   "size": 1214071,
+   "md5": null
+  },
+  {
+   "path": "mods/resource_replicator-1.1.1-mc1.21.1-neoforge.jar",
+   "size": 434504,
+   "md5": null
+  },
+  {
+   "path": "mods/royal-variations-[NeoForge]_1.21.1_2.0.4.jar",
+   "size": 780226,
+   "md5": null
+  },
+  {
+   "path": "mods/ScorchedGuns-1.5.jar",
+   "size": 19006006,
+   "md5": null
+  },
+  {
+   "path": "mods/serverwarashi-1.21.1-2.0.4.jar",
+   "size": 734726,
+   "md5": null
+  },
+  {
+   "path": "mods/smrb-1.0.0.jar",
+   "size": 6416,
+   "md5": null
+  },
+  {
+   "path": "mods/someassemblyrequired-5.2.8.jar",
+   "size": 451898,
+   "md5": null
+  },
+  {
+   "path": "mods/tarotcards-2.3.5-neoforge-1.21.1.jar",
+   "size": 166150,
+   "md5": null
+  },
+  {
+   "path": "mods/the_beyond-0.0.5-InDev.jar",
+   "size": 9039273,
+   "md5": null
+  },
+  {
+   "path": "mods/TheSplashMilk-neoforge-3.0.1.jar",
+   "size": 85891,
+   "md5": null
+  },
+  {
+   "path": "mods/tinydragons-1.0-neoforge-1.21.1.jar",
+   "size": 554447,
+   "md5": null
+  },
+  {
+   "path": "mods/uppers-2.0.1.jar",
+   "size": 30559,
+   "md5": null
+  },
+  {
+   "path": "mods/waterwheelimmortal-neoforge-1.0.1.jar",
+   "size": 104301,
+   "md5": null
+  },
+  {
+   "path": "mods/Wing Kirin - V.3.2.0.jar",
+   "size": 1252029,
+   "md5": null
+  },
+  {
+   "path": "mods/xaeroworldmap-neoforge-1.21.1-1.41.2.jar",
+   "size": 1387921,
+   "md5": null
+  },
+  {
+   "path": "mods/youkaisfeasts-1.1.0.jar",
+   "size": 3957882,
+   "md5": null
+  },
+  {
+   "path": "mods/zenith-1.1.2.jar",
+   "size": 53969,
+   "md5": null
+  },
+  {
+   "path": "ops.json",
+   "size": 263,
+   "md5": "977687a25fea4eb054283553ea1061b0"
+  },
+  {
+   "path": "replay_pid42364.log",
+   "size": 2977809,
+   "md5": "fbb2cfe7ce8bedc38014cf8b42127437"
+  },
+  {
+   "path": "run.bat",
+   "size": 388,
+   "md5": "fbcfea247f5772b09c0a6f66b8713b8e"
+  },
+  {
+   "path": "run.sh",
+   "size": 358,
+   "md5": "e3742c640246047a1cb3cc2ed63cf9cb"
+  },
+  {
+   "path": "server.properties",
+   "size": 1495,
+   "md5": "46b4fd3f2dcd764206e63b5042c51f0a"
+  },
+  {
+   "path": "user_jvm_args.txt",
+   "size": 615,
+   "md5": "307b36a8cea0ec1c97a037f252cbe5a8"
+  },
+  {
+   "path": "usercache.json",
+   "size": 202,
+   "md5": "cf28c593333094a4330a0065a03bfea7"
+  },
+  {
+   "path": "usernamecache.json",
+   "size": 211,
+   "md5": "b071fbc1907b6ba4d51b26d27969856f"
+  },
+  {
+   "path": "whitelist.json",
+   "size": 2,
+   "md5": "d751713988987e9331980363e24189ce"
+  },
+  {
+   "path": "world/advancements/caf5abfe-d754-38bf-848f-b8b9694082d6.json",
+   "size": 159182,
+   "md5": "f6d34a608233bb567633a299a1a6631f"
+  },
+  {
+   "path": "world/advancements/ceb3a035-ee0f-36c5-81f1-de1f75893f30.json",
+   "size": 92309,
+   "md5": "309f8d39216d1926febac7c5dc9a4ff6"
+  },
+  {
+   "path": "world/data/avaritia_accelerated_blocks.dat",
+   "size": 61,
+   "md5": "c72e26543372d2bd2189768a21a237cd"
+  },
+  {
+   "path": "world/data/BDNet_0.dat",
+   "size": 8424,
+   "md5": "46c106f024222f30f0eeb9c73c3428bb"
+  },
+  {
+   "path": "world/data/BDNetRegistryIndex.dat",
+   "size": 95,
+   "md5": "663fdcb3c7c7389d7e9d4fd76fdd980f"
+  },
+  {
+   "path": "world/data/BDPlayerNetIndex.dat",
+   "size": 112,
+   "md5": "8cc98ee6c4b83d94d6916ccee7385dd5"
+  },
+  {
+   "path": "world/data/bell_sanctuaries.dat",
+   "size": 263,
+   "md5": "be776ad3893b7e0ca1af9a6bf50b911c"
+  },
+  {
+   "path": "world/data/biolith_overworld_state.dat",
+   "size": 351,
+   "md5": "4a04bc6519748ab2081396e0f8eb3216"
+  },
+  {
+   "path": "world/data/cataclysm_world_data.dat",
+   "size": 84,
+   "md5": "a39963f953252a28d2a9c2da3129194f"
+  },
+  {
+   "path": "world/data/citadel_world_data.dat",
+   "size": 81,
+   "md5": "bb0f726a8d6674ef5521b74f4e2a7b70"
+  },
+  {
+   "path": "world/data/command_storage_crystcursed_dragon.dat",
+   "size": 473,
+   "md5": "2934dd27dbefbc5aaddf66c36fdaca78"
+  },
+  {
+   "path": "world/data/command_storage_frostfire_dragon.dat",
+   "size": 238,
+   "md5": "aa9a24a66dbd8cc059b41407c6fc83c2"
+  },
+  {
+   "path": "world/data/friend_moon.dat",
+   "size": 197,
+   "md5": "e7bf0af4443951a9fc0e689b077b221d"
+  },
+  {
+   "path": "world/data/geckolib_id_cache.dat",
+   "size": 62,
+   "md5": "64f566e91974278b8f9ac247a6fdd6f8"
+  },
+  {
+   "path": "world/data/idcounts.dat",
+   "size": 56,
+   "md5": "d156787b7ad72d0fe90ce70424af2d1b"
+  },
+  {
+   "path": "world/data/irons_spellbooks_data.dat",
+   "size": 160,
+   "md5": "038b73b4f330c273074cadfba48c2195"
+  },
+  {
+   "path": "world/data/lootr/0/00/007f8eef-27c8-4ea9-a565-0f7c6ff30032.dat",
+   "size": 396,
+   "md5": "d3ec68919b05f095dde5b5f7ceaa96ab"
+  },
+  {
+   "path": "world/data/lootr/0/02/021a9a07-e362-4848-b9dc-23dee8e33609.dat",
+   "size": 407,
+   "md5": "630719e6acdbdd32551ec9ca0f303f34"
+  },
+  {
+   "path": "world/data/lootr/0/04/0458a772-0324-4f30-9e0d-43561ba10eb1.dat",
+   "size": 415,
+   "md5": "08a30a4670a19e9efc61137c5a2d7216"
+  },
+  {
+   "path": "world/data/lootr/0/06/06113024-dceb-4689-9950-51261d2a17bc.dat",
+   "size": 418,
+   "md5": "91381ffa64ed982833521241e810f90d"
+  },
+  {
+   "path": "world/data/lootr/0/06/06350636-6640-4580-a4b4-7872dda74c39.dat",
+   "size": 409,
+   "md5": "9355b46dcfa6f1ec01ea223c4d6c70b5"
+  },
+  {
+   "path": "world/data/lootr/0/06/066243f7-e921-4ab3-a867-5b9f76d42a55.dat",
+   "size": 457,
+   "md5": "5346220e64abb00e947bd6927a4e9c1e"
+  },
+  {
+   "path": "world/data/lootr/0/08/08af6fed-df6f-4a2e-9170-d9354cc6bdaa.dat",
+   "size": 415,
+   "md5": "2f549063f69408910d65b8f410bf5e43"
+  },
+  {
+   "path": "world/data/lootr/0/09/09a80990-8e77-4e0b-b8a6-78dc74707b5c.dat",
+   "size": 414,
+   "md5": "e6ffb3d658a70aa986fd31c0ef34414f"
+  },
+  {
+   "path": "world/data/lootr/0/0c/0c5c1aec-3e82-4984-b2b9-f341b76ad2d0.dat",
+   "size": 417,
+   "md5": "7ee6c66d991ad67cff030a16e033e42f"
+  },
+  {
+   "path": "world/data/lootr/0/0e/0e2b3235-b4c9-4afb-964f-ee8de61c3160.dat",
+   "size": 422,
+   "md5": "821f18c067ae9641d234d0ab55790000"
+  },
+  {
+   "path": "world/data/lootr/0/0e/0e4804fb-a792-4b00-8f9b-363e6c36e54e.dat",
+   "size": 431,
+   "md5": "7f7b5714a86f5399234d5e2f62218aaf"
+  },
+  {
+   "path": "world/data/lootr/0/0e/0e8a2c76-f03d-425c-9507-24ff1eb1fcd1.dat",
+   "size": 429,
+   "md5": "b6e7966790f95f9b063a183ec18837f3"
+  },
+  {
+   "path": "world/data/lootr/0/0f/0f61a675-a983-45fe-ad0c-0d208ee7c13e.dat",
+   "size": 462,
+   "md5": "4361e5e9229cdf5fb33d80ca3596d885"
+  },
+  {
+   "path": "world/data/lootr/0/0f/0ffd4f07-8898-44d0-81de-c5c2bea75177.dat",
+   "size": 436,
+   "md5": "77963474dd6886640dda17d0b138ed26"
+  },
+  {
+   "path": "world/data/lootr/1/10/1079f8d3-9a1f-4a5e-81c0-775cf449ede0.dat",
+   "size": 411,
+   "md5": "74ff911dce7a07043badda6594c6b2ec"
+  },
+  {
+   "path": "world/data/lootr/1/11/114f6d55-bb89-404c-900e-ecd8430a8bad.dat",
+   "size": 395,
+   "md5": "61f04f1916ccadbb1f4d13b578814da1"
+  },
+  {
+   "path": "world/data/lootr/1/13/131842d2-0107-483f-b8c7-206e8294a547.dat",
+   "size": 462,
+   "md5": "31559b08658d8a27a4034e3875595376"
+  },
+  {
+   "path": "world/data/lootr/1/14/1401ebe1-d294-4e4a-9ae4-f22571c90882.dat",
+   "size": 409,
+   "md5": "7fb68eaf1c3aa437330d431a22485892"
+  },
+  {
+   "path": "world/data/lootr/1/14/144881cc-eeff-4adb-a5de-93c8e8073b19.dat",
+   "size": 620,
+   "md5": "2babb61415bfa8d4104d5957ef2a7509"
+  },
+  {
+   "path": "world/data/lootr/1/15/15d361d3-aee3-4d54-b5bf-31c945ec16c2.dat",
+   "size": 398,
+   "md5": "07422ff56e935a93fde6a74f974d0d0e"
+  },
+  {
+   "path": "world/data/lootr/1/16/16bee6d3-5cfb-42e2-be96-02d0d17a63a6.dat",
+   "size": 617,
+   "md5": "7170b00d7b67ab0f9897970162222b21"
+  },
+  {
+   "path": "world/data/lootr/1/17/1735b168-3da4-4d39-9420-88cd8170d884.dat",
+   "size": 404,
+   "md5": "ea674c9b1170f77ff011dad4ac7512e7"
+  },
+  {
+   "path": "world/data/lootr/1/1d/1d22bb19-d77b-4ec8-a686-c06c795282cd.dat",
+   "size": 396,
+   "md5": "d9610308eb1cb9c63f90c86ea95a25a4"
+  },
+  {
+   "path": "world/data/lootr/1/1e/1e114f68-f9a0-480c-8b87-e09c64d5b11c.dat",
+   "size": 417,
+   "md5": "3ac2a6335e9ebdea7ad82b200d91b108"
+  },
+  {
+   "path": "world/data/lootr/2/20/206be0c6-3e17-49c1-a394-f0adb54559fa.dat",
+   "size": 429,
+   "md5": "317a8ccde67fccdbace8439ed2e3b644"
+  },
+  {
+   "path": "world/data/lootr/2/20/20a754de-d3d5-4f6b-9c2d-3935587ce820.dat",
+   "size": 422,
+   "md5": "ec0595186f48181af0a0b0a36a6d4bdf"
+  },
+  {
+   "path": "world/data/lootr/2/21/21afcd7e-cd8f-4197-bb43-dc091fc4c22c.dat",
+   "size": 407,
+   "md5": "aece59aea93da6444573e85eb71ee693"
+  },
+  {
+   "path": "world/data/lootr/2/22/22147c6b-2eb2-490a-984e-caefa5c3811b.dat",
+   "size": 473,
+   "md5": "bcf6f5e017b84ee25b5676608a5f98de"
+  },
+  {
+   "path": "world/data/lootr/2/22/22357325-72d7-4eae-b0be-02170d0e0d09.dat",
+   "size": 395,
+   "md5": "f04556e60bbe14a34fde0c5148c458c8"
+  },
+  {
+   "path": "world/data/lootr/2/22/22692e5f-049c-4622-8d88-8962b9b36487.dat",
+   "size": 748,
+   "md5": "4570106020123c381fc0ba8a7c30b98c"
+  },
+  {
+   "path": "world/data/lootr/2/22/22b1d715-3833-47df-a90f-a16e8e45d312.dat",
+   "size": 412,
+   "md5": "357ab4cf58fe1c70fa7c1a09c3011e46"
+  },
+  {
+   "path": "world/data/lootr/2/23/238d9883-9401-42f0-a55f-e521e6768882.dat",
+   "size": 421,
+   "md5": "eeeab95cae85d4fc9e61bfe2c20dc7f6"
+  },
+  {
+   "path": "world/data/lootr/2/25/25ef442a-b466-4889-8a96-2deabc871c5c.dat",
+   "size": 405,
+   "md5": "b53ac765be43809b7dccc5c38de2997e"
+  },
+  {
+   "path": "world/data/lootr/2/26/268b2016-0a43-4dbe-9570-17724353f0a9.dat",
+   "size": 409,
+   "md5": "8b1baa7e8f5629ca9b15b5734477f56e"
+  },
+  {
+   "path": "world/data/lootr/2/26/26cf2360-286e-4a85-878b-8a59d2070664.dat",
+   "size": 415,
+   "md5": "eb1791323fcd412cc1c7f5f9deb04a9b"
+  },
+  {
+   "path": "world/data/lootr/2/27/27190647-f675-4131-99c9-c1fc2e0b485f.dat",
+   "size": 433,
+   "md5": "5580c0c03cb7e289645f25c275a65c48"
+  },
+  {
+   "path": "world/data/lootr/2/27/274c7536-d2b7-482f-8f33-6c5126fcb33a.dat",
+   "size": 421,
+   "md5": "cdfc176c4bd9a8e64f7fdd5adc138c76"
+  },
+  {
+   "path": "world/data/lootr/2/27/278b8b99-0720-40a0-b1cf-dd50305cffc4.dat",
+   "size": 414,
+   "md5": "2f2181057071ddc72d104b6150e390f7"
+  },
+  {
+   "path": "world/data/lootr/2/27/27dadba2-839f-4065-ab3c-58005809f496.dat",
+   "size": 417,
+   "md5": "0b82934ffa7cb258f32fc109e75c4f2a"
+  },
+  {
+   "path": "world/data/lootr/2/2a/2a9e3aef-b41e-40ef-8722-1d4a208dbb33.dat",
+   "size": 483,
+   "md5": "ab6cfe85f9a0fd68a44032f4ba9737d4"
+  },
+  {
+   "path": "world/data/lootr/2/2b/2b720c38-8e35-45ac-b505-b0e25a67bb90.dat",
+   "size": 406,
+   "md5": "c3a8b090f37911fc09e74320b16bd15d"
+  },
+  {
+   "path": "world/data/lootr/2/2c/2ca03f69-459c-44fb-9be6-9ab1d2c5d0bf.dat",
+   "size": 474,
+   "md5": "5d0d9ed33b7c26babf0a96d073baad1a"
+  },
+  {
+   "path": "world/data/lootr/2/2d/2dedbb4a-c0f6-47e8-961b-7c34615801fd.dat",
+   "size": 424,
+   "md5": "40f8321c4a484891e2df474c17107470"
+  },
+  {
+   "path": "world/data/lootr/2/2e/2e636500-c174-40d8-9f89-4dc31a095431.dat",
+   "size": 484,
+   "md5": "df11344731ad0ef9a0eebb3b0a0bd80e"
+  },
+  {
+   "path": "world/data/lootr/2/2e/2e836463-3589-4e64-8168-a29980d9aff0.dat",
+   "size": 403,
+   "md5": "3c3f2082346121855b043c580bf1eb2b"
+  },
+  {
+   "path": "world/data/lootr/2/2f/2f3e627b-9141-46ea-acbb-4682af4af3eb.dat",
+   "size": 395,
+   "md5": "de64fdfb0d68a873aefe318f262fc397"
+  },
+  {
+   "path": "world/data/lootr/2/2f/2f9dc480-1a72-4fc4-8572-97dc802aa57c.dat",
+   "size": 418,
+   "md5": "823f38260ac16ac9024653ce3489cd51"
+  },
+  {
+   "path": "world/data/lootr/3/30/30316d10-6178-4e5e-9724-d53fdf239407.dat",
+   "size": 413,
+   "md5": "f00c9734b68a5707b9060b9e23cd5ece"
+  },
+  {
+   "path": "world/data/lootr/3/32/328024c7-36cd-4b5f-bcac-14ed4ddac880.dat",
+   "size": 462,
+   "md5": "f22a0307e7de8d45602ca295f017c64e"
+  },
+  {
+   "path": "world/data/lootr/3/36/368321a5-2570-4b6e-a3d6-30acf6d18df5.dat",
+   "size": 412,
+   "md5": "3699b43d69dcd333bef11d3cdfb23e44"
+  },
+  {
+   "path": "world/data/lootr/3/37/37b1ce82-af40-4dae-a919-85a53661f4da.dat",
+   "size": 422,
+   "md5": "9d74e549cefbdf97ffe9f1124cac3344"
+  },
+  {
+   "path": "world/data/lootr/3/39/391abd91-c94b-48e2-8218-fd19456f17d4.dat",
+   "size": 413,
+   "md5": "342439f51dcf282a500839201e0f405d"
+  },
+  {
+   "path": "world/data/lootr/3/3b/3b42b674-f661-467c-9215-2affb6dfafda.dat",
+   "size": 402,
+   "md5": "5ecb6e07356acd735dffe6969df6c563"
+  },
+  {
+   "path": "world/data/lootr/3/3c/3c42cc4d-6d2e-4826-823c-2d465a055cae.dat",
+   "size": 415,
+   "md5": "82604bcdc9f33430af7aa224710fa505"
+  },
+  {
+   "path": "world/data/lootr/3/3d/3d4a53fe-10cf-48de-a099-958bb5b3a197.dat",
+   "size": 407,
+   "md5": "4af467dc29c66ff651e544445110b2b7"
+  },
+  {
+   "path": "world/data/lootr/3/3f/3fe7806c-168f-4660-a245-27c57693469a.dat",
+   "size": 471,
+   "md5": "d9b27bf5e60ed3db307a49d2f2897072"
+  },
+  {
+   "path": "world/data/lootr/4/40/40865fb2-75bf-4743-8c5b-030d04f45e09.dat",
+   "size": 411,
+   "md5": "481331d0c0c720daa2041a64aaf62052"
+  },
+  {
+   "path": "world/data/lootr/4/41/411bf3b1-9279-4088-891f-2411727856ab.dat",
+   "size": 455,
+   "md5": "9396e93ff6829ca5658bbf110ad81ff2"
+  },
+  {
+   "path": "world/data/lootr/4/42/422fa9c0-bc62-4f1f-bde8-516cadefc17a.dat",
+   "size": 470,
+   "md5": "cc66474c2091308ba91d5184c9258f2c"
+  },
+  {
+   "path": "world/data/lootr/4/44/44546b6f-6fce-4d90-9d98-102b9e0f0bac.dat",
+   "size": 408,
+   "md5": "3f7a74addae5af3d5726c391e8403b88"
+  },
+  {
+   "path": "world/data/lootr/4/44/445f696e-49f3-4014-8993-be449ed242b8.dat",
+   "size": 414,
+   "md5": "56f1048545945630f77a0f1e9dcb4518"
+  },
+  {
+   "path": "world/data/lootr/4/44/449df01f-c1ab-4d38-bdce-e9477638ce7c.dat",
+   "size": 400,
+   "md5": "64c360c3f9849651a1bfb73020f13a64"
+  },
+  {
+   "path": "world/data/lootr/4/45/45b84454-6ac7-4d74-a34e-443832418b2f.dat",
+   "size": 408,
+   "md5": "5c3ac93f80d83aa1af096ed9b851096e"
+  },
+  {
+   "path": "world/data/lootr/4/46/46be7b53-1d98-4254-9773-765f7f9c1b5c.dat",
+   "size": 410,
+   "md5": "63019a213fe3e000b42b6383e591724b"
+  },
+  {
+   "path": "world/data/lootr/4/47/4745e8b4-339c-4df0-a536-df6789383cdc.dat",
+   "size": 424,
+   "md5": "b6e5cbd2c1529ee84823bd3947eee38c"
+  },
+  {
+   "path": "world/data/lootr/4/47/47863615-66fd-42e6-ad96-d0cee30a4fb6.dat",
+   "size": 405,
+   "md5": "8e433c8a78fbc6718e03cb97ca1d5f17"
+  },
+  {
+   "path": "world/data/lootr/4/48/4878deff-e7db-4005-b7e6-3e7685193105.dat",
+   "size": 476,
+   "md5": "735f1d134f7992caea12f5090ca4a65c"
+  },
+  {
+   "path": "world/data/lootr/4/49/49e59ab5-d246-4690-be54-96a772ee8b96.dat",
+   "size": 436,
+   "md5": "96ff62ee3d2c68d6ed3f5a215b4f43af"
+  },
+  {
+   "path": "world/data/lootr/4/4b/4b1a8391-90fe-42af-8646-2dffd96e91ec.dat",
+   "size": 417,
+   "md5": "57475a27ae94ea7b2eb5b3804ef1defd"
+  },
+  {
+   "path": "world/data/lootr/4/4c/4ca1413a-10b2-4d6a-9d5f-1297e0cad1e9.dat",
+   "size": 416,
+   "md5": "7548978a5632e5fa342b1f1b73dd2fec"
+  },
+  {
+   "path": "world/data/lootr/4/4c/4ca21f70-5cc3-44c8-ad65-648dd86f3002.dat",
+   "size": 426,
+   "md5": "7597b278d99818a3d1ef3d338ad6bbf4"
+  },
+  {
+   "path": "world/data/lootr/4/4e/4e8a387d-872d-4528-8ed8-1f6e5fad339b.dat",
+   "size": 472,
+   "md5": "50da2f288ce471d20e2a970514d76fb3"
+  },
+  {
+   "path": "world/data/lootr/5/50/50b4133e-5e9b-4467-9f9f-06940e6ff474.dat",
+   "size": 678,
+   "md5": "11b445c37bb0393dd90a1b2edc653c89"
+  },
+  {
+   "path": "world/data/lootr/5/53/5364655c-d4c5-4363-b5da-185dd7ec31b4.dat",
+   "size": 421,
+   "md5": "419fcdb7a1bc633b213af57bb1f776a2"
+  },
+  {
+   "path": "world/data/lootr/5/54/54acae22-fa4b-4a9a-bf6f-c1f2e5eb4edc.dat",
+   "size": 414,
+   "md5": "6b7bc174ec63a1c9bf80ad7df5dafaef"
+  },
+  {
+   "path": "world/data/lootr/5/55/55320c3a-5423-4df7-87a8-76d467168160.dat",
+   "size": 414,
+   "md5": "eca4dbad6cf051b619a681b5156f9fa2"
+  },
+  {
+   "path": "world/data/lootr/5/58/58f99979-d8fe-47df-80c0-cf263bbb289f.dat",
+   "size": 420,
+   "md5": "482c7d3be3c51e77f1859dcc015de043"
+  },
+  {
+   "path": "world/data/lootr/5/5b/5ba15ee0-4f5e-4c02-a103-fe2e2222b407.dat",
+   "size": 412,
+   "md5": "9dff710f0fea64cb3c8b5d7f0527aad3"
+  },
+  {
+   "path": "world/data/lootr/5/5d/5dd48e27-ecff-4880-b5c6-f2cd100200f6.dat",
+   "size": 564,
+   "md5": "4e14049f47a1b680d7668e0bb6d0d61e"
+  },
+  {
+   "path": "world/data/lootr/6/60/60b8aaac-11d0-4b86-a04f-bcc0d4333403.dat",
+   "size": 414,
+   "md5": "f33f36f45469bfb0ce4a204b6f33e191"
+  },
+  {
+   "path": "world/data/lootr/6/60/60efec01-3f28-471a-bab7-7b6a70ce9661.dat",
+   "size": 414,
+   "md5": "98afdd3b367e8751c75a23537ea7ee29"
+  },
+  {
+   "path": "world/data/lootr/6/60/60f73349-3fc4-4101-8cd9-f1b91f87ddba.dat",
+   "size": 417,
+   "md5": "22eda25273fec0ef25825fe1cf68e998"
+  },
+  {
+   "path": "world/data/lootr/6/61/617c367e-d78c-4cef-90ee-853d1e4f29ff.dat",
+   "size": 422,
+   "md5": "1d8bcc33b009f85163a4dd35b8d27fff"
+  },
+  {
+   "path": "world/data/lootr/6/61/61d51021-c2ee-4723-b478-610a161901a4.dat",
+   "size": 424,
+   "md5": "22db27e8480d378d734df9e109eeb706"
+  },
+  {
+   "path": "world/data/lootr/6/63/633e3946-9363-4b13-88dc-50fd9de31447.dat",
+   "size": 326,
+   "md5": "2b3db08c587d8192deea7ca210ed98b7"
+  },
+  {
+   "path": "world/data/lootr/6/63/63b5d43d-5461-448c-bfb0-02d385b02234.dat",
+   "size": 485,
+   "md5": "3ab1c7798e9c376e25f15c0814ee8181"
+  },
+  {
+   "path": "world/data/lootr/6/66/6631fc65-8706-4bb4-9b3f-dacb95531727.dat",
+   "size": 463,
+   "md5": "d206dd991e0904981ecbb7a04feac554"
+  },
+  {
+   "path": "world/data/lootr/6/67/673aaaee-3394-4198-963d-59fff81d3a70.dat",
+   "size": 418,
+   "md5": "87a7bfe8e5b8d59e436bcb5994cff238"
+  },
+  {
+   "path": "world/data/lootr/6/67/673b6dfa-c176-486c-ac2f-539b72cfa46b.dat",
+   "size": 410,
+   "md5": "52bca4e5443b8a1167d0071693c2f77e"
+  },
+  {
+   "path": "world/data/lootr/6/68/68b2926f-b1f0-4e9f-8f60-09ee4160cf0e.dat",
+   "size": 413,
+   "md5": "7cf95569adc6c1f3d5142e0577127454"
+  },
+  {
+   "path": "world/data/lootr/6/68/68e60726-bf12-4e9b-9503-1190e8986b2b.dat",
+   "size": 414,
+   "md5": "1f39a16d8eea4cdf96844d52f801e219"
+  },
+  {
+   "path": "world/data/lootr/6/6a/6a594512-4272-4c4b-9907-4d787c9a9274.dat",
+   "size": 413,
+   "md5": "7562e09dcc758e920724c5086509293e"
+  },
+  {
+   "path": "world/data/lootr/6/6a/6a6fd23b-91a6-4cbe-be73-e4cc292f3baf.dat",
+   "size": 448,
+   "md5": "652a5a123240fb925a005534381a4aa7"
+  },
+  {
+   "path": "world/data/lootr/6/6a/6ac83e31-e5e3-4a6f-a5f3-8c45966f9fda.dat",
+   "size": 471,
+   "md5": "5b874099a2af369308e03864191d27ce"
+  },
+  {
+   "path": "world/data/lootr/6/6b/6b41db4f-7e72-483a-a909-a7e0c09d08c1.dat",
+   "size": 411,
+   "md5": "52e434a5f6cb2696fd224907969b9699"
+  },
+  {
+   "path": "world/data/lootr/6/6f/6f78466f-ff3f-49fc-b75f-6a51fdec7009.dat",
+   "size": 407,
+   "md5": "02005949253b85ea2565ad4341623be6"
+  },
+  {
+   "path": "world/data/lootr/7/71/719c8d65-f468-46ba-a761-a79d3ab366d6.dat",
+   "size": 415,
+   "md5": "31597e35f628d0d911edef98d12e787f"
+  },
+  {
+   "path": "world/data/lootr/7/73/7357134b-b05e-4148-96f6-4b2e552f6b6e.dat",
+   "size": 415,
+   "md5": "d7552808826fef5ad8d4bde681f023da"
+  },
+  {
+   "path": "world/data/lootr/7/78/782200f1-f105-478f-9ad5-17a9496787a4.dat",
+   "size": 520,
+   "md5": "40344d26a2fd545a5594d62724845c27"
+  },
+  {
+   "path": "world/data/lootr/7/7a/7aed1105-0c1c-4139-a8b0-c569e091d7b3.dat",
+   "size": 456,
+   "md5": "a2f2b13814496336463933246eaed173"
+  },
+  {
+   "path": "world/data/lootr/7/7b/7b4d83cf-d6c6-4f1a-886a-2b7269bf3ca9.dat",
+   "size": 411,
+   "md5": "b47cbe241fc237cec0251bbea15aeffe"
+  },
+  {
+   "path": "world/data/lootr/7/7c/7c22e968-64bb-4670-9af6-5962c6f470a5.dat",
+   "size": 509,
+   "md5": "fc0e185475a6587327964b04b9f51c20"
+  },
+  {
+   "path": "world/data/lootr/7/7c/7ca2ee5e-1f53-4ef4-bed9-59acead9acdf.dat",
+   "size": 421,
+   "md5": "01a30366da86aeb7eaf236516cfa2f0a"
+  },
+  {
+   "path": "world/data/lootr/7/7d/7d52456b-f570-4132-8b63-0d3a32924d20.dat",
+   "size": 421,
+   "md5": "8fb87e3d977d1291c096da31ad0b01fd"
+  },
+  {
+   "path": "world/data/lootr/7/7d/7dfc1f8d-688b-4a5b-8b09-a6a5136f6a40.dat",
+   "size": 421,
+   "md5": "8f0c36d1d53aee0597e66e3050b2a653"
+  },
+  {
+   "path": "world/data/lootr/7/7e/7e341c7a-8da8-4d5f-947d-853d36bff012.dat",
+   "size": 421,
+   "md5": "47c778db78be20e4cc715bd2cf21810b"
+  },
+  {
+   "path": "world/data/lootr/7/7f/7f0eb624-4210-4a94-8d4a-308baa81e9c3.dat",
+   "size": 429,
+   "md5": "a5667c7ad0bf513e0cce559f0608e587"
+  },
+  {
+   "path": "world/data/lootr/7/7f/7f30232d-51e0-4b1a-b029-fef12ecaf553.dat",
+   "size": 409,
+   "md5": "761cd69c4cb182b11da7f4d24a59d620"
+  },
+  {
+   "path": "world/data/lootr/8/80/80941a7d-ba15-43e8-b6b3-10d2443834d3.dat",
+   "size": 416,
+   "md5": "e28fd3d48177e9a59f5217f73387303a"
+  },
+  {
+   "path": "world/data/lootr/8/82/82a55607-5ecc-4f40-b25f-906ec7491ce6.dat",
+   "size": 405,
+   "md5": "7ccb872a7147c003d9191b4365aa173c"
+  },
+  {
+   "path": "world/data/lootr/8/83/83c93fde-6c22-4405-8aea-e7f36c305fe1.dat",
+   "size": 417,
+   "md5": "074ca96e6bec51ae5569484df5adc041"
+  },
+  {
+   "path": "world/data/lootr/8/84/848f1ca3-f837-4763-b505-4bd1ed39ee58.dat",
+   "size": 425,
+   "md5": "e0e991a68ae672942c723c99a1af6e36"
+  },
+  {
+   "path": "world/data/lootr/8/85/85e78887-e90b-437e-a042-463a690ec8fa.dat",
+   "size": 326,
+   "md5": "b72649de5cfb52d3bc1c06147bde0732"
+  },
+  {
+   "path": "world/data/lootr/8/86/86f2284e-cf3a-44a0-a66f-5694a4e74b47.dat",
+   "size": 330,
+   "md5": "a81888446dfa2714691c514ae2849814"
+  },
+  {
+   "path": "world/data/lootr/8/88/8890ce65-36ac-4448-83e6-f8743980d9fa.dat",
+   "size": 425,
+   "md5": "fddfd40c54183b1a2152f15493005cc3"
+  },
+  {
+   "path": "world/data/lootr/8/89/89907c6a-f4ed-4819-83cd-b0fc3e726699.dat",
+   "size": 426,
+   "md5": "1667f0f7f3fe4ac790bdbd63e2ab4715"
+  },
+  {
+   "path": "world/data/lootr/8/8c/8c08dd75-c821-4646-8cbe-51d6de48ed7f.dat",
+   "size": 400,
+   "md5": "8345c6336b9301baf158848102a99b45"
+  },
+  {
+   "path": "world/data/lootr/8/8c/8cf22ac1-6a90-4f2f-9a86-b0a50afc1c64.dat",
+   "size": 419,
+   "md5": "f5787f2f3c0d7ab7a8b4d088cd7298dc"
+  },
+  {
+   "path": "world/data/lootr/8/8d/8d3dcb29-7225-4786-bf67-e20264941ad0.dat",
+   "size": 414,
+   "md5": "4fb8d28af3e09f53237e4517b2f98031"
+  },
+  {
+   "path": "world/data/lootr/8/8d/8dd419a5-d4f1-43f0-953e-65c527cf44e4.dat",
+   "size": 413,
+   "md5": "9c5a86ee3d831daf733eed388840bf6f"
+  },
+  {
+   "path": "world/data/lootr/8/8e/8ebb31e8-eb06-4df8-a9a5-e72773b57cb7.dat",
+   "size": 562,
+   "md5": "3b9b4e55cd62eeaceac4773ced1096c4"
+  },
+  {
+   "path": "world/data/lootr/8/8f/8f194a20-ed59-431c-a8a1-a65a6ca73c04.dat",
+   "size": 400,
+   "md5": "7747274f702d40f0f68f410112afb772"
+  },
+  {
+   "path": "world/data/lootr/8/8f/8f6200b0-7124-4f2d-aeeb-4930e386e60f.dat",
+   "size": 449,
+   "md5": "304b9cd6db0eec196ec22ecfaba70f88"
+  },
+  {
+   "path": "world/data/lootr/9/91/91c31d65-5216-45dc-9dd1-fd665eaae14b.dat",
+   "size": 411,
+   "md5": "97f1a04ff8d9189494d6ebe3f7b43a3a"
+  },
+  {
+   "path": "world/data/lootr/9/92/921eb498-fc5f-4797-8347-b93001a47dcd.dat",
+   "size": 419,
+   "md5": "67b6fcf619281f6c14f36dc58cb98b47"
+  },
+  {
+   "path": "world/data/lootr/9/92/92a5c252-77fc-4550-9654-1eb3c2e75dd4.dat",
+   "size": 325,
+   "md5": "ed60c5106c0c37f8c891fb58aee4f4e7"
+  },
+  {
+   "path": "world/data/lootr/9/93/93fe9947-d7c3-4e0f-9a6e-419fd1e52a43.dat",
+   "size": 417,
+   "md5": "036eabd5edea15eb773e1b70a1ef4e40"
+  },
+  {
+   "path": "world/data/lootr/9/94/943b47a0-fdbc-4924-9fa3-1da94dc40238.dat",
+   "size": 326,
+   "md5": "9e1b23ef81d2ab5722c1f41f089f17c9"
+  },
+  {
+   "path": "world/data/lootr/9/95/9526aa49-88bc-4012-b9b9-67257b0beddd.dat",
+   "size": 421,
+   "md5": "a7050094d4626b3c1cb1dbe9cd203a58"
+  },
+  {
+   "path": "world/data/lootr/9/95/9588fb7f-9085-4543-9b6f-356d713b1c82.dat",
+   "size": 412,
+   "md5": "22ab9f260f64b0bcfe3ba5c7716e12e1"
+  },
+  {
+   "path": "world/data/lootr/9/96/96661d90-3a37-469d-a4d7-c0d83bc0dfd1.dat",
+   "size": 427,
+   "md5": "4572ddcc2f946686bd5c3d8eb7030dd3"
+  },
+  {
+   "path": "world/data/lootr/9/99/99c1af39-1af9-49be-a8ed-42eeb9571826.dat",
+   "size": 410,
+   "md5": "e825dc19c1cc46d6fdf4800e9938de63"
+  },
+  {
+   "path": "world/data/lootr/9/9b/9b3393d7-c9ee-4e7f-9bed-9f4b91d8e68c.dat",
+   "size": 425,
+   "md5": "bf6798f93bba82620f5e6b280088e69d"
+  },
+  {
+   "path": "world/data/lootr/9/9b/9b44cb44-bc0f-4c8b-b045-4f9bf233cf41.dat",
+   "size": 419,
+   "md5": "9315be2538a589e4704a0ac491371bf9"
+  },
+  {
+   "path": "world/data/lootr/9/9c/9c94f6cf-ff3c-4e45-b1f6-972deb175315.dat",
+   "size": 418,
+   "md5": "d732adddc42efaed03864ab796382b3d"
+  },
+  {
+   "path": "world/data/lootr/9/9c/9ccfa149-ccda-47ab-9e2c-93c52aff4896.dat",
+   "size": 461,
+   "md5": "257a82bb6ef4fa2a68af78f8640b7bf3"
+  },
+  {
+   "path": "world/data/lootr/9/9d/9d22c982-270e-4087-9c3e-9c6e84ed8b14.dat",
+   "size": 400,
+   "md5": "231c9e5055db16db9f4ebc4bf18a57ac"
+  },
+  {
+   "path": "world/data/lootr/a/a0/a0983303-9d43-4cca-a12b-1cdb2c6856b1.dat",
+   "size": 412,
+   "md5": "34a522e590fed619245533c706964293"
+  },
+  {
+   "path": "world/data/lootr/a/a1/a10cfe62-a0a3-4280-874d-3081a674c7f9.dat",
+   "size": 419,
+   "md5": "a52e0ebee17fc9ed05d4ecc916c785bc"
+  },
+  {
+   "path": "world/data/lootr/a/a1/a1c0bd99-ad87-4f30-bd99-eca56e43d8e1.dat",
+   "size": 454,
+   "md5": "a41ad5f7d61e55e47e2f99550b22ef20"
+  },
+  {
+   "path": "world/data/lootr/a/a3/a34f4ee6-a4d3-4031-b144-57a1869d9c4b.dat",
+   "size": 412,
+   "md5": "b8fd966c147a7c83f1f43b2d7a2d7b1d"
+  },
+  {
+   "path": "world/data/lootr/a/a4/a402819a-1b12-4bd6-ab68-becc37512a02.dat",
+   "size": 424,
+   "md5": "18608a9610a2020abf7c6e7fb230ecae"
+  },
+  {
+   "path": "world/data/lootr/a/a6/a69aa738-b41a-48d3-9ba9-81158830661e.dat",
+   "size": 412,
+   "md5": "cab78bac7a846905eb07cf2df910ce01"
+  },
+  {
+   "path": "world/data/lootr/a/a6/a6cc6e6f-8654-442b-b2f8-f3812189d9ee.dat",
+   "size": 425,
+   "md5": "aed0d5a0c68ecee666f08b14e50d3583"
+  },
+  {
+   "path": "world/data/lootr/a/a7/a72a92ae-bb82-4c9c-93e3-07a5a7d9ca7e.dat",
+   "size": 563,
+   "md5": "d71a13fab11f603dda885ff0f9945ac7"
+  },
+  {
+   "path": "world/data/lootr/a/a7/a7ee317a-9f3f-45dc-b5e0-909b3715511b.dat",
+   "size": 407,
+   "md5": "a3671dd673b828075156d1b223377f5f"
+  },
+  {
+   "path": "world/data/lootr/a/a9/a94067fa-14dd-49e2-ba61-bbb62d336b70.dat",
+   "size": 466,
+   "md5": "5f5e302e50761562c31682d4aa10a334"
+  },
+  {
+   "path": "world/data/lootr/a/ab/abc30896-d299-44b8-81c9-6e434f0b397c.dat",
+   "size": 407,
+   "md5": "ce24f5968068ceb7e66367879594909f"
+  },
+  {
+   "path": "world/data/lootr/a/ab/abf71837-c053-488b-8435-6398d65d327c.dat",
+   "size": 405,
+   "md5": "4ed79acb0bd880569cacf54fb8f6a810"
+  },
+  {
+   "path": "world/data/lootr/a/ac/acdaad40-d5eb-4ca5-a0db-48ee085d20c0.dat",
+   "size": 417,
+   "md5": "d290f9a2c379e6d45877fda7630e7238"
+  },
+  {
+   "path": "world/data/lootr/a/ad/ad1084e9-a44d-4080-a773-68178720f972.dat",
+   "size": 418,
+   "md5": "796b0fe968ce61d4603ba0dc6e4f78b2"
+  },
+  {
+   "path": "world/data/lootr/a/ae/ae753edf-fbc0-4693-ad50-0293aee4d9e3.dat",
+   "size": 423,
+   "md5": "82ffcbb14b64f908967563727512f750"
+  },
+  {
+   "path": "world/data/lootr/b/b1/b1176e26-0808-4712-9182-8ff7e06f353c.dat",
+   "size": 410,
+   "md5": "d1f578ced2c4023297d13a55bdd44b32"
+  },
+  {
+   "path": "world/data/lootr/b/b1/b1eabe2e-de97-479a-a16e-52d2a3024aa2.dat",
+   "size": 411,
+   "md5": "891f030efd90c50abe4140bedd0f14bf"
+  },
+  {
+   "path": "world/data/lootr/b/b2/b247e44e-86d0-4663-b177-5b78c2834e9a.dat",
+   "size": 474,
+   "md5": "f9f901d000ca441b0e7ef5315c46bb92"
+  },
+  {
+   "path": "world/data/lootr/b/b5/b52dd076-6211-44b4-9bf2-93eaeccbe940.dat",
+   "size": 415,
+   "md5": "092e71b6adf9f062b385aef6e9470ed2"
+  },
+  {
+   "path": "world/data/lootr/b/b5/b55d7130-abfb-41e7-8d4b-dd71a21e4dc5.dat",
+   "size": 393,
+   "md5": "2a1ae9f007c57b8843f4d9888006b0f3"
+  },
+  {
+   "path": "world/data/lootr/b/b6/b617b959-cfa0-4f87-87cc-7880c82e9fce.dat",
+   "size": 524,
+   "md5": "91706c55f0f9f40a84944b449a2ab593"
+  },
+  {
+   "path": "world/data/lootr/b/b6/b68a4eac-3adb-4c59-833d-5b3c7ee4efb1.dat",
+   "size": 416,
+   "md5": "3405b1f47eddaa78fab819225c29c15e"
+  },
+  {
+   "path": "world/data/lootr/b/b6/b6cbdd11-34ca-401c-b826-0a90a6009b84.dat",
+   "size": 410,
+   "md5": "09fe1971f61173aa94c192efd7a7e24e"
+  },
+  {
+   "path": "world/data/lootr/b/b7/b701d2f1-424f-4d7b-b493-bbd05c68eaff.dat",
+   "size": 418,
+   "md5": "382111d33bd5d27d6a1091fbbf270903"
+  },
+  {
+   "path": "world/data/lootr/b/b7/b7c5ca37-729e-4a9e-a974-33c0af097480.dat",
+   "size": 414,
+   "md5": "921a1c5e83e5214ae302cf7a987523dd"
+  },
+  {
+   "path": "world/data/lootr/b/b8/b83ccdf1-22d1-459f-9d94-54e0e023f603.dat",
+   "size": 418,
+   "md5": "c7db97fc1c2329a59d2cfe016aacb763"
+  },
+  {
+   "path": "world/data/lootr/b/b8/b8e0bad5-ed61-470d-a100-fe1e72b1ab4a.dat",
+   "size": 395,
+   "md5": "3b1426c7a5ea4eb5c7bbc81775e0406e"
+  },
+  {
+   "path": "world/data/lootr/b/b9/b91f1f4c-1086-48d4-bfad-610ed637b5a7.dat",
+   "size": 470,
+   "md5": "7b86fcfa9cc58ed5794c9a9c56f06228"
+  },
+  {
+   "path": "world/data/lootr/b/b9/b99ca9cc-bae4-41ff-9f08-3940895cd51a.dat",
+   "size": 408,
+   "md5": "ffebbb5a440bb46b0649107fb11809b7"
+  },
+  {
+   "path": "world/data/lootr/b/ba/ba031a6e-d937-489d-882a-0c666b806bd8.dat",
+   "size": 414,
+   "md5": "b9af4f62082c25a8bae3be9f23136cfa"
+  },
+  {
+   "path": "world/data/lootr/b/bb/bba87b4f-1fc8-41af-a230-5039ff0d21fa.dat",
+   "size": 417,
+   "md5": "fc9a959fdcd1234d4bd1b6a961e5239b"
+  },
+  {
+   "path": "world/data/lootr/b/bc/bcb95362-2c7a-4937-a366-83a027e7e086.dat",
+   "size": 417,
+   "md5": "ea832770fed41164fc533c5bfc276a6f"
+  },
+  {
+   "path": "world/data/lootr/b/bc/bce74f40-0490-40fd-b013-f2919cfb5b21.dat",
+   "size": 454,
+   "md5": "8dc9460510b2b5ae15d31c642616b05e"
+  },
+  {
+   "path": "world/data/lootr/b/bd/bd034f1d-cea0-4330-91bd-b05ca554c001.dat",
+   "size": 410,
+   "md5": "9176d0ac2dedf5550e16fe0d2dc16f3b"
+  },
+  {
+   "path": "world/data/lootr/c/c0/c0dd09ae-009b-4d5f-a62f-a82b9fe3ec9f.dat",
+   "size": 467,
+   "md5": "7358bf40ce561f2bbab798cc12fce976"
+  },
+  {
+   "path": "world/data/lootr/c/c1/c113cf11-5175-42be-a13c-b3cdbdea173c.dat",
+   "size": 414,
+   "md5": "1c5293b0776a7450bd0fda729a209480"
+  },
+  {
+   "path": "world/data/lootr/c/c1/c1e123f7-084e-49b9-b11d-fd6be7fc6599.dat",
+   "size": 416,
+   "md5": "36d1a94c0048195e5a1b60981c229f08"
+  },
+  {
+   "path": "world/data/lootr/c/c6/c658bd2b-fcea-42c3-9586-d903340fd775.dat",
+   "size": 424,
+   "md5": "4e54caffd44a9eae385b75c0cdbbc3ef"
+  },
+  {
+   "path": "world/data/lootr/c/c6/c67188fa-0c78-4b23-8530-8f13ae7fab76.dat",
+   "size": 402,
+   "md5": "e7b9864aa5c5a65793ab5269cccf3f85"
+  },
+  {
+   "path": "world/data/lootr/c/c6/c6fadb9a-1c3e-412c-b21c-418af940f2d8.dat",
+   "size": 416,
+   "md5": "acb0b7a4f2e00bdea9e18da51caeb355"
+  },
+  {
+   "path": "world/data/lootr/c/c7/c74c8524-668f-4d5d-b58f-b86643a0b167.dat",
+   "size": 419,
+   "md5": "e51f7119ed8db0ed12b47f8185be6d87"
+  },
+  {
+   "path": "world/data/lootr/c/c7/c7b61f8c-54ba-46f7-a4b1-b983e81b5257.dat",
+   "size": 523,
+   "md5": "03e40d8c2cc6572cb19364f4fb4e2a44"
+  },
+  {
+   "path": "world/data/lootr/c/c8/c875be3c-a31f-4e04-96fb-df40e6b86624.dat",
+   "size": 395,
+   "md5": "11a89da19e0da85c0fdd9833c36b95ae"
+  },
+  {
+   "path": "world/data/lootr/c/ca/cac759e1-6bb4-4702-9b8e-afd1ba8ae46a.dat",
+   "size": 419,
+   "md5": "2420a44fc99411d5ac9617c8f1713197"
+  },
+  {
+   "path": "world/data/lootr/c/ca/caf79f7c-ac6c-4b97-8166-33f0ac9b4d6e.dat",
+   "size": 518,
+   "md5": "24bfde76525382368aa78d3877d8a385"
+  },
+  {
+   "path": "world/data/lootr/c/cb/cb992bdf-354c-474f-bfdf-89e42c7394c4.dat",
+   "size": 417,
+   "md5": "e0d7c14f0b604081491be2a4cfe15fe1"
+  },
+  {
+   "path": "world/data/lootr/c/cc/cc3250b5-ffdb-4d35-af10-e33364bd4635.dat",
+   "size": 522,
+   "md5": "b2055c6b135a3d68c6814d5cd16a7968"
+  },
+  {
+   "path": "world/data/lootr/c/cd/cd458ff8-a1fb-49cb-99dc-5fd6971fceae.dat",
+   "size": 400,
+   "md5": "8199865d969ac2d75d06a429f9e11385"
+  },
+  {
+   "path": "world/data/lootr/c/cd/cde15901-78ad-4d0a-9b0c-1fecebe97c81.dat",
+   "size": 402,
+   "md5": "7e9e3e8585a9927e539150b71755b5c6"
+  },
+  {
+   "path": "world/data/lootr/c/cf/cf71204b-6887-4403-a9fc-6e283756c584.dat",
+   "size": 412,
+   "md5": "7e0005d1f975dbcbf795c6286a93b625"
+  },
+  {
+   "path": "world/data/lootr/d/d0/d0486372-896b-4d53-8519-06d9723f56ea.dat",
+   "size": 400,
+   "md5": "a26e28b2352eba3f4c5e66fc04c40712"
+  },
+  {
+   "path": "world/data/lootr/d/d0/d0e4115b-d6dc-4401-a53e-5f2038f3ccc2.dat",
+   "size": 411,
+   "md5": "a5b5768a28d836fca3dcae0fa3f8e19b"
+  },
+  {
+   "path": "world/data/lootr/d/d1/d111385b-8aab-45b3-a6b8-58cc8b168cb0.dat",
+   "size": 604,
+   "md5": "3ddaaaf6181c2e445a9dbb0b7ca0cfa2"
+  },
+  {
+   "path": "world/data/lootr/d/d1/d1267f21-00c5-4cef-a1f5-476f7412c628.dat",
+   "size": 408,
+   "md5": "f4dcc5ea1dd97ffed04894f925310459"
+  },
+  {
+   "path": "world/data/lootr/d/d1/d1f891a1-7e4a-44e1-90b6-28deab13a546.dat",
+   "size": 400,
+   "md5": "2848a2ffeab87a523abfda1fe78a9afc"
+  },
+  {
+   "path": "world/data/lootr/d/d4/d443bc55-65a8-451f-93e4-5f637d574b0c.dat",
+   "size": 573,
+   "md5": "805e038b48676cd78394c2d926a8ff50"
+  },
+  {
+   "path": "world/data/lootr/d/d4/d4a64125-c627-4a7d-bbed-cec8785c7151.dat",
+   "size": 417,
+   "md5": "015d2b01ec29322b495f19f5cfdcdc80"
+  },
+  {
+   "path": "world/data/lootr/d/d4/d4fc9a4d-9e5b-41b9-89ea-3bc8fbe80a68.dat",
+   "size": 472,
+   "md5": "8ac458823530223dd1ab0d623f29c9de"
+  },
+  {
+   "path": "world/data/lootr/d/d5/d5663ad5-f408-4d91-b166-a37b454b9b50.dat",
+   "size": 445,
+   "md5": "98d1f9c5f89e93ff47c3199340c20d21"
+  },
+  {
+   "path": "world/data/lootr/d/d6/d6e46e90-1be2-45e4-9fb1-6e99bf22c389.dat",
+   "size": 393,
+   "md5": "751eeee9f06ec1ddcf8d86a5a7f3b499"
+  },
+  {
+   "path": "world/data/lootr/d/d7/d7035782-2a50-46b2-be87-a50fea4a5a3e.dat",
+   "size": 471,
+   "md5": "b505399b060a06b7c3607863bd5c42b3"
+  },
+  {
+   "path": "world/data/lootr/d/d7/d72e97cb-cca4-483a-be8e-4180f6e59448.dat",
+   "size": 415,
+   "md5": "49030d518f14dad6c9caff89bf4ffcdb"
+  },
+  {
+   "path": "world/data/lootr/d/d7/d7d242d4-89ea-400b-a453-358471440296.dat",
+   "size": 394,
+   "md5": "381e8aa91b6c3c502113e49c15815cc6"
+  },
+  {
+   "path": "world/data/lootr/d/d8/d868c0fc-d2ec-4fe0-9862-85dc394581ec.dat",
+   "size": 532,
+   "md5": "f1582c53750d3b749592a15924e108dd"
+  },
+  {
+   "path": "world/data/lootr/d/d9/d92df1c3-606a-497a-a366-41d24aa2ae24.dat",
+   "size": 391,
+   "md5": "8ef9246d0f3d39e5d58e43b282f7d093"
+  },
+  {
+   "path": "world/data/lootr/d/da/da3c1fa0-1698-477f-8bbf-532c9aa1d665.dat",
+   "size": 397,
+   "md5": "491030d69099acf9bbb9cc99f5050f9d"
+  },
+  {
+   "path": "world/data/lootr/d/dd/dd504d08-ebf7-4e1e-aaec-77daf56cc919.dat",
+   "size": 469,
+   "md5": "6bb37b299024bc5da85bd662944d9636"
+  },
+  {
+   "path": "world/data/lootr/d/dd/dd5b5667-f9f3-43d8-a38c-8b14301969be.dat",
+   "size": 421,
+   "md5": "0c26a2d86aef67dabc64deea1da7c14b"
+  },
+  {
+   "path": "world/data/lootr/d/df/df1e6477-e3d4-41ff-bf42-7c77e7c43e7e.dat",
+   "size": 766,
+   "md5": "cd5782c7e76e9a7a76785424ba18e96b"
+  },
+  {
+   "path": "world/data/lootr/d/df/df61e57a-5aa1-44c4-9514-60a6dd34e851.dat",
+   "size": 431,
+   "md5": "7e5732a3e75361e1d2b2d411012965d5"
+  },
+  {
+   "path": "world/data/lootr/e/e0/e077b4ba-d09c-40ea-a9e2-625111ad28f7.dat",
+   "size": 424,
+   "md5": "042bd7d58271d211291dbbe9766e5a7d"
+  },
+  {
+   "path": "world/data/lootr/e/e4/e4a729ba-b8ad-4818-9b54-61c3711cfa8f.dat",
+   "size": 425,
+   "md5": "bc87d7badf44b8b07337574fd00f3578"
+  },
+  {
+   "path": "world/data/lootr/e/e5/e53e58da-4eaa-4ade-bf83-fdd189b2ddcd.dat",
+   "size": 448,
+   "md5": "b23f7b296bdb3c608750690948272bf3"
+  },
+  {
+   "path": "world/data/lootr/e/e6/e64ff70c-5e19-4032-b364-8199d4c51435.dat",
+   "size": 413,
+   "md5": "6fcbe045630f0ee941b7a888c51cc912"
+  },
+  {
+   "path": "world/data/lootr/e/e6/e68ff038-9e22-424d-8a05-7e5c78a5069e.dat",
+   "size": 415,
+   "md5": "2dead2c560ffbe5b2f2722150b971011"
+  },
+  {
+   "path": "world/data/lootr/e/e6/e6e7a728-225f-4ae2-b3e4-5a22ad17b1f5.dat",
+   "size": 415,
+   "md5": "fe709257ba5b2b64e4974e195271a06c"
+  },
+  {
+   "path": "world/data/lootr/e/e7/e713fa40-3052-4b7e-a9a2-48cb1afd3303.dat",
+   "size": 414,
+   "md5": "ff39c79c866c6d48288705be675068bc"
+  },
+  {
+   "path": "world/data/lootr/e/e9/e97f555a-fe83-4d87-ac0e-db8256c785fe.dat",
+   "size": 414,
+   "md5": "e7b3b0f7c0808f4813dcbdc68e722906"
+  },
+  {
+   "path": "world/data/lootr/e/ea/ea1230e3-bec9-4af4-8889-4d687258449a.dat",
+   "size": 451,
+   "md5": "c6a6d274ea8d1ec45312d9861c3761d6"
+  },
+  {
+   "path": "world/data/lootr/e/ea/eacc0898-2ae8-4ede-8cc5-70b969576ec1.dat",
+   "size": 413,
+   "md5": "1fd07816eac52fc9ef55c0bfcc500ca3"
+  },
+  {
+   "path": "world/data/lootr/e/eb/eb00f8f5-1d12-4e18-bb70-715313ae955e.dat",
+   "size": 417,
+   "md5": "3209835b3de5c7ba37af72c7cb3d8fd0"
+  },
+  {
+   "path": "world/data/lootr/e/eb/eb8f8402-d45f-4b38-861a-7650a208ae91.dat",
+   "size": 417,
+   "md5": "7fe67dc996d577c8bb04e89b249b3f77"
+  },
+  {
+   "path": "world/data/lootr/e/eb/ebdc7f45-d472-45cd-9219-9e8094f53fdc.dat",
+   "size": 413,
+   "md5": "03775a31f6938852603a5321409000ab"
+  },
+  {
+   "path": "world/data/lootr/e/ed/ed089fb1-a272-4e20-921f-d679f1e3edc7.dat",
+   "size": 770,
+   "md5": "50206a2b43c970911b614ea2a9a56c7e"
+  },
+  {
+   "path": "world/data/lootr/e/ee/ee8ecf11-ed32-40cd-97ec-38535e71e06d.dat",
+   "size": 403,
+   "md5": "7fe709ee41df94b27476daa64eb2fdcc"
+  },
+  {
+   "path": "world/data/lootr/f/f1/f154dec1-6a9c-4f40-8b38-1eadf9075a68.dat",
+   "size": 419,
+   "md5": "3a172b2abd32be6af61df24e5f1e3a71"
+  },
+  {
+   "path": "world/data/lootr/f/f1/f196a9dd-511a-457f-a19e-fd6ba72eb0cb.dat",
+   "size": 464,
+   "md5": "209ba63e9d6b88d2367dc4aa898429cd"
+  },
+  {
+   "path": "world/data/lootr/f/f2/f29cc6e1-7897-4500-90c1-f3fea7a6e48d.dat",
+   "size": 327,
+   "md5": "242138a221b1bee22ccd8c5e1ee3085c"
+  },
+  {
+   "path": "world/data/lootr/f/f2/f2e0ab8a-7eaf-4eea-8b22-360a5a9923bd.dat",
+   "size": 485,
+   "md5": "d387015b5ccb14ebca445babe20a16d3"
+  },
+  {
+   "path": "world/data/lootr/f/f3/f31c64b4-1581-4985-803d-f45b65f130f1.dat",
+   "size": 418,
+   "md5": "bf16c2cfe7dfe2e8fd81e85938689325"
+  },
+  {
+   "path": "world/data/lootr/f/f3/f31ca8bf-0fb1-4f8d-ab46-c4fb8355742d.dat",
+   "size": 417,
+   "md5": "6b9ac81be1f94545d41678b801e2d999"
+  },
+  {
+   "path": "world/data/lootr/f/fd/fd6464e1-e65d-47c5-a518-df414d069e3a.dat",
+   "size": 393,
+   "md5": "619ebd662c560e42511f5e57f5075b0e"
+  },
+  {
+   "path": "world/data/lootr/f/fd/fd8f731f-6cd5-44a5-ae9d-0632939fc76d.dat",
+   "size": 413,
+   "md5": "682718f2d97ca25d090db0dfb6b98922"
+  },
+  {
+   "path": "world/data/lootr/f/fe/fe9899f2-b0c7-4f50-9d1e-db5a40554fd1.dat",
+   "size": 413,
+   "md5": "1882fe0d92e92de6f90ae3311dca551f"
+  },
+  {
+   "path": "world/data/lootr/f/ff/ffd936b0-2fe8-413e-9ebf-aaecce0163e8.dat",
+   "size": 405,
+   "md5": "96ddfee76f98ac98b0d59a1196dc4b77"
+  },
+  {
+   "path": "world/data/lootr/Lootr-DecayData.dat",
+   "size": 59,
+   "md5": "9c14968c828c87d155d1f3d8c82b3018"
+  },
+  {
+   "path": "world/data/lootr/Lootr-RefreshData.dat",
+   "size": 59,
+   "md5": "9c14968c828c87d155d1f3d8c82b3018"
+  },
+  {
+   "path": "world/data/map_0.dat",
+   "size": 1442,
+   "md5": "072303294b9ec48013a41f285b08d9cc"
+  },
+  {
+   "path": "world/data/neoforge_data_attachments.dat",
+   "size": 48,
+   "md5": "8f519fdca9f5669ce4a30a3640c91e41"
+  },
+  {
+   "path": "world/data/raids.dat",
+   "size": 90,
+   "md5": "5744f4d39464f5e8b53671d81b76256c"
+  },
+  {
+   "path": "world/data/random_sequences.dat",
+   "size": 7029,
+   "md5": "0c0177f7b6f25ec93a465fd3b9c4c67b"
+  },
+  {
+   "path": "world/data/regenerating_pots.dat",
+   "size": 225,
+   "md5": "45b459b9de721da3eba4087211c629e3"
+  },
+  {
+   "path": "world/data/scguns_raid_save_data.dat",
+   "size": 119,
+   "md5": "816008cab88eae9099592ca97ddebe87"
+  },
+  {
+   "path": "world/data/scoreboard.dat",
+   "size": 2266,
+   "md5": "5b8c412cf48b76c3df5c8a495f4f8bda"
+  },
+  {
+   "path": "world/data/sophisticatedbackpacks.dat",
+   "size": 805,
+   "md5": "34a5a4310f0bfa033763ad30276ce63c"
+  },
+  {
+   "path": "world/data/soul_archive.json",
+   "size": 2,
+   "md5": "d751713988987e9331980363e24189ce"
+  },
+  {
+   "path": "world/data/sun_dog.dat",
+   "size": 86,
+   "md5": "b3683fb086bb80dfbbe7e486d7e2bbdb"
+  },
+  {
+   "path": "world/data/torchmaster_lights_minecraft_overworld.dat",
+   "size": 213,
+   "md5": "a5901092c6db3940c69819fda7fa7ec5"
+  },
+  {
+   "path": "world/data/warded_spaces.dat",
+   "size": 2440,
+   "md5": "29525fab0b9df0ed951e3aacfa4086fe"
+  },
+  {
+   "path": "world/data/waystones.dat",
+   "size": 849,
+   "md5": "1eb333a95f763a02bce57e4ac2803d56"
+  },
+  {
+   "path": "world/data/wildernature_bounty_board.dat",
+   "size": 1219,
+   "md5": "757e8257af7d9f9da34539fb8a1c5fcb"
+  },
+  {
+   "path": "world/DIM-1/data/cataclysm_world_data.dat",
+   "size": 84,
+   "md5": "a39963f953252a28d2a9c2da3129194f"
+  },
+  {
+   "path": "world/DIM-1/data/neoforge_data_attachments.dat",
+   "size": 48,
+   "md5": "8f519fdca9f5669ce4a30a3640c91e41"
+  },
+  {
+   "path": "world/DIM-1/data/raids.dat",
+   "size": 90,
+   "md5": "5744f4d39464f5e8b53671d81b76256c"
+  },
+  {
+   "path": "world/DIM-1/entities/r.-1.-1.mca",
+   "size": 135168,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.-1.-2.mca",
+   "size": 282624,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.-1.-3.mca",
+   "size": 114688,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.-1.0.mca",
+   "size": 86016,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.-1.1.mca",
+   "size": 28672,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.-2.-1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.-2.-2.mca",
+   "size": 40960,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.-2.-3.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.0.-1.mca",
+   "size": 323584,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.0.-2.mca",
+   "size": 307200,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.0.-3.mca",
+   "size": 73728,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.0.0.mca",
+   "size": 425984,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.0.1.mca",
+   "size": 421888,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.1.-2.mca",
+   "size": 53248,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.1.-3.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.1.0.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/entities/r.1.1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-1.-1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-1.-2.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-1.-3.mca",
+   "size": 12288,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-1.0.mca",
+   "size": 20480,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-1.1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-1.2.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-2.-1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-2.-2.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.-2.-3.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.0.-1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.0.-2.mca",
+   "size": 12288,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.0.-3.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.0.0.mca",
+   "size": 40960,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.0.1.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.0.2.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.1.-1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.1.-2.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.1.-3.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.1.0.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.1.1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/poi/r.1.2.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-1.-1.mca",
+   "size": 5120000,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-1.-2.mca",
+   "size": 5939200,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-1.-3.mca",
+   "size": 4304896,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-1.0.mca",
+   "size": 4894720,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-1.1.mca",
+   "size": 3133440,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-1.2.mca",
+   "size": 131072,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-2.-1.mca",
+   "size": 1544192,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-2.-2.mca",
+   "size": 3092480,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.-2.-3.mca",
+   "size": 1273856,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.0.-1.mca",
+   "size": 6529024,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.0.-2.mca",
+   "size": 6160384,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.0.-3.mca",
+   "size": 3964928,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.0.0.mca",
+   "size": 6275072,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.0.1.mca",
+   "size": 6385664,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.0.2.mca",
+   "size": 663552,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.1.-1.mca",
+   "size": 1589248,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.1.-2.mca",
+   "size": 3751936,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.1.-3.mca",
+   "size": 1679360,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.1.0.mca",
+   "size": 3072000,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.1.1.mca",
+   "size": 1437696,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.1.2.mca",
+   "size": 172032,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.2.-1.mca",
+   "size": 139264,
+   "md5": null
+  },
+  {
+   "path": "world/DIM-1/region/r.2.0.mca",
+   "size": 253952,
+   "md5": null
+  },
+  {
+   "path": "world/DIM1/data/neoforge_data_attachments.dat",
+   "size": 48,
+   "md5": "8f519fdca9f5669ce4a30a3640c91e41"
+  },
+  {
+   "path": "world/DIM1/data/raids_end.dat",
+   "size": 90,
+   "md5": "5744f4d39464f5e8b53671d81b76256c"
+  },
+  {
+   "path": "world/DIM1/data/sun_dog.dat",
+   "size": 86,
+   "md5": "2c95566bff48ac329b339207fc9c8461"
+  },
+  {
+   "path": "world/dimensions/cyberspace/cyberspace_dimension/data/neoforge_data_attachments.dat",
+   "size": 48,
+   "md5": "8f519fdca9f5669ce4a30a3640c91e41"
+  },
+  {
+   "path": "world/dimensions/cyberspace/cyberspace_dimension/data/raids.dat",
+   "size": 90,
+   "md5": "5744f4d39464f5e8b53671d81b76256c"
+  },
+  {
+   "path": "world/dimensions/cyberspace/public_cyberspace_dimension/data/neoforge_data_attachments.dat",
+   "size": 48,
+   "md5": "8f519fdca9f5669ce4a30a3640c91e41"
+  },
+  {
+   "path": "world/dimensions/cyberspace/public_cyberspace_dimension/data/raids.dat",
+   "size": 90,
+   "md5": "5744f4d39464f5e8b53671d81b76256c"
+  },
+  {
+   "path": "world/dimensions/irons_spellbooks/pocket_dimension/data/neoforge_data_attachments.dat",
+   "size": 48,
+   "md5": "8f519fdca9f5669ce4a30a3640c91e41"
+  },
+  {
+   "path": "world/dimensions/irons_spellbooks/pocket_dimension/data/raids.dat",
+   "size": 90,
+   "md5": "5744f4d39464f5e8b53671d81b76256c"
+  },
+  {
+   "path": "world/entities/r.-1.-1.mca",
+   "size": 503808,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-1.-2.mca",
+   "size": 368640,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-1.-3.mca",
+   "size": 32768,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-1.0.mca",
+   "size": 327680,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-1.1.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-2.-1.mca",
+   "size": 331776,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-2.-2.mca",
+   "size": 1011712,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-3.-1.mca",
+   "size": 28672,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-3.-2.mca",
+   "size": 339968,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-3.0.mca",
+   "size": 94208,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-3.1.mca",
+   "size": 155648,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-4.-2.mca",
+   "size": 90112,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.-4.-4.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.0.-1.mca",
+   "size": 299008,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.0.-2.mca",
+   "size": 430080,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.0.-3.mca",
+   "size": 36864,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.0.-8.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.0.0.mca",
+   "size": 724992,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.0.1.mca",
+   "size": 20480,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.1.-1.mca",
+   "size": 626688,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.1.-2.mca",
+   "size": 155648,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.1.0.mca",
+   "size": 794624,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.12.2.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.2.-1.mca",
+   "size": 770048,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.2.-11.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.2.-2.mca",
+   "size": 442368,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.2.0.mca",
+   "size": 860160,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.2.1.mca",
+   "size": 172032,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.3.-1.mca",
+   "size": 536576,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.3.-11.mca",
+   "size": 12288,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.3.-2.mca",
+   "size": 184320,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.3.0.mca",
+   "size": 700416,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.3.1.mca",
+   "size": 36864,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.4.-1.mca",
+   "size": 32768,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.4.-3.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.4.-4.mca",
+   "size": 81920,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.4.0.mca",
+   "size": 225280,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.5.-3.mca",
+   "size": 12288,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.5.-4.mca",
+   "size": 122880,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.5.0.mca",
+   "size": 307200,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.5.1.mca",
+   "size": 733184,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.5.2.mca",
+   "size": 118784,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.6.0.mca",
+   "size": 94208,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.6.1.mca",
+   "size": 540672,
+   "md5": null
+  },
+  {
+   "path": "world/entities/r.6.2.mca",
+   "size": 86016,
+   "md5": null
+  },
+  {
+   "path": "world/ftbchunks/caf5abfe-d754-38bf-848f-b8b9694082d6.snbt",
+   "size": 264,
+   "md5": "af28053bbd0fde8a795a3e74ef429357"
+  },
+  {
+   "path": "world/ftbchunks/ceb3a035-ee0f-36c5-81f1-de1f75893f30.snbt",
+   "size": 264,
+   "md5": "441fa2d0ec32186a0de836cecd3fbf90"
+  },
+  {
+   "path": "world/ftbessentials/playerdata/caf5abfe-d754-38bf-848f-b8b9694082d6.snbt",
+   "size": 800,
+   "md5": "556be153783778b4ad7606f07d736af4"
+  },
+  {
+   "path": "world/ftbessentials/playerdata/ceb3a035-ee0f-36c5-81f1-de1f75893f30.snbt",
+   "size": 477,
+   "md5": "153246170ed09a8e1b58a3cbdfd1628b"
+  },
+  {
+   "path": "world/ftbteams/ftbteams.snbt",
+   "size": 87,
+   "md5": "0b6c5a533b126976855ab2fa4bfb40e5"
+  },
+  {
+   "path": "world/ftbteams/player/caf5abfe-d754-38bf-848f-b8b9694082d6.snbt",
+   "size": 939,
+   "md5": "e48241a9e36666280aef60aff8e84e1d"
+  },
+  {
+   "path": "world/ftbteams/player/ceb3a035-ee0f-36c5-81f1-de1f75893f30.snbt",
+   "size": 932,
+   "md5": "3fabd3db3b35bf098306b0c1da8fa2cb"
+  },
+  {
+   "path": "world/level.dat",
+   "size": 4193,
+   "md5": "09b44ef41b3aa1a56f6ba7b6a0832cf3"
+  },
+  {
+   "path": "world/level.dat_old",
+   "size": 4193,
+   "md5": "f0d0869302e20b08adb4825557d260cb"
+  },
+  {
+   "path": "world/playerdata/caf5abfe-d754-38bf-848f-b8b9694082d6.dat",
+   "size": 9772,
+   "md5": "10f72f8e4d2d6f43b15aa2cd771f30af"
+  },
+  {
+   "path": "world/playerdata/caf5abfe-d754-38bf-848f-b8b9694082d6.dat_old",
+   "size": 9992,
+   "md5": "d1e396857e01eb2c651d7c0ddea8b4dc"
+  },
+  {
+   "path": "world/playerdata/ceb3a035-ee0f-36c5-81f1-de1f75893f30.dat",
+   "size": 6619,
+   "md5": "e3b1925ccd7448767172f8d3aca070b8"
+  },
+  {
+   "path": "world/playerdata/ceb3a035-ee0f-36c5-81f1-de1f75893f30.dat_old",
+   "size": 6614,
+   "md5": "7948006d755efec417432bd5fc8e7263"
+  },
+  {
+   "path": "world/poi/r.-1.-1.mca",
+   "size": 487424,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-1.-2.mca",
+   "size": 1937408,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-1.-3.mca",
+   "size": 102400,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-1.0.mca",
+   "size": 249856,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-1.1.mca",
+   "size": 24576,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-2.-1.mca",
+   "size": 212992,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-2.-2.mca",
+   "size": 413696,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-2.-3.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-2.0.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-2.1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-3.-1.mca",
+   "size": 36864,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-3.-2.mca",
+   "size": 339968,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-3.-3.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-3.0.mca",
+   "size": 94208,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-3.1.mca",
+   "size": 139264,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-4.-2.mca",
+   "size": 102400,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-4.-4.mca",
+   "size": 32768,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.-4.0.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.0.-1.mca",
+   "size": 319488,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.0.-2.mca",
+   "size": 1900544,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.0.-3.mca",
+   "size": 176128,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.0.-8.mca",
+   "size": 20480,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.0.0.mca",
+   "size": 520192,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.0.1.mca",
+   "size": 32768,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.1.-1.mca",
+   "size": 1462272,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.1.-2.mca",
+   "size": 131072,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.1.0.mca",
+   "size": 1716224,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.1.1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.12.2.mca",
+   "size": 24576,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.2.-1.mca",
+   "size": 315392,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.2.-2.mca",
+   "size": 286720,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.2.-3.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.2.0.mca",
+   "size": 573440,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.2.1.mca",
+   "size": 110592,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.3.-1.mca",
+   "size": 352256,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.3.-11.mca",
+   "size": 12288,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.3.-2.mca",
+   "size": 135168,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.3.-3.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.3.0.mca",
+   "size": 454656,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.3.1.mca",
+   "size": 53248,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.4.-1.mca",
+   "size": 36864,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.4.-2.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.4.-3.mca",
+   "size": 32768,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.4.-4.mca",
+   "size": 86016,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.4.0.mca",
+   "size": 135168,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.4.1.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.4.2.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.5.-3.mca",
+   "size": 16384,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.5.-4.mca",
+   "size": 69632,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.5.0.mca",
+   "size": 245760,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.5.1.mca",
+   "size": 798720,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.5.2.mca",
+   "size": 102400,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.6.0.mca",
+   "size": 102400,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.6.1.mca",
+   "size": 634880,
+   "md5": null
+  },
+  {
+   "path": "world/poi/r.6.2.mca",
+   "size": 61440,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-1.-1.mca",
+   "size": 13148160,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-1.-2.mca",
+   "size": 13377536,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-1.-3.mca",
+   "size": 2109440,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-1.-5.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-1.-8.mca",
+   "size": 1232896,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-1.0.mca",
+   "size": 7835648,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-1.1.mca",
+   "size": 1564672,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-2.-1.mca",
+   "size": 8372224,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-2.-2.mca",
+   "size": 14843904,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-2.-3.mca",
+   "size": 1363968,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-2.0.mca",
+   "size": 647168,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-2.1.mca",
+   "size": 339968,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-3.-1.mca",
+   "size": 2777088,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-3.-2.mca",
+   "size": 9531392,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-3.-3.mca",
+   "size": 491520,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-3.0.mca",
+   "size": 4120576,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-3.1.mca",
+   "size": 7168000,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-4.-1.mca",
+   "size": 458752,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-4.-2.mca",
+   "size": 3960832,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-4.-3.mca",
+   "size": 110592,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-4.-4.mca",
+   "size": 2777088,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-4.0.mca",
+   "size": 860160,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.-4.1.mca",
+   "size": 1458176,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.0.-1.mca",
+   "size": 8990720,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.0.-2.mca",
+   "size": 7884800,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.0.-3.mca",
+   "size": 3010560,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.0.-5.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.0.-8.mca",
+   "size": 1712128,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.0.0.mca",
+   "size": 11448320,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.0.1.mca",
+   "size": 2531328,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.1.-1.mca",
+   "size": 9207808,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.1.-2.mca",
+   "size": 4837376,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.1.-4.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.1.-5.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.1.0.mca",
+   "size": 9994240,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.1.1.mca",
+   "size": 1150976,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.12.2.mca",
+   "size": 2183168,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.12.3.mca",
+   "size": 729088,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.-1.mca",
+   "size": 9170944,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.-10.mca",
+   "size": 491520,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.-11.mca",
+   "size": 1003520,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.-2.mca",
+   "size": 8671232,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.-3.mca",
+   "size": 1495040,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.-4.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.-5.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.0.mca",
+   "size": 9338880,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.2.1.mca",
+   "size": 4141056,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.-1.mca",
+   "size": 8757248,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.-10.mca",
+   "size": 450560,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.-11.mca",
+   "size": 901120,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.-2.mca",
+   "size": 4714496,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.-3.mca",
+   "size": 815104,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.-4.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.-5.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.0.mca",
+   "size": 10706944,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.3.1.mca",
+   "size": 2637824,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.4.-1.mca",
+   "size": 2396160,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.4.-2.mca",
+   "size": 86016,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.4.-3.mca",
+   "size": 1560576,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.4.-4.mca",
+   "size": 3833856,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.4.-5.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.4.0.mca",
+   "size": 7495680,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.4.1.mca",
+   "size": 1658880,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.4.2.mca",
+   "size": 237568,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.5.-3.mca",
+   "size": 1511424,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.5.-4.mca",
+   "size": 4153344,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.5.-5.mca",
+   "size": 0,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.5.0.mca",
+   "size": 6545408,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.5.1.mca",
+   "size": 9121792,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.5.2.mca",
+   "size": 4091904,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.6.0.mca",
+   "size": 3579904,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.6.1.mca",
+   "size": 8564736,
+   "md5": null
+  },
+  {
+   "path": "world/region/r.6.2.mca",
+   "size": 2883584,
+   "md5": null
+  },
+  {
+   "path": "world/serverconfig/ftbessentials.snbt",
+   "size": 103,
+   "md5": "6ad082ba10141ae1ab02ef047c3217c8"
+  },
+  {
+   "path": "world/serverconfig/readme.txt",
+   "size": 469,
+   "md5": "082d26abfb968da413881db51589b96d"
+  },
+  {
+   "path": "world/session.lock",
+   "size": 3,
+   "md5": "48856faf4534a876adeadc72aec53cb2"
+  },
+  {
+   "path": "world/stats/caf5abfe-d754-38bf-848f-b8b9694082d6.json",
+   "size": 17190,
+   "md5": "5ceedbeddb1ae6e20acd16712775518f"
+  },
+  {
+   "path": "world/stats/ceb3a035-ee0f-36c5-81f1-de1f75893f30.json",
+   "size": 8682,
+   "md5": "fce0ac7adb167b320c16fbb4cd93d809"
+  },
+  {
+   "path": "world/xaeromap.txt",
+   "size": 14,
+   "md5": "78a7fe7b91ac7367d6c479e808d25365"
+  }
+ ]
+}

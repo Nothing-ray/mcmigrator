@@ -1,7 +1,9 @@
-"""服务端场景回归语料对拍(2026-09 两轮真实生产服实测)。
+"""服务端场景回归语料对拍(2026-09 六轮真实生产服实测)。
 
 夹具为脱敏快照(tests/fixtures/server_corpus/),六桶期望值在真实语料上实测锚定。
 防回归目标:服务端规则组(F1/F5)、mods 桶三态分桶(F4 现状)、内容哈希判等。
+20260914/0914b/0919 三轮锚定值为复放语义(纯默认规则,无活体目录);
+与采集报告数字的差异=孤儿层与 properties 语义比较两个活体效应,见 spec §0。
 """
 
 from __future__ import annotations
@@ -24,6 +26,15 @@ ROUNDS = {
     "20260912": ("snapshot_9_8_player.json", "snapshot_9_11_fresh.json",
                  {"to_migrate": 550, "candidate": 7, "mods": 122,
                   "only_in_dst": 0, "identical": 631, "never": 149}),
+    "20260914": ("r4_pre.json", "r4_post.json",
+                 {"to_migrate": 12, "candidate": 1, "mods": 117,
+                  "only_in_dst": 0, "identical": 737, "never": 41}),
+    "20260914b": ("r5_pre.json", "r5_post.json",
+                  {"to_migrate": 0, "candidate": 0, "mods": 112,
+                   "only_in_dst": 0, "identical": 750, "never": 47}),  # T4 后 hs_err/replay 3 件 only_in_dst→never
+    "20260919": ("r6_pre.json", "r6_post.json",
+                 {"to_migrate": 11, "candidate": 16, "mods": 120,
+                  "only_in_dst": 8, "identical": 1126, "never": 55}),  # T4 后 candidate 19→16
 }
 
 
@@ -123,3 +134,79 @@ def test_corpus_r3_pure_config_drift_golden() -> None:
                       "only_in_dst": 0, "identical": 748, "never": 37}
     assert [i.path for i in report.to_migrate] == ["server.properties"]
     assert [i.path for i in report.candidate] == ["config/alltheleaks.json"]
+
+
+def test_corpus_0914b_rebuilt_golden() -> None:
+    """F17 黄金对: 同名重建 jar(enigmaticlegacyplus, size 7233263→7233336)必须检出。"""
+    report, _, _ = _diff_round("20260914b")
+    notes = {i.path: i.note for i in report.mods}
+    assert notes["mods/[神秘遗物+] enigmaticlegacyplus-1.21.1-1.1.1.jar"] == "rebuilt"
+
+
+def test_corpus_0912_rebuilt_second_instance() -> None:
+    """F17 二次实例: 二轮语料 ScorchedGuns-1.5.jar 同名重建(18972536→19006006)当年漏检。"""
+    report, _, _ = _diff_round("20260912")
+    assert {i.path: i.note for i in report.mods}["mods/ScorchedGuns-1.5.jar"] == "rebuilt"
+
+
+def _mods_jar_paths(snap: Snapshot) -> set[str]:
+    return {f.path for f in snap.files if f.path.startswith("mods/") and f.path.endswith(".jar")}
+
+
+def test_corpus_0914_filename_pairs_five_upgrades() -> None:
+    """F14 黄金对: 换装段 5 对升级按文件名配对(source=filename,复放语义)。"""
+    d = FIXTURES / "20260914"
+    src = Snapshot.load(d / "r4_pre.json")
+    dst = Snapshot.load(d / "r4_post.json")
+    from migration.moddb import pair_mods_by_filename
+
+    pairs = pair_mods_by_filename(sorted(_mods_jar_paths(src) - _mods_jar_paths(dst)),
+                                  sorted(_mods_jar_paths(dst) - _mods_jar_paths(src)))
+    assert {p.modid for p in pairs} == {
+        "waystones-neoforge", "raritycore", "dragonsurvival-all",
+        "alexscaves-up", "logisticsnetworks"}
+    assert all(p.kind == "upgrade" and p.source == "filename" for p in pairs)
+
+
+def test_corpus_0919_filename_pairs_six_upgrades() -> None:
+    """F19 混合变更: 6 对升级(含 cobblestone 无前缀→有前缀)配对,4 删除件+2 新增件不成对。"""
+    d = FIXTURES / "20260919"
+    src = Snapshot.load(d / "r6_pre.json")
+    dst = Snapshot.load(d / "r6_post.json")
+    from migration.moddb import pair_mods_by_filename
+
+    pairs = pair_mods_by_filename(sorted(_mods_jar_paths(src) - _mods_jar_paths(dst)),
+                                  sorted(_mods_jar_paths(dst) - _mods_jar_paths(src)))
+    assert {p.modid for p in pairs} == {
+        "cobblestone-generator-neoforge", "immersive-melodies-neoforge", "alexscaves-up",
+        "citadel-up", "fzzy-config-neoforge", "logisticsnetworks"}
+    assert all(p.kind == "upgrade" and p.source == "filename" for p in pairs)
+
+
+def test_corpus_0919_crash_dumps_in_never() -> None:
+    """F18: 崩溃残留 hs_err×2+replay×1 归 never(此前落 candidate/only_in_dst)。"""
+    report, _, _ = _diff_round("20260919")
+    nev = {i.path for i in report.never}
+    assert {"hs_err_pid42364.log", "hs_err_pid60956.log", "replay_pid42364.log"} <= nev
+
+
+def test_corpus_0914_idle_heartbeat_all_world() -> None:
+    """F15 空转对: 12.2h 零玩家心跳演化,to_migrate 除 server.properties 外全为 world 数据。"""
+    src = Snapshot.load(FIXTURES / "20260913" / "r3_post.json")
+    dst = Snapshot.load(FIXTURES / "20260914" / "r4_pre.json")
+    rs, errs = build_ruleset(["a", "b"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    assert len(report.to_migrate) == 16  # 15 world 心跳 + server.properties(复放无活体语义层)
+    assert {i.path for i in report.to_migrate if not i.path.startswith("world/")} == \
+        {"server.properties"}
+    assert [i.path for i in report.candidate] == ["config/alltheleaks.json"]
+    # 空转段 mod_pairs=0 锚定:两侧 mods 集合差均为空(12.2h 无 mod 变化),
+    # 文件名配对对空差集必产 0 对 —— 防未来归一化规则过度碰撞出伪对
+    from migration.moddb import pair_mods_by_filename
+
+    src_only = _mods_jar_paths(src) - _mods_jar_paths(dst)
+    dst_only = _mods_jar_paths(dst) - _mods_jar_paths(src)
+    assert src_only == set() and dst_only == set()
+    assert pair_mods_by_filename(sorted(src_only), sorted(dst_only)) == []

@@ -3,7 +3,7 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.6.0 / 2026-09-04
+> Last synced: v0.6.3 / 2026-09-20
 
 > A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
 
@@ -139,11 +139,13 @@ mods-bucket notes: `shared` = same-named jar on both sides; `to_add` = **src-onl
 markers + a pairing footnote; top-level `mod_pairs` array in `--json` output) instead of unrelated
 remove+add pairs.
 
+- `rebuilt`: same name and version on both sides but different content (upstream repack) — flagged in diff; plan keeps the target side by default with a warning, never auto-overwrites
+- `mod_pairs` entries carry a `source` field: `registry` (reads mods.toml inside the jar; requires the two version dirs to be truly independent) or `filename` (snapshot filename-family normalization; works for replay/junction setups)
+- When both version dirs resolve to the same path (NTFS junction), registry pairing is automatically voided with a hint and filename pairing takes over
 - When a mod was removed on the target side, its config is flagged as orphan (`never/orphan`) — standalone `diff` now matches `plan`
-- `*.properties` files (e.g. server `server.properties`) that differ in bytes but not in key/value
-  semantics (vanilla rewrite noise: escaping/timestamp/BOM) are reported as `identical/semantics`
-- Both features require the snapshot's `game_root` to be reachable; otherwise diff degrades to pure
-  byte comparison with a one-line stderr hint
+- `*.properties` (e.g. server `server.properties`; vanilla rewrite noise — escaping/timestamp/encoding) and `*.json`/`*.toml` (key/table-order noise from mod startup rewrites) that differ in bytes but not in key/value semantics are reported as `identical/semantics` instead of modified
+- JVM crash remnants (`hs_err_pid*.log` / `replay_pid*.log`) go to the never bucket, never migrated
+- Orphan flagging and semantic re-checks require the snapshot's `game_root` to be reachable; otherwise diff degrades to pure byte comparison with a one-line stderr hint
 
 ## Data & Uninstall
 

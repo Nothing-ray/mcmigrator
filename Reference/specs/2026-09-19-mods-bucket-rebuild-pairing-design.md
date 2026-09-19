@@ -99,11 +99,12 @@ else:
 - `ModPair` 增加 `source: str`("registry"|"filename"),`to_dict()` additive 输出;
   filename 配对的 `modid` 字段填家族键(消费者凭 source 可知其非真实 modid)。
 - 合并规则: registry 对(仅 ctx 存在且 `not same_dir` 时计算)优先,其覆盖的文件不再参与
-  filename 配对;两源结果按 modid+kind 去重后并入同一 `mod_pairs` 列表。
+  filename 配对;两源结果按文件覆盖去重(registry 对覆盖的文件不再保留 filename 对)
+  后并入同一 `mod_pairs` 列表。
 - `DiffContext` 增加 `same_dir: bool`(两侧版本目录 `resolve()` 相同 → True);
-  same_dir 时注册表配对跳过并打印一行提示(「两侧版本目录指向同一路径(junction),注册表配对
-  不可用,已使用文件名配对」);**孤儿规则不受 same_dir 影响**(dst=现役状态恰是孤儿判定基准,
-  五/六轮 338 例全对实证)。
+  same_dir 时注册表配对与语义复核跳过并打印一行提示(「两侧版本目录指向同一路径(junction),
+  注册表配对与语义复核不可用,已使用文件名配对/字节比较」);**孤儿规则不受 same_dir 影响**
+  (dst=现役状态恰是孤儿判定基准,五/六轮 338 例全对实证)。
 
 ### T3 新语料资产化(夹具 + observations)
 
@@ -169,6 +170,11 @@ JSON 不加键(纯显示)。
      与 stderr「mods 扫描不可用」——T2 后 ctx=None 仍产文件名配对,**该测试需一次有意更新**
      (断言 mod_pairs 含 filename 来源配对;提示文案改为「孤儿标注与注册表配对不可用,
      文件名配对仍可用」)。
+   - `test_non_properties_never_triggers_reader`(test_differ.py,F12 引入)夹具用了
+     `config/x.toml` 且两份字节恰好语义相等(仅注释差异)——T5 落地后正确落 identical/semantics,
+     旧断言 candidate/modified 必败。**一次有意更新**:路径改 `config/x.txt`(dispatch 表外后缀,
+     保留"表外后缀永不触发 reader"的原意图),重命名 test_undispatched_suffix_never_triggers_reader。
+     (2026-09-20 实现期裁定:spec T5 三格式为准,旧测试夹具选择不当)
 6. **e2e**: mini 版本目录 ctx 活体路径:registry+filename 双源合并;same_dir(同目录挂双名)
    → 仅 filename 配对 + 提示行。
 7. **reporter**: rebuilt ⚠ 显示;to_add 脚注出现/不出现两态;JSON note=rebuilt additive。

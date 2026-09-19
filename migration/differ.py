@@ -8,7 +8,11 @@ from dataclasses import dataclass, field
 from .classifier import Classifier
 from .rules import Category
 from .snapshot import FileEntry
-from .textcompare import properties_semantic_equal
+from .textcompare import (
+    json_semantic_equal,
+    properties_semantic_equal,
+    toml_semantic_equal,
+)
 
 MODS_PREFIX = "mods/"
 
@@ -23,7 +27,7 @@ class DiffItem:
     - to_migrate / candidate: new / modified
     - identical:              verified / size-based / semantics
     - never:                  never / rebuild / orphan
-    - mods:                   to_add / shared / target_only
+    - mods:                   to_add / shared / rebuilt / target_only
     - only_in_dst:            target_only
     """
 
@@ -48,6 +52,14 @@ class DiffReport:
 def _is_mod(path: str) -> bool:
     """是否为 mods 目录下的 jar(按文件名集合处理)。"""
     return path.startswith(MODS_PREFIX) and path.endswith(".jar")
+
+
+# F12/F16: 语义等价判定按后缀分发(仅 md5 异 + 双侧内容可读时触发)
+SEMANTIC_EQUAL_BY_SUFFIX: dict[str, Callable[[bytes, bytes], bool]] = {
+    ".properties": properties_semantic_equal,
+    ".json": json_semantic_equal,
+    ".toml": toml_semantic_equal,
+}
 
 
 class Differ:
@@ -75,20 +87,25 @@ class Differ:
         return s.size == d.size, "size-based"
 
     def _same_content_semantic(self, path: str, s: FileEntry, d: FileEntry) -> tuple[bool, str]:
-        """内容比较:F12 仅在 md5 都存在且不同、且为 .properties、且读取成功时做语义复核。"""
+        """内容比较:F12/F16 在 md5 异、后缀命中、读取成功时做语义复核。"""
         if s.md5 is not None and d.md5 is not None and s.md5 != d.md5:
-            if path.endswith(".properties") and self.content_reader is not None:
+            suffix = ("." + path.rsplit(".", 1)[-1].lower()) if "." in path else ""
+            check = SEMANTIC_EQUAL_BY_SUFFIX.get(suffix)
+            if check is not None and self.content_reader is not None:
                 a = self.content_reader(path, "src")
                 b = self.content_reader(path, "dst")
-                if a is not None and b is not None and properties_semantic_equal(a, b):
+                if a is not None and b is not None and check(a, b):
                     return True, "semantics"
             return False, "verified"
         return self._same_content(s, d)
 
     def _mod_item(self, path: str, s: FileEntry | None, d: FileEntry | None) -> DiffItem:
-        """mods 目录条目按文件名集合三态分桶:shared / to_add / target_only。"""
+        """mods 目录条目按文件名集合分桶:shared / rebuilt / to_add / target_only。"""
         if s and d:
-            note = "shared"
+            if s.size != d.size or (s.md5 and d.md5 and s.md5 != d.md5):
+                note = "rebuilt"  # F17: 同名同版本号、内容不同(上游重新打包)
+            else:
+                note = "shared"
         elif s:
             note = "to_add"
         else:

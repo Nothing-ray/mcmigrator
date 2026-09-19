@@ -6,6 +6,9 @@ server.properties 被 vanilla 重写后产生同值异字节(冒号转义/时间
 
 from __future__ import annotations
 
+import json
+import tomllib
+
 _ESCAPES = {"n": "\n", "r": "\r", "t": "\t", "f": "\f"}
 
 
@@ -70,3 +73,32 @@ def properties_semantic_equal(a: bytes, b: bytes) -> bool:
         True 表示语义等价(差异仅为规范化噪声)。
     """
     return _parse_properties(a) == _parse_properties(b)
+
+
+def json_semantic_equal(a: bytes, b: bytes) -> bool:
+    """判定两份 JSON 内容语义等价(解析后深度相等,键序/空白/BOM 差异消解)。
+
+    Args:
+        a: 源侧文件字节内容。
+        b: 目标侧文件字节内容。
+
+    Returns:
+        True 表示语义等价;任一侧解析失败(畸形 JSON/编码错误)返回 False,
+        由调用方退回字节级 modified 判定。
+    """
+    try:
+        ja = json.loads(a.decode("utf-8-sig"))
+        jb = json.loads(b.decode("utf-8-sig"))
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return ja == jb
+
+
+def toml_semantic_equal(a: bytes, b: bytes) -> bool:
+    """判定两份 TOML 内容语义等价(tomllib 解析后比较,表序/注释/空白差异消解)。"""
+    try:
+        ta = tomllib.loads(a.decode("utf-8-sig"))
+        tb = tomllib.loads(b.decode("utf-8-sig"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return False
+    return ta == tb

@@ -705,3 +705,115 @@ def test_one_side_only_not_paired():
 def test_empty_version_treated_as_none():
     pairs = pair_mods(_mkreg(_info("x", "", "x.jar")), _mkreg(_info("x", "1.0", "x-1.0.jar")))
     assert len(pairs) == 1 and pairs[0].src_version is None
+
+
+"""normalize_jar_family 测试(批次 C Task 4):文件名家族归一(F4 fallback 基础)。"""
+
+
+def test_normalize_jar_family_strips_tag_prefix_and_versions():
+    from migration.moddb import normalize_jar_family as nf
+    # 中文标签前缀 + 多段版本 → 家族键只留纯字母词
+    assert nf("mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.44.jar") == \
+        ("waystones-neoforge", "1.21.1-21.1.44")
+    # 注:简报原文此行期望值为 "1.2.1-mc1.21.1-neoforge",与其 Step 3 实现
+    # (纯字母词进家族键、含数字词进版本签名)及下一行同构断言矛盾,系笔误,按实现语义修正。
+    assert nf("mods/[圆石生成器] cobblestone_generator-1.2.1-mc1.21.1-neoforge.jar") == \
+        ("cobblestone-generator-neoforge", "1.2.1-mc1.21.1")
+    assert nf("mods/cobblestone_generator-1.2.0-mc1.21.1-neoforge.jar") == \
+        ("cobblestone-generator-neoforge", "1.2.0-mc1.21.1")
+    # + 连接的版本段、日期段、all 等字母词
+    assert nf("mods/DragonSurvival-1.21.1-v2.0.69-02.09.2026-all.jar") == \
+        ("dragonsurvival-all", "1.21.1-v2.0.69-02.09.2026")
+    assert nf("mods/immersive_melodies-neoforge-0.7.1+1.21.1.jar") == \
+        ("immersive-melodies-neoforge", "0.7.1+1.21.1".replace("+", "-"))
+    # 大小写归一;无版本段的裸名
+    assert nf("mods/Mekanism-1.21.1-10.7.19.85.jar") == ("mekanism", "1.21.1-10.7.19.85")
+    assert nf("mods/mekmm-1.21.1-1.4.1.jar") == ("mekmm", "1.21.1-1.4.1")
+
+
+def test_normalize_jar_family_renamed_same_version():
+    from migration.moddb import normalize_jar_family as nf
+    a = nf("mods/infernalmobs-1.21.1.3NF.jar")
+    b = nf("mods/[稀有精英怪] infernalmobs-1.21.1.3NF.jar")
+    assert a[0] == b[0] == "infernalmobs"
+    assert a[1] == b[1]  # 版本签名相同 → renamed 判定依据
+
+
+"""pair_mods_by_filename / merge_mod_pairs 测试(批次 C Task 5):纯快照文件名配对。"""
+
+
+def test_pair_mods_by_filename_five_upgrade_families():
+    from migration.moddb import pair_mods_by_filename
+    src_only = [
+        "mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.44.jar",
+        "mods/[稀有度核心] raritycore-1211.14.6.jar",
+        "mods/[龙之生存] DragonSurvival-1.21.1-v2.0.69-02.09.2026-all.jar",
+        "mods/alexscaves-up-0.1.2.jar",
+        "mods/logisticsnetworks-1.21.1-1.16.0.jar",
+        "mods/[FTB 区块] ftb-chunks-neoforge-2101.1.22.jar",   # 删除件,无对侧
+        "mods/tinydragons-1.0-neoforge-1.21.1.jar",            # 删除件
+    ]
+    dst_only = [
+        "mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.45.jar",
+        "mods/[稀有度核心] raritycore-1211.14.7.jar",
+        "mods/[龙之生存] DragonSurvival-1.21.1-v2.0.70-13.09.2026-all.jar",
+        "mods/alexscaves-up-0.1.3.jar",
+        "mods/logisticsnetworks-1.21.1-1.16.1.jar",
+        "mods/field-emitters-neoforge-1.21.1-1.1.0.jar",       # 新增件,无源侧
+    ]
+    pairs = pair_mods_by_filename(src_only, dst_only)
+    fams = {p.modid for p in pairs}
+    assert fams == {"waystones-neoforge", "raritycore", "dragonsurvival-all",
+                    "alexscaves-up", "logisticsnetworks"}
+    assert all(p.kind == "upgrade" and p.source == "filename" for p in pairs)
+
+
+def test_pair_mods_by_filename_renamed_and_prefix_added():
+    from migration.moddb import pair_mods_by_filename
+    pairs = pair_mods_by_filename(
+        ["mods/cobblestone_generator-1.2.0-mc1.21.1-neoforge.jar"],
+        ["mods/[圆石生成器] cobblestone_generator-1.2.1-mc1.21.1-neoforge.jar"],
+    )
+    # 版本段不同(1.2.0 vs 1.2.1)→ upgrade(前缀差异被剥,spec §3 T2 样例)
+    assert len(pairs) == 1 and pairs[0].kind == "upgrade"
+    pairs2 = pair_mods_by_filename(
+        ["mods/infernalmobs-1.21.1.3NF.jar"],
+        ["mods/[稀有精英怪] infernalmobs-1.21.1.3NF.jar"],
+    )
+    assert len(pairs2) == 1 and pairs2[0].kind == "renamed"  # 版本签名相同
+
+
+def test_pair_mods_by_filename_ambiguous_family_skipped():
+    from migration.moddb import pair_mods_by_filename
+    # 同家族源侧两个候选 → 歧义放弃,不猜
+    pairs = pair_mods_by_filename(
+        ["mods/x-1.0.jar", "mods/[他] x-2.0.jar"], ["mods/x-3.0.jar"])
+    assert pairs == []
+
+
+def test_modpair_source_in_to_dict_and_registry_default():
+    from migration.moddb import ModPair
+    p = ModPair(modid="x", kind="upgrade", src_files=["mods/x-1.jar"],
+                dst_files=["mods/x-2.jar"], src_version="1", dst_version="2")
+    assert p.source == "registry"
+    assert p.to_dict()["source"] == "registry"
+
+
+def test_merge_mod_pairs_registry_wins():
+    from migration.moddb import ModPair, merge_mod_pairs
+    reg = [ModPair(modid="waystones", kind="upgrade", source="registry",
+                   src_files=["mods/[tw] waystones-1.0.1.jar"],
+                   dst_files=["mods/[tw] waystones-1.0.2.jar"],
+                   src_version="1.0.1", dst_version="1.0.2")]
+    fn = [ModPair(modid="waystones", kind="upgrade", source="filename",
+                  src_files=["mods/[tw] waystones-1.0.1.jar"],
+                  dst_files=["mods/[tw] waystones-1.0.2.jar"],
+                  src_version="1.0.1", dst_version="1.0.2"),
+          ModPair(modid="caves", kind="upgrade", source="filename",
+                  src_files=["mods/caves-1.jar"], dst_files=["mods/caves-2.jar"],
+                  src_version="1", dst_version="2")]
+    merged = merge_mod_pairs(reg, fn)
+    assert len(merged) == 2
+    by_id = {p.modid: p for p in merged}
+    assert by_id["waystones"].source == "registry"  # 覆盖文件冲突时 registry 优先
+    assert by_id["caves"].source == "filename"

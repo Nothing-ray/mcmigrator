@@ -3,6 +3,8 @@ never:
   - _conflict_backup/**               # executor 冲突备份(spec §2.1:不迁不删,首份=目标原始值)
   - logs/**
   - crash-reports/**
+  - hs_err_pid*.log                 # JVM 崩溃转储(五/六轮语料实测落根目录,无迁移价值;F18)
+  - replay_pid*.log                 # JVM 崩溃回放记录(同上)
   - "<ver>.jar"
   - "<ver>.json"
   - "<ver>-natives/**"

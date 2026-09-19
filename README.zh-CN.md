@@ -133,10 +133,15 @@ mods 桶标记:`shared`=两侧同名 jar;`to_add`=**源有目标无**(迁移时�
 `target_only`=目标自带。升级/改名由 modid 配对识别(rich 表 `⇄upgrade`/`⇄renamed` 标记 +
 表尾配对脚注;`--json` 输出顶层 `mod_pairs` 数组),不再表现为无关的"删旧+增新"。
 
+- `rebuilt`:两侧同名同版本号但内容不同(上游重新打包)——diff 标记,plan 默认保留目标侧并警告,不自动覆盖
+- `mod_pairs` 条目含 `source` 字段:`registry`(读取 jar 内 mods.toml,需两侧版本目录真实独立)或 `filename`(快照文件名家族归一,复放/junction 场景可用)
+- 两侧版本目录指向同一路径(NTFS junction)时,注册表配对自动失效并提示,文件名配对兜底
 - 源侧 mod 已被目标移除时,其 config 会被标注为孤儿(`never/orphan`)——独立 `diff` 与 `plan` 语义一致
-- `*.properties`(如服务端 `server.properties`)在字节不同但键值语义相同时
-  (vanilla 重写导致的转义/时间戳/编码噪声)报告为 `identical/semantics` 而非 modified
-- 以上两项依赖快照的 `game_root` 可达;不可达时(跨机复放)自动降级为纯字节对比,stderr 提示一行
+- `*.properties`(如服务端 `server.properties`,vanilla 重写导致的转义/时间戳/编码噪声)与
+  `*.json`/`*.toml`(mod 启动重写导致的键序/表序噪声)在字节不同但键值语义相同时
+  报告为 `identical/semantics` 而非 modified
+- JVM 崩溃残留(`hs_err_pid*.log`/`replay_pid*.log`)归入 never 桶,不迁移
+- 孤儿标注与语义复核依赖快照的 `game_root` 可达;不可达时(跨机复放)自动降级为纯字节对比,stderr 提示一行
 
 ## 数据与卸载
 

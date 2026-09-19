@@ -299,6 +299,7 @@ class DiffContext:
     dst_mods: "ModRegistry"
     src_dir: Path
     dst_dir: Path
+    same_dir: bool = False  # 两侧版本目录 resolve 后同路径(junction 同体)→ 注册表配对不可信
 
     def read_file(self, rel_path: str, side: str) -> bytes | None:
         """按侧读取版本目录内文件字节内容;文件缺失/IO 失败返回 None。
@@ -307,6 +308,11 @@ class DiffContext:
             rel_path: 版本内相对路径(正斜杠)。
             side: "src" 或 "dst";其他值视为不存在。
         """
+        # junction 同体(same_dir)短路:两侧目录是同一物理路径,"src"/"dst" 读数恒等,
+        # 语义复核会以"当前字节 vs 当前字节"伪等价掩盖两条快照间的真实变化
+        # (终审 Issue 1)。返回 None 让 Differ 按读取失败退回快照字节比较。
+        if self.same_dir:
+            return None
         if side not in ("src", "dst"):
             return None
         root = self.src_dir if side == "src" else self.dst_dir
@@ -345,4 +351,5 @@ def resolve_diff_context(src_snap: Snapshot, dst_snap: Snapshot) -> DiffContext 
         dst_mods=scan_mods(dirs[1]),
         src_dir=dirs[0],
         dst_dir=dirs[1],
+        same_dir=dirs[0].resolve() == dirs[1].resolve(),
     )

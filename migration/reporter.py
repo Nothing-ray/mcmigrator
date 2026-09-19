@@ -65,6 +65,8 @@ class DiffReporter:
             kind = self._pair_by_path.get(item.path)
             if kind:
                 note = f"{note} ⇄{kind}"
+            if item.note == "rebuilt":
+                note = f"⚠ {note}"  # F17: 同名同版本异构建
         elif bucket == "candidate" and note == "new":
             note = "new ←仅源"
         elif bucket == "only_in_dst" and note == "target_only":
@@ -124,6 +126,12 @@ class DiffReporter:
             counts = Counter(p.kind for p in self.mod_pairs)
             summary = " · ".join(f"⇄{k} ×{v}" for k, v in sorted(counts.items()))
             console.print(f"[dim]配对: {summary}[/]")
+        if "mods" in self._visible_buckets(opts) and any(
+            i.note == "to_add" for i in self.report.mods
+        ):
+            console.print(
+                "[dim]注: to_add=源独有(迁移语义:目标缺→补);若为有意删除/裁剪的 mod 请忽略对应行[/]"
+            )
 
 
 def _default_visible_origins() -> list[str]:

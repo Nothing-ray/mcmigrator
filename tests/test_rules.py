@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from migration import rules
+from migration.classifier import Classifier
 from migration.rules import Category, Rule, RuleSet
 
 
@@ -296,3 +297,11 @@ def test_default_rules_server_scenario():
     assert rs.classify("saves/World1/level.dat") == Category.MUST_MIGRATE
     assert rs.classify("logs/latest.log") == Category.NEVER
     assert rs.classify("config/create.toml") == Category.UNKNOWN
+
+
+def test_default_rules_never_crash_dump_logs():
+    """F18: JVM 崩溃产物(hs_err/replay)默认不迁,落 never 桶。"""
+    default, _ = rules.load_default_rules("x")
+    clf = Classifier(rules.RuleSet.from_layers(default))
+    assert clf.classify_path("hs_err_pid60956.log") == Category.NEVER
+    assert clf.classify_path("replay_pid42364.log") == Category.NEVER

@@ -498,6 +498,30 @@ def check_mod_compat(
     return warnings
 
 
+_TAG_PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*")
+
+
+def normalize_jar_family(jar_rel_path: str) -> tuple[str, str]:
+    """jar 相对路径 → (家族键, 版本签名),文件名配对的归一化基础(F4 fallback)。
+
+    家族键 = 剥 [中文标签] 前缀、小写、按 -_+ 切词后仅保留纯字母词;
+    版本签名 = 含数字的词按序拼接(区分 upgrade/renamed 用)。
+
+    Args:
+        jar_rel_path: 版本内相对路径(正斜杠,如 "mods/[标签] x-1.0.jar")。
+
+    Returns:
+        (家族键, 版本签名);家族键可能为空串(调用方需跳过)。
+    """
+    name = jar_rel_path.rsplit("/", 1)[-1]
+    name = _TAG_PREFIX_RE.sub("", name)
+    stem = name.rsplit(".", 1)[0].lower()
+    tokens = [t for t in re.split(r"[-_+]", stem) if t]
+    family = "-".join(t for t in tokens if t.isalpha())
+    version_sig = "-".join(t for t in tokens if not t.isalpha())
+    return family, version_sig
+
+
 @dataclass(frozen=True)
 class ModPair:
     """跨侧配对的同一 mod(升级或改名)。
@@ -509,6 +533,7 @@ class ModPair:
         dst_files: 目标侧 jar 相对路径。
         src_version: 源侧版本(空串视为 None)。
         dst_version: 目标侧版本(空串视为 None)。
+        source: 配对来源:"registry"(读 jar mods.toml) | "filename"(快照文件名归一)。
     """
 
     modid: str
@@ -517,6 +542,7 @@ class ModPair:
     dst_files: list[str]
     src_version: str | None
     dst_version: str | None
+    source: str = "registry"  # "registry"(读 jar mods.toml) | "filename"(快照文件名归一)
 
     def to_dict(self) -> dict:
         """转为 JSON 可序列化字典(diff --json 的 mod_pairs 元素)。"""
@@ -527,6 +553,7 @@ class ModPair:
             "dst_files": self.dst_files,
             "src_version": self.src_version,
             "dst_version": self.dst_version,
+            "source": self.source,
         }
 
 
@@ -569,3 +596,60 @@ def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
             )
         )
     return pairs
+
+
+def pair_mods_by_filename(src_only: list[str], dst_only: list[str]) -> list[ModPair]:
+    """mods 桶 to_add/target_only 按归一化家族键配对(纯快照数据,无活体依赖)。
+
+    junction 同体/跨机复放下注册表配对不可用,本函数以文件名为唯一依据;
+    同家族任一侧多候选(歧义)→ 整族放弃。版本签名不同 → upgrade,相同 → renamed。
+
+    Args:
+        src_only: 源侧独有 jar 相对路径(to_add 条目)。
+        dst_only: 目标侧独有 jar 相对路径(target_only 条目)。
+
+    Returns:
+        ModPair 列表(source="filename",modid=家族键,按家族键升序)。
+    """
+    by_src: dict[str, list[str]] = {}
+    by_dst: dict[str, list[str]] = {}
+    for p in src_only:
+        fam = normalize_jar_family(p)[0]
+        if fam:
+            by_src.setdefault(fam, []).append(p)
+    for p in dst_only:
+        fam = normalize_jar_family(p)[0]
+        if fam:
+            by_dst.setdefault(fam, []).append(p)
+    pairs: list[ModPair] = []
+    for fam in sorted(set(by_src) & set(by_dst)):
+        s_list, d_list = by_src[fam], by_dst[fam]
+        if len(s_list) != 1 or len(d_list) != 1:
+            continue  # 歧义放弃,不猜
+        s_sig = normalize_jar_family(s_list[0])[1]
+        d_sig = normalize_jar_family(d_list[0])[1]
+        pairs.append(
+            ModPair(
+                modid=fam,
+                kind="upgrade" if s_sig != d_sig else "renamed",
+                src_files=[s_list[0]],
+                dst_files=[d_list[0]],
+                src_version=s_sig or None,
+                dst_version=d_sig or None,
+                source="filename",
+            )
+        )
+    return pairs
+
+
+def merge_mod_pairs(
+    registry_pairs: list[ModPair], filename_pairs: list[ModPair]
+) -> list[ModPair]:
+    """合并两源配对:registry 优先,其覆盖的文件不再保留 filename 对。"""
+    covered = {f for p in registry_pairs for f in (*p.src_files, *p.dst_files)}
+    merged = list(registry_pairs)
+    for p in filename_pairs:
+        if any(f in covered for f in (*p.src_files, *p.dst_files)):
+            continue
+        merged.append(p)
+    return sorted(merged, key=lambda p: p.modid)

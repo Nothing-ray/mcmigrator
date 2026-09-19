@@ -477,3 +477,19 @@ def test_origin_mod_swapped_out_registered():
     from migration.plan import ORIGIN_REGISTRY
 
     assert ORIGIN_REGISTRY["mod_swapped_out"].behavior == Behavior.SKIP
+
+
+def test_plan_rebuilt_mod_skips_with_warning():
+    """F17: rebuilt 不自动覆盖目标,SKIP + reason 警告(用户拍板方案 A)。"""
+    from migration.differ import DiffItem, DiffReport
+    from migration.planner import Planner
+    from migration.snapshot import FileEntry
+
+    report = DiffReport()
+    report.mods = [DiffItem(path="mods/x-1.0.jar",
+                            src=FileEntry("mods/x-1.0.jar", 100, None),
+                            dst=FileEntry("mods/x-1.0.jar", 173, None), note="rebuilt")]
+    plan = Planner(report, {}).plan()
+    rec = {a.path: a for a in plan.actions}["mods/x-1.0.jar"]
+    assert rec.behavior.value == "skip"
+    assert "rebuilt" in rec.reason and "保留目标侧" in rec.reason

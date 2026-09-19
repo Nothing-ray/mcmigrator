@@ -308,3 +308,36 @@ def test_render_pair_marker_and_direction_hints(capsys):
     assert "new ←仅源" in out
     assert "target_only →仅目标" in out
     assert "配对: ⇄upgrade ×1" in out
+
+
+def test_render_rebuilt_marked_with_warning():
+    r = _report_with_mods()
+    r.mods.append(DiffItem("mods/x-1.0.jar", None, None, note="rebuilt"))
+    from rich.console import Console
+    import io as _io
+    buf = _io.StringIO()
+    DiffReporter(r, src_version="a", dst_version="b").render(
+        ReportOptions(), console=Console(file=buf, force_terminal=False, width=200))
+    out = buf.getvalue()
+    assert "rebuilt" in out and "⚠" in out
+
+
+def test_render_mods_to_add_footnote():
+    r = _report_with_mods()  # 已含 to_add 条目
+    from rich.console import Console
+    import io as _io
+    buf = _io.StringIO()
+    DiffReporter(r, src_version="a", dst_version="b").render(
+        ReportOptions(), console=Console(file=buf, force_terminal=False, width=200))
+    assert "有意删除" in buf.getvalue()
+
+
+def test_render_no_footnote_without_to_add():
+    r = DiffReport()
+    r.mods = [DiffItem("mods/x-1.0.jar", None, None, note="shared")]
+    from rich.console import Console
+    import io as _io
+    buf = _io.StringIO()
+    DiffReporter(r, src_version="a", dst_version="b").render(
+        ReportOptions(), console=Console(file=buf, force_terminal=False, width=200))
+    assert "有意删除" not in buf.getvalue()

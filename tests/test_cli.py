@@ -605,10 +605,9 @@ def test_diff_json_mod_pairs_and_orphan(tmp_path, monkeypatch, capsys):
 
 
 def test_diff_degraded_when_game_root_unreachable(tmp_path, monkeypatch, capsys):
-    """夹具式脱敏 game_root → ctx=None → mod_pairs=[] + stderr 提示,六桶照常输出。"""
+    """脱敏 game_root → ctx=None:孤儿/注册表配对降级,文件名配对仍可用(F4 fallback)。"""
     root = _prep_diff_game_root(tmp_path)
     _scan_versions(root, tmp_path, monkeypatch, capsys)
-    # 篡改两份快照的 game_root 为不可达路径
     for name in ("a", "b"):
         p = tmp_path / ".mcmig" / "snapshots" / f"{name}.snapshot.json"
         doc = json.loads(p.read_text(encoding="utf-8"))
@@ -619,8 +618,106 @@ def test_diff_degraded_when_game_root_unreachable(tmp_path, monkeypatch, capsys)
     assert main(["diff", "a", "b", "--json"]) == 0
     captured = capsys.readouterr()
     doc = json.loads(captured.out)
-    assert doc["mod_pairs"] == []
+    # 注册表配对降级,但文件名配对仍产出 waystones 1.0.1→1.0.2
+    assert len(doc["mod_pairs"]) == 1
+    assert doc["mod_pairs"][0]["source"] == "filename"
+    assert doc["mod_pairs"][0]["modid"] == "waystones"
     assert "mods 扫描不可用" in captured.err
-    # 孤儿也不再标注(降级 = 0.6.1 行为)
+    # 孤儿不再标注(降级 = 0.6.1 行为)
     orphan = [i for i in doc["buckets"]["never"] if i["path"] == "config/jade/presets.json"]
     assert orphan == []
+
+
+def test_diff_junction_same_dir_orphan_ok_registry_pairs_skipped(
+        tmp_path, monkeypatch, capsys):
+    """junction 同体: 孤儿标注照常(dst=现役恰为判定基准),注册表配对作废,文件名配对兜底。"""
+    import subprocess
+    import os
+    from tests.conftest import write_mod_jar
+
+    root = tmp_path / "root"
+    va = root / "versions" / "a"
+    (va / "mods").mkdir(parents=True)
+    (va / "config" / "jade").mkdir(parents=True)
+    (va / "config" / "jade" / "presets.json").write_text("{}", encoding="utf-8")
+    write_mod_jar(va / "mods" / "create-1.0.jar", "create", "1.0")
+    write_mod_jar(va / "mods" / "[tw] waystones-1.0.1.jar", "waystones", "1.0.1")
+    # junction b → a(Windows junction 无需管理员权限;非 NT 跳过)
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J",
+                        str(root / "versions" / "b"), str(va)],
+                       check=True, capture_output=True)
+    else:
+        (root / "versions" / "b").symlink_to(va, target_is_directory=True)
+
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+
+    assert main(["scan", "a", "--game-root", str(root), "-q"]) == 0
+    capsys.readouterr()
+    # 换装:a(=b 同体)内的 waystones 换新版——b 快照将拍到新状态
+    (va / "mods" / "[tw] waystones-1.0.1.jar").unlink()
+    write_mod_jar(va / "mods" / "[tw] waystones-1.0.2.jar", "waystones", "1.0.2")
+    assert main(["scan", "b", "--game-root", str(root), "-q"]) == 0
+    capsys.readouterr()
+
+    assert main(["diff", "a", "b", "--json"]) == 0
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    # 注册表配对被 same_dir 废止,文件名配对兜底
+    assert len(doc["mod_pairs"]) == 1
+    assert (doc["mod_pairs"][0]["source"], doc["mod_pairs"][0]["kind"]) == ("filename", "upgrade")
+    assert "junction" in captured.err
+    # 孤儿规则不受 same_dir 影响:jade 未安装于现役 → config 落 never/orphan
+    orphan = [i for i in doc["buckets"]["never"] if i["path"] == "config/jade/presets.json"]
+    assert len(orphan) == 1 and orphan[0]["note"] == "orphan"
+
+
+def test_diff_junction_same_dir_semantic_recheck_falls_back_to_bytes(
+        tmp_path, monkeypatch, capsys):
+    """junction 同体: 语义复核短路作废,分时快照间的真实 .json 变化按字节判 modified。
+
+    服务端工作流复刻:scan a → 改配置 → scan b(junction b→a 同体,两次快照 md5 不同)。
+    若不短路,read_file(rel,"src") 与 read_file(rel,"dst") 读同一物理文件(改后内容),
+    语义复核"当前字节 vs 当前字节"恒等 → 真实变化被误报 identical/semantics(终审 Issue 1)。
+    文件名用 create.json:create mod 已安装 → 不触发孤儿规则,保持 UNKNOWN→candidate 路径。
+    """
+    import subprocess
+    import os
+    from tests.conftest import write_mod_jar
+
+    root = tmp_path / "root"
+    va = root / "versions" / "a"
+    (va / "mods").mkdir(parents=True)
+    (va / "config").mkdir(parents=True)
+    (va / "config" / "create.json").write_text('{"v": 1}', encoding="utf-8")
+    write_mod_jar(va / "mods" / "create-1.0.jar", "create", "1.0")
+    # junction b → a(Windows junction 无需管理员权限;非 NT 跳过)
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J",
+                        str(root / "versions" / "b"), str(va)],
+                       check=True, capture_output=True)
+    else:
+        (root / "versions" / "b").symlink_to(va, target_is_directory=True)
+
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+
+    assert main(["scan", "a", "--game-root", str(root), "-q"]) == 0
+    capsys.readouterr()
+    # 两次快照之间玩家改了配置:活体文件(=src=dst 同一物理文件)随之变为 v2
+    (va / "config" / "create.json").write_text('{"v": 2}', encoding="utf-8")
+    assert main(["scan", "b", "--game-root", str(root), "-q"]) == 0
+    capsys.readouterr()
+
+    assert main(["diff", "a", "b", "--json"]) == 0
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    # 核心断言:快照记录的 v1→v2 真实变化必须以字节判定为 modified(candidate),
+    # 不得因 junction 同体活体读数恒等被语义复核掩盖成 identical/semantics
+    cand = [i for i in doc["buckets"]["candidate"] if i["path"] == "config/create.json"]
+    assert len(cand) == 1 and cand[0]["note"] == "modified"
+    ident = [i for i in doc["buckets"]["identical"] if i["path"] == "config/create.json"]
+    assert ident == []
+    # 提示行须同时声明语义复核降级(与注册表配对降级一并告知)
+    assert "语义复核" in captured.err

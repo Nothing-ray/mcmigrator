@@ -227,10 +227,11 @@ def test_reader_none_falls_back_to_byte_compare():
     assert [i.note for i in d.candidate] == ["modified"]
 
 
-def test_non_properties_never_triggers_reader():
-    d = Differ([FileEntry("config/x.toml", 1, "a")], [FileEntry("config/x.toml", 2, "b")],
-               _clf(), content_reader=_reader({("config/x.toml", "src"): A,
-                                               ("config/x.toml", "dst"): B})).diff()
+def test_undispatched_suffix_never_triggers_reader():
+    # F16 起语义复核 dispatch 扩为 .properties/.json/.toml;以表外后缀 .txt 验证表外不触发 reader
+    d = Differ([FileEntry("config/x.txt", 1, "a")], [FileEntry("config/x.txt", 2, "b")],
+               _clf(), content_reader=_reader({("config/x.txt", "src"): A,
+                                               ("config/x.txt", "dst"): B})).diff()
     assert [i.note for i in d.candidate] == ["modified"]
 
 
@@ -239,3 +240,81 @@ def test_md5_equal_ignores_reader():
                _clf(), content_reader=_reader({("config/x.properties", "src"): A,
                                                ("config/x.properties", "dst"): C})).diff()
     assert [i.note for i in d.identical] == ["verified"]
+
+
+# F16:json/toml 语义复核 dispatch(.properties 扩为三格式)
+# (reader 以局部 def 构造,避免 lambda 赋值违反 ruff E731;逻辑与简报 lambda 逐字等价)
+
+
+def test_json_semantic_rewrite_lands_identical_semantics():
+    """F16: mod 启动重写 json(键序/空白差异)→ identical/semantics,不误报 candidate。"""
+    clf = _clf()
+
+    def reader(p, side):
+        return (b'{"logInterval": 60, "debug": false}' if side == "src"
+                else b'{\n  "debug": false,\n  "logInterval": 60\n}')
+
+    d = Differ([_e("config/atleaks.json", 398, "aa")],
+               [_e("config/atleaks.json", 401, "bb")], clf,
+               content_reader=reader).diff()
+    assert any(i.path == "config/atleaks.json" and i.note == "semantics" for i in d.identical)
+    assert not any(i.path == "config/atleaks.json" for i in d.candidate)
+
+
+def test_toml_semantic_rewrite_lands_identical_semantics():
+    clf = _clf()
+
+    def reader(p, side):
+        return (b"[server]\nport = 1\n[client]\nfov = 90\n" if side == "src"
+                else b"[client]\nfov = 90\n[server]\nport = 1\n")
+
+    d = Differ([_e("config/xx.toml", 10, "aa")],
+               [_e("config/xx.toml", 12, "bb")], clf,
+               content_reader=reader).diff()
+    assert any(i.path == "config/xx.toml" and i.note == "semantics" for i in d.identical)
+
+
+def test_json_real_value_diff_stays_modified():
+    clf = _clf()
+
+    def reader(p, side):
+        return b'{"logInterval": 10}' if side == "src" else b'{"logInterval": 60}'
+
+    d = Differ([_e("config/atleaks.json", 398, "aa")],
+               [_e("config/atleaks.json", 401, "bb")], clf,
+               content_reader=reader).diff()
+    assert any(i.path == "config/atleaks.json" and i.note == "modified" for i in d.candidate)
+
+
+def test_semantic_check_not_fired_without_reader():
+    """reader 缺失(复放/plan 管线)→ 字节比较不变(plan 管线不传 reader 的既定语义)。"""
+    clf = _clf()
+    d = Differ([_e("config/atleaks.json", 398, "aa")],
+               [_e("config/atleaks.json", 401, "bb")], clf).diff()
+    assert any(i.path == "config/atleaks.json" and i.note == "modified" for i in d.candidate)
+
+
+# F17:rebuilt 检出(mods 桶同名 jar 比 size / 双侧可得时比 md5)
+
+
+def test_mod_same_name_diff_size_is_rebuilt():
+    """F17: 同名同版本 jar 重新打包(±size)→ note=rebuilt,不再漏检为 shared。"""
+    clf = _clf()
+    d = Differ([_e("mods/x-1.0.jar", 7233263, None)],
+               [_e("mods/x-1.0.jar", 7233336, None)], clf).diff()
+    assert d.mods[0].note == "rebuilt"
+
+
+def test_mod_same_name_same_size_md5_diff_is_rebuilt():
+    clf = _clf()
+    d = Differ([_e("mods/x-1.0.jar", 100, "aa")],
+               [_e("mods/x-1.0.jar", 100, "bb")], clf).diff()
+    assert d.mods[0].note == "rebuilt"
+
+
+def test_mod_same_name_same_size_null_md5_stays_shared():
+    """tiered 快照 md5=null 且 size 相同 → shared(同尺寸异构建为记录在案的盲区)。"""
+    clf = _clf()
+    d = Differ([_e("mods/x-1.0.jar", 100, None)],
+               [_e("mods/x-1.0.jar", 100, None)], clf).diff()
+    assert d.mods[0].note == "shared"

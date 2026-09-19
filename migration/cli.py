@@ -295,7 +295,13 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     mcmig_dir = cwd / ".mcmig"
     # 扫描上下文(F2/F4/F12 基座):两侧版本目录可达时扫描 mods 并注入配对/语义复核;
     # 不可达(跨机复放/夹具/手动删除)→ ctx=None,降级为纯快照对比(0.6.1 行为)
-    from .moddb import generate_orphan_rules, load_mod_config_map, pair_mods
+    from .moddb import (
+        generate_orphan_rules,
+        load_mod_config_map,
+        merge_mod_pairs,
+        pair_mods,
+        pair_mods_by_filename,
+    )
     from .pipeline import resolve_diff_context
 
     ctx = resolve_diff_context(src, dst)
@@ -304,7 +310,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         # F2 孤儿规则:与 pipeline.build_plan 完全同源(src config × dst 注册表 × 覆盖表)
         orphan_rules = generate_orphan_rules(src.files, ctx.dst_mods, load_mod_config_map())
     else:
-        _print_err("[提示] mods 扫描不可用(game_root 不可达),配对与孤儿标注已跳过")
+        _print_err("[提示] mods 扫描不可用(game_root 不可达):孤儿标注与注册表配对已跳过,文件名配对仍可用")
     rs, errs = build_ruleset(
         [args.src, args.dst],
         exclude=args.exclude,
@@ -316,12 +322,22 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     for e in errs:
         _print(f"[规则警告] {e}")
     clf = Classifier(rs)
-    # F12: content_reader 注入 .properties 语义复核;F4: 按 modid 配对两侧 mod 注册表
+    # F12/F16: content_reader 注入语义复核(.properties/.json/.toml)
     report = Differ(
         src.files, dst.files, clf,
         content_reader=ctx.read_file if ctx is not None else None,
     ).diff()
-    pairs = pair_mods(ctx.src_mods, ctx.dst_mods) if ctx is not None else []
+    # F4 双源配对:registry(读 jar,目录真实独立时)优先;filename(纯快照)兜底
+    registry_pairs: list = []
+    if ctx is not None and not ctx.same_dir:
+        registry_pairs = pair_mods(ctx.src_mods, ctx.dst_mods)
+    elif ctx is not None and ctx.same_dir:
+        _print_err("[提示] 两侧版本目录指向同一路径(junction?):注册表配对与语义复核不可用,已使用文件名配对/字节比较")
+    filename_pairs = pair_mods_by_filename(
+        [i.path for i in report.mods if i.note == "to_add"],
+        [i.path for i in report.mods if i.note == "target_only"],
+    )
+    pairs = merge_mod_pairs(registry_pairs, filename_pairs)
     reporter = DiffReporter(report, src_version=args.src, dst_version=args.dst, mod_pairs=pairs)
     if args.json:
         _print(reporter.to_json())

@@ -1,6 +1,10 @@
-"""textcompare 单测:properties 语义等价判定(F12)。"""
+"""textcompare 单测:properties/json/toml 语义等价判定(F12/F16)。"""
 
-from migration.textcompare import properties_semantic_equal
+from migration.textcompare import (
+    json_semantic_equal,
+    properties_semantic_equal,
+    toml_semantic_equal,
+)
 
 
 def test_identical_bytes_equal():
@@ -41,3 +45,39 @@ def test_unicode_escape_vs_raw_equal():
     # \uXXXX 转义与原生 UTF-8 同值
     assert properties_semantic_equal("motd=龙域群岛\n".encode("utf-8"),
                                      "motd=\\u9f99\\u57df\\u7fa4\\u5c9b\n".encode("ascii"))
+
+
+# --- F16:json/toml 语义等价判定 ---
+
+
+def test_json_semantic_equal_ignores_key_order_and_whitespace():
+    a = b'{"logInterval": 60, "debug": false}'
+    b = b'{\n  "debug": false,\n  "logInterval": 60\n}'
+    assert json_semantic_equal(a, b)
+
+
+def test_json_semantic_equal_tolerates_bom():
+    assert json_semantic_equal(b'\xef\xbb\xbf{"a": 1}', b'{"a": 1}')
+
+
+def test_json_semantic_not_equal_value_diff():
+    assert not json_semantic_equal(b'{"logInterval": 10}', b'{"logInterval": 60}')
+
+
+def test_json_semantic_not_equal_malformed():
+    assert not json_semantic_equal(b'{oops', b'{"a": 1}')
+
+
+def test_toml_semantic_equal_ignores_table_order_and_comments():
+    a = b'[server]\nport = 25565\n[client]\nfov = 90\n'
+    # bytes 字面量不支持非 ASCII,中文注释经 encode("utf-8") 构造(同上 properties 测试惯例)
+    b = '# 重排注释\n[client]\nfov = 90\n\n[server]\nport = 25565\n'.encode("utf-8")
+    assert toml_semantic_equal(a, b)
+
+
+def test_toml_semantic_not_equal_value_diff():
+    assert not toml_semantic_equal(b'x = 1\n', b'x = 2\n')
+
+
+def test_toml_semantic_not_equal_malformed():
+    assert not toml_semantic_equal(b'= = =\n', b'x = 1\n')

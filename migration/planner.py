@@ -1,7 +1,8 @@
 """Planner:消费 v0 的 DiffReport + src_index → 可执行 MigrationPlan。
 
 决策树要点(完整见 Reference/design/planner-rules.md 与 spec):
-- mods 桶 → mod_added/mod_shared/mod_target_only(按 note)
+- mods 桶 → to_add=mod_added;shared/rebuilt=mod_shared;target_only=mod_target_only
+  (rebuilt 不自动覆盖,reason 附警告;用户拍板方案 A)
 - never → skip;note="rebuild" → origin=rebuild,note="orphan" → origin=orphan,否则 origin=never
 - identical → skip_identical(分 verified/size-based)
 - to_migrate → copy(backup_target 区分 new/modified)
@@ -186,13 +187,19 @@ class Planner:
         behavior, origin = {
             "to_add": (Behavior.COPY, Origin.MOD_ADDED),
             "shared": (Behavior.SKIP, Origin.MOD_SHARED),
+            "rebuilt": (Behavior.SKIP, Origin.MOD_SHARED),
             "target_only": (Behavior.SKIP, Origin.MOD_TARGET_ONLY),
         }.get(item.note, (Behavior.SKIP, Origin.MOD_SHARED))
+        reason = (
+            "mods (rebuilt: 同名同版本异构建,默认保留目标侧,如需源侧构建请手工处理)"
+            if item.note == "rebuilt"
+            else f"mods ({item.note})"
+        )
         return ActionRecord(
             path=item.path, behavior=behavior, origin=origin,
             src_size=item.src.size if item.src else None,
             dst_size=item.dst.size if item.dst else None,
-            md5_match=None, confidence="high", reason=f"mods ({item.note})",
+            md5_match=None, confidence="high", reason=reason,
             backup_target=None,
         )
 
