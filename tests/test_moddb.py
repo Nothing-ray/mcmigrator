@@ -691,6 +691,26 @@ def test_renamed_pair():
     assert len(pairs) == 1 and pairs[0].kind == "renamed"
 
 
+def test_registry_pair_same_version_variant_tail_rebuilt():
+    """registry 同判对齐:同 modid 同版本、文件名仅尾缀差 → rebuilt(非 renamed)。"""
+    pairs = pair_mods(
+        _mkreg(_info("kaleidoscope_compat", "2.9.7",
+                     "kaleidoscope_compat-2.9.7-neoforge+mc1.21.1.jar")),
+        _mkreg(_info("kaleidoscope_compat", "2.9.7",
+                     "[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1-Patch.jar")),
+    )
+    assert len(pairs) == 1 and pairs[0].kind == "rebuilt"
+
+
+def test_registry_pair_prefix_only_rename_stays_renamed():
+    """仅 [中文标签] 前缀差的同版改名仍是 renamed(既有 test_renamed_pair 语义)。"""
+    pairs = pair_mods(
+        _mkreg(_info("x", "1.0", "x-1.0.jar")),
+        _mkreg(_info("x", "1.0", "[标签] x-1.0.jar")),
+    )
+    assert len(pairs) == 1 and pairs[0].kind == "renamed"
+
+
 def test_same_version_same_name_not_paired():
     pairs = pair_mods(_mkreg(_info("x", "1.0", "x-1.0.jar")), _mkreg(_info("x", "1.0", "x-1.0.jar")))
     assert pairs == []
@@ -713,22 +733,23 @@ def test_empty_version_treated_as_none():
 def test_normalize_jar_family_strips_tag_prefix_and_versions():
     from migration.moddb import normalize_jar_family as nf
     # 中文标签前缀 + 多段版本 → 家族键只留纯字母词
+    # (批次D 起 nf 返回 3 元组,断言按计划内更新补第三元「变体尾缀」)
     assert nf("mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.44.jar") == \
-        ("waystones-neoforge", "1.21.1-21.1.44")
+        ("waystones-neoforge", "1.21.1-21.1.44", "")
     # 注:简报原文此行期望值为 "1.2.1-mc1.21.1-neoforge",与其 Step 3 实现
     # (纯字母词进家族键、含数字词进版本签名)及下一行同构断言矛盾,系笔误,按实现语义修正。
     assert nf("mods/[圆石生成器] cobblestone_generator-1.2.1-mc1.21.1-neoforge.jar") == \
-        ("cobblestone-generator-neoforge", "1.2.1-mc1.21.1")
+        ("cobblestone-generator-neoforge", "1.2.1-mc1.21.1", "neoforge")
     assert nf("mods/cobblestone_generator-1.2.0-mc1.21.1-neoforge.jar") == \
-        ("cobblestone-generator-neoforge", "1.2.0-mc1.21.1")
+        ("cobblestone-generator-neoforge", "1.2.0-mc1.21.1", "neoforge")
     # + 连接的版本段、日期段、all 等字母词
     assert nf("mods/DragonSurvival-1.21.1-v2.0.69-02.09.2026-all.jar") == \
-        ("dragonsurvival-all", "1.21.1-v2.0.69-02.09.2026")
+        ("dragonsurvival-all", "1.21.1-v2.0.69-02.09.2026", "all")
     assert nf("mods/immersive_melodies-neoforge-0.7.1+1.21.1.jar") == \
-        ("immersive-melodies-neoforge", "0.7.1+1.21.1".replace("+", "-"))
+        ("immersive-melodies-neoforge", "0.7.1+1.21.1".replace("+", "-"), "")
     # 大小写归一;无版本段的裸名
-    assert nf("mods/Mekanism-1.21.1-10.7.19.85.jar") == ("mekanism", "1.21.1-10.7.19.85")
-    assert nf("mods/mekmm-1.21.1-1.4.1.jar") == ("mekmm", "1.21.1-1.4.1")
+    assert nf("mods/Mekanism-1.21.1-10.7.19.85.jar") == ("mekanism", "1.21.1-10.7.19.85", "")
+    assert nf("mods/mekmm-1.21.1-1.4.1.jar") == ("mekmm", "1.21.1-1.4.1", "")
 
 
 def test_normalize_jar_family_renamed_same_version():
@@ -737,6 +758,37 @@ def test_normalize_jar_family_renamed_same_version():
     b = nf("mods/[稀有精英怪] infernalmobs-1.21.1.3NF.jar")
     assert a[0] == b[0] == "infernalmobs"
     assert a[1] == b[1]  # 版本签名相同 → renamed 判定依据
+
+
+def test_normalize_jar_family_tail_extraction():
+    """批次D F20-3:最后一个含数字词之后的连续纯字母词 = 变体尾缀(-Patch/-feature)。"""
+    from migration.moddb import normalize_jar_family as nf
+
+    # 经典案例:kaleidoscope_compat 2.9.7 → 2.9.7-Patch
+    fam_old, sig_old, tail_old = nf("mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1.jar")
+    fam_new, sig_new, tail_new = nf("mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1-Patch.jar")
+    assert tail_old == ""
+    assert tail_new == "patch"
+    assert fam_old == "kaleidoscope-compat-neoforge"          # 家族键规则不变
+    assert fam_new == "kaleidoscope-compat-neoforge-patch"    # 尾缀词仍在家族键内
+    assert sig_old == sig_new == "2.9.7-mc1.21.1"
+
+    # 多词尾缀 + -feature 案例
+    assert nf("mods/x-1.0-Patch-final.jar")[2] == "patch-final"
+    assert nf("mods/kaleidoscope_world_liquor-1.1.8-neoforge+1.21.1-feature.jar")[2] == "feature"
+
+    # 无数字词 / 尾缀位在版本词前 → 空(退化安全)
+    assert nf("mods/somejar.jar") == ("somejar", "", "")
+    assert nf("mods/x-neoforge-1.21.1.jar")[2] == ""  # neoforge 在最后一个数字词之前,不是尾缀
+
+
+def test_reduced_family_strips_tail_words():
+    """减尾键:家族键剥掉尾部尾缀词(第二级匹配基础);tail 空 → 原样。"""
+    from migration.moddb import _reduced_family
+
+    assert _reduced_family("kaleidoscope-compat-neoforge-patch", "patch") == "kaleidoscope-compat-neoforge"
+    assert _reduced_family("x-patch-final", "patch-final") == "x"
+    assert _reduced_family("kaleidoscope-compat-neoforge", "") == "kaleidoscope-compat-neoforge"
 
 
 """pair_mods_by_filename / merge_mod_pairs 测试(批次 C Task 5):纯快照文件名配对。"""
@@ -788,6 +840,66 @@ def test_pair_mods_by_filename_ambiguous_family_skipped():
     # 同家族源侧两个候选 → 歧义放弃,不猜
     pairs = pair_mods_by_filename(
         ["mods/x-1.0.jar", "mods/[他] x-2.0.jar"], ["mods/x-3.0.jar"])
+    assert pairs == []
+
+
+def test_pair_mods_by_filename_same_version_variant_rebuilt():
+    """批次D F20-3:同版本号文件名变体(2.9.7 → 2.9.7-Patch)第二级配对 kind=rebuilt。"""
+    from migration.moddb import pair_mods_by_filename
+
+    pairs = pair_mods_by_filename(
+        ["mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1.jar"],
+        ["mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1-Patch.jar"],
+    )
+    assert len(pairs) == 1
+    p = pairs[0]
+    assert (p.kind, p.source, p.modid) == ("rebuilt", "filename", "kaleidoscope-compat-neoforge")
+    assert p.src_version == p.dst_version == "2.9.7-mc1.21.1"
+
+
+def test_pair_mods_by_filename_feature_tail_rebuilt():
+    """-feature 尾缀(客户端 9.19 案例)同样走第二级 rebuilt。"""
+    from migration.moddb import pair_mods_by_filename
+
+    pairs = pair_mods_by_filename(
+        ["mods/kaleidoscope_world_liquor-1.1.8-neoforge+1.21.1.jar"],
+        ["mods/kaleidoscope_world_liquor-1.1.8-neoforge+1.21.1-feature.jar"],
+    )
+    assert len(pairs) == 1 and pairs[0].kind == "rebuilt"
+
+
+def test_pair_mods_by_filename_tier1_wins_over_tier2():
+    """第一级已配上的不再进第二级(零回归:升级/改名行为与 0.6.3 一致)。"""
+    from migration.moddb import pair_mods_by_filename
+
+    # 老版本带 -Patch、新版本不带(反方向):第一级族键不同,第二级减尾后应配上 rebuilt
+    pairs = pair_mods_by_filename(
+        ["mods/x-1.0-Patch.jar", "mods/y-2.0.jar"],
+        ["mods/x-1.0.jar", "mods/y-3.0.jar"],
+    )
+    kinds = {p.modid: p.kind for p in pairs}
+    assert kinds == {"x": "rebuilt", "y": "upgrade"}
+
+
+def test_pair_mods_by_filename_tier2_ambiguity_skipped():
+    """第二级歧义(减尾键一侧多候选)整族放弃,不猜。"""
+    from migration.moddb import pair_mods_by_filename
+
+    pairs = pair_mods_by_filename(
+        ["mods/x-1.0.jar"],
+        ["mods/x-1.0-Patch.jar", "mods/x-1.0-Hotfix.jar"],
+    )
+    assert pairs == []
+
+
+def test_pair_mods_by_filename_tier2_sig_diff_not_rebuilt():
+    """减尾键相同但版本签名不同 → 不配(属第一级职责,第一级没配上即非同族)。"""
+    from migration.moddb import pair_mods_by_filename
+
+    pairs = pair_mods_by_filename(
+        ["mods/x-1.0.jar"],
+        ["mods/x-2.0-Patch.jar"],
+    )
     assert pairs == []
 
 

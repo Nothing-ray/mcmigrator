@@ -59,7 +59,7 @@ def test_scan_writes_snapshot(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     rc = cli.main(["scan", "mini", "--game-root", str(game_root)])
     assert rc == 0
-    assert snapshot_path(tmp_path, "mini").exists()
+    assert snapshot_path(game_root, "mini").exists()
 
 
 def test_scan_missing_version_lists_available(tmp_path: Path, monkeypatch, capsys):
@@ -183,7 +183,7 @@ def test_plan_writes_plan_file(mini_version: Path, tmp_path: Path, monkeypatch):
 
     code = cli.main(["plan", "mini", "target", "--game-root", str(game_root)])
     assert code == 0
-    assert plan_path(tmp_path, "mini", "target").exists()
+    assert plan_path(game_root, "mini", "target").exists()
 
 
 def test_plan_missing_snapshot_friendly_error(tmp_path: Path, monkeypatch, capsys):
@@ -234,7 +234,7 @@ def test_plan_no_save_skips_file(tmp_path: Path, mini_version: Path, monkeypatch
     cli.main(["scan", "target", "--game-root", str(game_root)])
 
     cli.main(["plan", "mini", "target", "--no-save", "--game-root", str(game_root)])
-    assert not plan_path(tmp_path, "mini", "target").exists()
+    assert not plan_path(game_root, "mini", "target").exists()
 
 
 def test_plan_show_skip_includes_skip_actions(tmp_path, mini_version, monkeypatch, capsys):
@@ -592,7 +592,7 @@ def test_diff_json_mod_pairs_and_orphan(tmp_path, monkeypatch, capsys):
     _scan_versions(root, tmp_path, monkeypatch, capsys)
     from migration.cli import main
 
-    assert main(["diff", "a", "b", "--json"]) == 0
+    assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
     doc = json.loads(capsys.readouterr().out)
     # F4: waystones 1.0.1→1.0.2 升级对(文件名带 [tw] 前缀也按 modid 配对)
     assert len(doc["mod_pairs"]) == 1
@@ -609,13 +609,13 @@ def test_diff_degraded_when_game_root_unreachable(tmp_path, monkeypatch, capsys)
     root = _prep_diff_game_root(tmp_path)
     _scan_versions(root, tmp_path, monkeypatch, capsys)
     for name in ("a", "b"):
-        p = tmp_path / ".mcmig" / "snapshots" / f"{name}.snapshot.json"
+        p = root / ".mcmig" / "snapshots" / f"{name}.snapshot.json"
         doc = json.loads(p.read_text(encoding="utf-8"))
         doc["game_root"] = r"C:\\definitely\\missing"
         p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
     from migration.cli import main
 
-    assert main(["diff", "a", "b", "--json"]) == 0
+    assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
     captured = capsys.readouterr()
     doc = json.loads(captured.out)
     # 注册表配对降级,但文件名配对仍产出 waystones 1.0.1→1.0.2
@@ -661,7 +661,7 @@ def test_diff_junction_same_dir_orphan_ok_registry_pairs_skipped(
     assert main(["scan", "b", "--game-root", str(root), "-q"]) == 0
     capsys.readouterr()
 
-    assert main(["diff", "a", "b", "--json"]) == 0
+    assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
     captured = capsys.readouterr()
     doc = json.loads(captured.out)
     # 注册表配对被 same_dir 废止,文件名配对兜底
@@ -710,7 +710,7 @@ def test_diff_junction_same_dir_semantic_recheck_falls_back_to_bytes(
     assert main(["scan", "b", "--game-root", str(root), "-q"]) == 0
     capsys.readouterr()
 
-    assert main(["diff", "a", "b", "--json"]) == 0
+    assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
     captured = capsys.readouterr()
     doc = json.loads(captured.out)
     # 核心断言:快照记录的 v1→v2 真实变化必须以字节判定为 modified(candidate),
@@ -721,3 +721,95 @@ def test_diff_junction_same_dir_semantic_recheck_falls_back_to_bytes(
     assert ident == []
     # 提示行须同时声明语义复核降级(与注册表配对降级一并告知)
     assert "语义复核" in captured.err
+
+
+def test_diff_modpack_swap_routes_src_only_mods_to_never(tmp_path, monkeypatch, capsys):
+    """F19 批次D:diff --modpack-swap 下源独有旧 jar 归 never/modpack_swap,mods 桶零 to_add。"""
+    game_root = _setup_game(tmp_path, ["old", "new"])
+    # old 有 a-1.0.jar + b-1.0.jar;new 有 a-2.0.jar —— 手工摆 jar(_setup_game 的 create.jar 会干扰,直接覆盖 mods)
+    (game_root / "versions" / "old" / "mods").mkdir(parents=True, exist_ok=True)
+    (game_root / "versions" / "new" / "mods").mkdir(parents=True, exist_ok=True)
+    for f in (game_root / "versions" / "old" / "mods").glob("*.jar"):
+        f.unlink()
+    for f in (game_root / "versions" / "new" / "mods").glob("*.jar"):
+        f.unlink()
+    from tests.conftest import write_mod_jar
+    write_mod_jar(game_root / "versions" / "old" / "mods" / "a-1.0.jar", "a")
+    write_mod_jar(game_root / "versions" / "old" / "mods" / "b-1.0.jar", "b")
+    write_mod_jar(game_root / "versions" / "new" / "mods" / "a-2.0.jar", "a")
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+    assert main(["scan", "old", "--game-root", str(game_root), "-q"]) == 0
+    assert main(["scan", "new", "--game-root", str(game_root), "-q"]) == 0
+    capsys.readouterr()
+
+    # 带 flag:a-1.0 与 b-1.0 按文件名均源独有(new 只有 a-2.0)→ 全部 never/modpack_swap,
+    # mods 桶无 to_add(注册表配对 a-1.0↔a-2.0 只进 mod_pairs,不改桶)
+    assert main(["diff", "old", "new", "--game-root", str(game_root),
+                 "--modpack-swap", "--json"]) == 0
+    res = capsys.readouterr()
+    doc = json.loads(res.out)
+    swapped = [i for i in doc["buckets"]["never"] if i["note"] == "modpack_swap"]
+    assert [i["path"] for i in swapped] == ["mods/a-1.0.jar", "mods/b-1.0.jar"]
+    assert not [i for i in doc["buckets"]["mods"] if i["note"] == "to_add"]
+    assert "换包模式" in res.err
+
+    # 不带 flag:与 0.6.3 一致 —— a-1.0/b-1.0 是 to_add,never 无 modpack_swap
+    assert main(["diff", "old", "new", "--game-root", str(game_root), "--json"]) == 0
+    res2 = capsys.readouterr()
+    doc2 = json.loads(res2.out)
+    assert doc2["summary"]["mods"] == 3
+    assert {i["path"]: i["note"] for i in doc2["buckets"]["mods"]}["mods/b-1.0.jar"] == "to_add"
+    assert not [i for i in doc2["buckets"]["never"] if i["note"] == "modpack_swap"]
+
+
+# ---- 批次D F8:.mcmig 生成物锚定 game-root(scan/diff/plan 接线) ----
+
+
+def test_scan_anchors_snapshots_to_game_root(tmp_path, monkeypatch):
+    """F8 批次D:scan 快照落 game_root/.mcmig/snapshots(不再随 CWD 散落);规则仍读 CWD。"""
+    game_root = _setup_game(tmp_path, ["mini"])
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+    assert main(["scan", "mini", "--game-root", str(game_root)]) == 0
+    assert snapshot_path(game_root, "mini").exists()      # 锚定位置
+    assert not snapshot_path(tmp_path, "mini").exists()   # CWD 不再出现
+
+
+def test_diff_reads_anchored_and_legacy_fallback(tmp_path, monkeypatch, capsys):
+    """diff 锚定优先;快照只在旧 CWD 布局时回退读 + stderr 一次性提示。"""
+    game_root = _setup_game(tmp_path, ["mini", "mini_b"], variant_b_for="mini_b")
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+    assert main(["scan", "mini", "--game-root", str(game_root), "-q"]) == 0
+    assert main(["scan", "mini_b", "--game-root", str(game_root), "-q"]) == 0
+    capsys.readouterr()
+    # 锚定命中:正常 diff,无旧布局提示
+    assert main(["diff", "mini_b", "mini", "--game-root", str(game_root), "--json"]) == 0
+    res = capsys.readouterr()
+    assert "旧布局" not in res.err
+    # 把锚定快照挪到 CWD 旧布局 → 回退读 + 提示
+    legacy_dir = tmp_path / ".mcmig" / "snapshots"
+    legacy_dir.mkdir(parents=True)
+    import shutil
+    for f in (game_root / ".mcmig" / "snapshots").glob("*.json"):
+        shutil.move(str(f), str(legacy_dir / f.name))
+    assert main(["diff", "mini_b", "mini", "--game-root", str(game_root), "--json"]) == 0
+    res = capsys.readouterr()
+    assert "旧布局快照" in res.err and "建议整体迁移" in res.err
+    # game-root 不可解析(无 flag/env/config)→ CWD-only,快照在 CWD 仍可用(夹具复放语义)
+    monkeypatch.delenv("MCMIG_GAME_ROOT", raising=False)
+    assert main(["diff", "mini_b", "mini", "--json"]) == 0
+
+
+def test_plan_writes_plan_to_game_root(tmp_path, monkeypatch):
+    """plan 的 plan 文件写锚定目录;迁移链路 migrate 能从锚定位置找回。"""
+    game_root = _setup_game(tmp_path, ["mini", "mini_b"], variant_b_for="mini_b")
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+    from migration.plan import plan_path
+    assert main(["scan", "mini", "--game-root", str(game_root), "-q"]) == 0
+    assert main(["scan", "mini_b", "--game-root", str(game_root), "-q"]) == 0
+    assert main(["plan", "mini_b", "mini", "--game-root", str(game_root)]) == 0
+    assert plan_path(game_root, "mini_b", "mini").exists()
+    assert not plan_path(tmp_path, "mini_b", "mini").exists()

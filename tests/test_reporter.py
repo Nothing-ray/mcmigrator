@@ -310,6 +310,28 @@ def test_render_pair_marker_and_direction_hints(capsys):
     assert "配对: ⇄upgrade ×1" in out
 
 
+def test_display_note_pair_rebuilt_gets_warning_marker():
+    """配对 kind=rebuilt 的 mods 条目显示 ⚠ ⇄rebuilt(与同名桶 rebuilt 警示一致)。"""
+    report = DiffReport()
+    report.mods.append(DiffItem(path="mods/x-1.0.jar", src=None, dst=None, note="to_add"))
+    pair = ModPair(modid="x", kind="rebuilt", src_files=["mods/x-1.0.jar"],
+                   dst_files=["mods/x-1.0-Patch.jar"], src_version="1.0", dst_version="1.0",
+                   source="filename")
+    r = DiffReporter(report, src_version="a", dst_version="b", mod_pairs=[pair])
+    assert r._display_note("mods", report.mods[0]) == "⚠ to_add ⇄rebuilt"
+
+
+def test_display_note_pair_upgrade_no_warning_marker():
+    """配对 kind=upgrade 不加 ⚠(既有行为不变)。"""
+    report = DiffReport()
+    report.mods.append(DiffItem(path="mods/x-1.0.jar", src=None, dst=None, note="to_add"))
+    pair = ModPair(modid="x", kind="upgrade", src_files=["mods/x-1.0.jar"],
+                   dst_files=["mods/x-2.0.jar"], src_version="1.0", dst_version="2.0",
+                   source="filename")
+    r = DiffReporter(report, src_version="a", dst_version="b", mod_pairs=[pair])
+    assert r._display_note("mods", report.mods[0]) == "to_add ⇄upgrade"
+
+
 def test_render_rebuilt_marked_with_warning():
     r = _report_with_mods()
     r.mods.append(DiffItem("mods/x-1.0.jar", None, None, note="rebuilt"))

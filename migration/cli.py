@@ -14,7 +14,7 @@ from .classifier import Classifier
 from .differ import Differ
 from .fsops import FsOpsError, copy_atomic
 from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
-from .pipeline import build_plan, execute_migration, list_versions, scan_version
+from .pipeline import build_plan, execute_migration, find_snapshot, list_versions, scan_version
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
 from .workdir import WorkdirError, resolve_workdir
 from rich.prompt import Confirm
@@ -53,6 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_diff.add_argument("--all", action="store_true", help="显示全部桶")
     p_diff.add_argument("--mods", action="store_true", help="仅显示 mods 桶")
     p_diff.add_argument("--category", default=None, help="仅显示指定桶")
+    p_diff.add_argument("--modpack-swap", action="store_true",
+                        help="换包验收视角:源独有 mod 视为旧包自带,归「换包排除」而非 to_add")
     add_common(p_diff)
 
     p_plan = sub.add_parser("plan", help="生成迁移计划(只读,产出 action 列表)")
@@ -124,8 +126,11 @@ def _setup_logging(quiet: bool) -> None:
     logging.basicConfig(level=logging.WARNING if quiet else logging.INFO, format="%(message)s")
 
 
-def _resolve_game_root(args: argparse.Namespace) -> Path:
-    """解析游戏根目录:--game-root > MCMIG_GAME_ROOT > .mcmig/config.yaml > 报错退出 2。"""
+def _try_resolve_game_root(args: argparse.Namespace) -> Path | None:
+    """宽容解析游戏根目录(链同 _resolve_game_root,失败返回 None 不退出)。
+
+    diff 用:夹具复放/无 game-root 配置场景退回 CWD-only 查找,保持 0.6.x 行为。
+    """
     if args.game_root:
         return Path(args.game_root)
     env = os.environ.get("MCMIG_GAME_ROOT")
@@ -139,6 +144,14 @@ def _resolve_game_root(args: argparse.Namespace) -> Path:
         gr = doc.get("game_root")
         if gr:
             return Path(gr)
+    return None
+
+
+def _resolve_game_root(args: argparse.Namespace) -> Path:
+    """解析游戏根目录:--game-root > MCMIG_GAME_ROOT > .mcmig/config.yaml > 报错退出 2。"""
+    gr = _try_resolve_game_root(args)
+    if gr is not None:
+        return gr
     _print(
         "[错误] 未配置游戏根目录。请用 --game-root、设置环境变量 MCMIG_GAME_ROOT、"
         "或在 .mcmig/config.yaml 写 game_root"
@@ -227,27 +240,28 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             _print("可用版本: " + ", ".join(avail))
         return 2
     cwd = Path.cwd()
-    mcmig_dir = cwd / ".mcmig"
+    rules_dir = cwd / ".mcmig"       # 静态配置跟工作区(bootstrap 两分法,spec T5b)
+    data_dir = game_root / ".mcmig"  # 生成物跟实例(F8)
     rs, errs = build_ruleset(
         args.version,
         exclude=args.exclude,
         include=args.include,
         rule_files=[Path(f) for f in args.rule],
-        mcmig_dir=mcmig_dir,
+        mcmig_dir=rules_dir,
     )
     for e in errs:
         _print(f"[规则警告] {e}")
-    # 扫描构建逻辑已下沉 pipeline(快照仍写 .mcmig/snapshots/,与 snapshot_path 同构);
+    # 扫描构建逻辑已下沉 pipeline(快照写锚定 <game_root>/.mcmig/snapshots/,F8);
     # 不可读文件经 on_error 收集,恢复 unreadable 计数(v0 spec §7 报告契约)
     unreadable: list[str] = []
     snap = scan_version(
         game_root,
         args.version,
-        mcmig_dir / "snapshots",
+        data_dir / "snapshots",
         strict=args.strict,
         on_error=unreadable.append,
     )
-    spath = snapshot_path(cwd, args.version)
+    spath = snapshot_path(game_root, args.version)
     clf = Classifier(rs)
     classified = clf.classify_all(snap.files)
     counts: dict[str, int] = {}
@@ -279,8 +293,19 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 
 def _cmd_diff(args: argparse.Namespace) -> int:
     cwd = Path.cwd()
-    src_path = snapshot_path(cwd, args.src)
-    dst_path = snapshot_path(cwd, args.dst)
+    # F8 锚定:game-root 可解析 → 锚定优先+旧 CWD 布局回退(命中提示整体迁移);
+    # 不可解析(夹具复放/纯快照对比)→ CWD-only,0.6.x 行为,零提示零扰动
+    game_root = _try_resolve_game_root(args)
+    if game_root is not None:
+        data_dir = game_root / ".mcmig"
+        legacy_dir = cwd / ".mcmig"
+        src_path, src_leg = find_snapshot(data_dir, legacy_dir, args.src)
+        dst_path, dst_leg = find_snapshot(data_dir, legacy_dir, args.dst)
+        if src_leg or dst_leg:
+            _print_err(f"[提示] 使用旧布局快照({legacy_dir}),建议整体迁移至 {data_dir}")
+    else:
+        src_path = snapshot_path(cwd, args.src)
+        dst_path = snapshot_path(cwd, args.dst)
     missing = [n for n, p in ((args.src, src_path), (args.dst, dst_path)) if not p.exists()]
     if missing:
         _print("[错误] 缺少快照: " + ", ".join(missing))
@@ -323,9 +348,11 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         _print(f"[规则警告] {e}")
     clf = Classifier(rs)
     # F12/F16: content_reader 注入语义复核(.properties/.json/.toml)
+    # F19: modpack_swap 透传 differ(与 plan/swap 流程同源,换装验收旧 jar 归换包排除)
     report = Differ(
         src.files, dst.files, clf,
         content_reader=ctx.read_file if ctx is not None else None,
+        modpack_swap=args.modpack_swap,
     ).diff()
     # F4 双源配对:registry(读 jar,目录真实独立时)优先;filename(纯快照)兜底
     registry_pairs: list = []
@@ -338,6 +365,14 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         [i.path for i in report.mods if i.note == "target_only"],
     )
     pairs = merge_mod_pairs(registry_pairs, filename_pairs)
+    # F19 换包模式提示:有排除项时 stderr 一行(不污染 --json 的 stdout)
+    if args.modpack_swap:
+        n_swap = sum(1 for i in report.never if i.note == "modpack_swap")
+        if n_swap:
+            _print_err(
+                f"[提示] 换包模式: {n_swap} 个源独有 mod 按旧包自带排除"
+                "(never/换包排除,--show-never 可见)"
+            )
     reporter = DiffReporter(report, src_version=args.src, dst_version=args.dst, mod_pairs=pairs)
     if args.json:
         _print(reporter.to_json())
@@ -358,14 +393,23 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     编排逻辑已下沉 pipeline.build_plan,本函数只负责参数展开与结果渲染。
     """
     cwd = Path.cwd()
-    src_path = snapshot_path(cwd, args.src)
-    dst_path = snapshot_path(cwd, args.dst)
+    # F8 锚定:快照预检同 diff 定位规则(锚定优先+旧布局回退);
+    # game-root 不可解析时按 0.6.x CWD-only 预检,保持「缺快照先报 scan」的友好顺序
+    gr = _try_resolve_game_root(args)
+    if gr is not None:
+        data_dir = gr / ".mcmig"
+        src_path, _ = find_snapshot(data_dir, cwd / ".mcmig", args.src)
+        dst_path, _ = find_snapshot(data_dir, cwd / ".mcmig", args.dst)
+    else:
+        src_path = snapshot_path(cwd, args.src)
+        dst_path = snapshot_path(cwd, args.dst)
     missing = [n for n, p in ((args.src, src_path), (args.dst, dst_path)) if not p.exists()]
     if missing:
         _print("[错误] 缺少快照: " + ", ".join(missing))
         _print("请先运行: mcmig scan <版本名>")
         return 2
-    game_root = _resolve_game_root(args)
+    game_root = gr if gr is not None else _resolve_game_root(args)
+    data_dir = game_root / ".mcmig"
     try:
         plan, compat_warnings = build_plan(
             cwd,
@@ -376,7 +420,8 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             rescan_dst=False,
             save=not args.no_save,
             mcmig_dir=cwd / ".mcmig",
-            plans_dir=cwd / ".mcmig" / "plans",
+            plans_dir=data_dir / "plans",
+            data_dir=data_dir,
             exclude=args.exclude,
             include=args.include,
             rule_files=[Path(f) for f in args.rule],
@@ -486,7 +531,8 @@ def _cmd_swap(args: argparse.Namespace) -> int:
         _print(f"[错误] {err}")
         return 2
     # 预检:src 快照必须已存在(规划步依赖;装包前检查,dry-run 同样生效)
-    src_snap = snapshot_path(Path.cwd(), args.src)
+    # F8:快照锚定优先+旧 CWD 布局回退(与 diff/plan 同一定位规则)
+    src_snap = find_snapshot(game_root / ".mcmig", Path.cwd() / ".mcmig", args.src)[0]
     if not src_snap.exists():
         _print(f"[错误] 缺少源版本快照 {src_snap}")
         _print(f"请先运行: mcmig scan {args.src}")
@@ -543,7 +589,8 @@ def _cmd_swap(args: argparse.Namespace) -> int:
             modpack_swap=True,
             rescan_dst=True,
             mcmig_dir=Path.cwd() / ".mcmig",
-            plans_dir=Path.cwd() / ".mcmig" / "plans",
+            plans_dir=game_root / ".mcmig" / "plans",
+            data_dir=game_root / ".mcmig",
         )
     except (FileNotFoundError, ValueError) as e:
         _print(f"[错误] 规划失败: {e}")
@@ -555,7 +602,7 @@ def _cmd_swap(args: argparse.Namespace) -> int:
     _print(
         "  " + ", ".join(f"{k}={v}" for k, v in sorted(plan.summary().items()) if v > 0)
     )
-    p_path = plan_path(Path.cwd(), args.src, args.dst)
+    p_path = plan_path(game_root, args.src, args.dst)
     _print(f"审阅 {p_path} 后运行: mcmig migrate {args.src} {args.dst}")
     return 0
 
@@ -564,11 +611,20 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     """migrate 子命令:加载 plan → 防护校验 → ASK 预收集 → 确认 → pipeline 执行 → 回写状态 → PCL 提醒。"""
     cwd = Path.cwd()
     game_root = _resolve_game_root(args)
-    p_path = plan_path(cwd, args.src, args.dst)
+    data_dir = game_root / ".mcmig"
+    # F8:plan 文件锚定优先,旧 CWD 布局回退;两侧皆无时取锚定路径报「缺少计划」
+    p_anchored = plan_path(game_root, args.src, args.dst)
+    p_legacy = plan_path(cwd, args.src, args.dst)
+    p_path = p_anchored if p_anchored.exists() else (p_legacy if p_legacy.exists() else p_anchored)
     if not p_path.exists():
         _print(f"[错误] 缺少计划文件 {p_path}")
         _print("请先运行: mcmig plan <源> <目标>")
         return 2
+    if p_path == p_legacy and p_legacy != p_anchored:
+        # 仅真·旧布局命中才提示(game_root==CWD 时两路径同体,不提示,spec 验收 4)
+        _print_err(
+            f"[提示] 使用旧布局 plan({p_legacy}),建议整体迁移至 {game_root / '.mcmig' / 'plans'}"
+        )
     try:
         plan = MigrationPlan.load(p_path)
     except (PlanFormatError, OSError) as e:
@@ -580,8 +636,9 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
             "(可重入:已完成文件会自动跳过)。"
         )
         return 2
-    src_snap = snapshot_path(cwd, args.src)
-    dst_snap = snapshot_path(cwd, args.dst)
+    # F8:stale 检查取两侧实际存在的快照(锚定优先+旧布局回退;存在才比 mtime,原逻辑保留)
+    src_snap = find_snapshot(data_dir, cwd / ".mcmig", args.src)[0]
+    dst_snap = find_snapshot(data_dir, cwd / ".mcmig", args.dst)[0]
     stale = any(
         p.exists() and p.stat().st_mtime > p_path.stat().st_mtime for p in (src_snap, dst_snap)
     )

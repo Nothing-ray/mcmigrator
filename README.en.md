@@ -3,18 +3,18 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.6.3 / 2026-09-20
+> Last synced: v0.7.0 / 2026-09-20
 
 > A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
 
-When your modpack moves from one NeoForge version folder to another, you want to know: **which files does the player need to keep or update in the new version?** `mcmigrator` scans version folders with `scan` and compares two snapshots with `diff`, producing a migration-oriented 6-bucket report. **v0 is strictly read-only** — it never writes to the game directory; all output lands in the working directory's `.mcmig/`, so you can run it as many times as you want.
+When your modpack moves from one NeoForge version folder to another, you want to know: **which files does the player need to keep or update in the new version?** `mcmigrator` scans version folders with `scan` and compares two snapshots with `diff`, producing a migration-oriented 6-bucket report. **v0 is strictly read-only** — it never touches game files; all output lands in `.mcmig/` (layout detailed in *Data & Uninstall*), so you can run it as many times as you want.
 
 ## Features
 
 - **Tiered hashing**: full MD5 for text, filename-set for mods, size proxy for bulk (`.sqlite`/`.zip`/`.mca`) — fast and precise (byte-level for text the player edits; size proxy for binaries they don't).
 - **Data-driven classification**: rule engine (`pathspec`, gitignore semantics), layered first-match-wins (CLI override > user rules > built-in default > unknown); changing rules doesn't require rescanning.
 - **Migration-oriented 6-bucket diff**: `to_migrate` / `candidate` / `mods` (by filename set) / `only_in_dst` / `identical` / `never`.
-- **Zero writes**: read-only on the game directory; rollback/repeated experiments are inherently safe (game state is immutable).
+- **Game-content zero writes**: only writes its own `.mcmig/` (snapshots/plans); never touches mods/config/saves.
 
 ## Installation
 
@@ -55,6 +55,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 |---------|---------|
 | `mcmig scan <ver>` | Scan a version folder, producing a snapshot + classification summary |
 | `mcmig diff <src> <dst>` | Compare two snapshots into a 6-bucket report |
+| `mcmig diff <src> <dst> --modpack-swap` | Swap-acceptance view: source-only mods land in "swapped out" instead of to_add |
 | `mcmig plan <src> <dst>` | Generate a migration plan (read-only, produces an action list) |
 | `mcmig migrate <src> <dst>` | Execute the saved migration plan (plan first, then migrate; overwrites are auto-backed up to `_conflict_backup/`) |
 | `mcmig swap <src> <dst> <new-pack-dir>` | Modpack swap: compatibility precheck → install pack → generate swap migration plan |
@@ -65,7 +66,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 
 ## How It Works
 
-1. `scan` traverses the version folder, hashes by the tiered strategy, and produces a **raw manifest snapshot** (`.mcmig/snapshots/<ver>.snapshot.json`, **no classification**).
+1. `scan` traverses the version folder, hashes by the tiered strategy, and produces a **raw manifest snapshot** (`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`, **no classification**).
 2. `diff` reads two snapshots, **classifies by current rules on the fly**, and assigns each file to one of 6 buckets.
 3. After changing rules (user `.mcmig/rules.yaml` or CLI `--exclude`/`--include`), **re-run `diff` without rescanning** — classification is computed at snapshot-read time.
 
@@ -137,7 +138,9 @@ diff reports from the **migration-source frame**: src = source (old instance), d
 mods-bucket notes: `shared` = same-named jar on both sides; `to_add` = **src-only** (migrated over);
 `target_only` = shipped by target. Upgrades/renames are paired by modid (rich-table `⇄upgrade`/`⇄renamed`
 markers + a pairing footnote; top-level `mod_pairs` array in `--json` output) instead of unrelated
-remove+add pairs.
+remove+add pairs. Pair kinds: upgrade `⇄upgrade` / rename `⇄renamed` unchanged; `⇄rebuilt` = a
+same-version-number repack whose filename carries a -Patch/-feature-style suffix (warning prefix ⚠,
+same semantics as the same-name rebuilt bucket).
 
 - `rebuilt`: same name and version on both sides but different content (upstream repack) — flagged in diff; plan keeps the target side by default with a warning, never auto-overwrites
 - `mod_pairs` entries carry a `source` field: `registry` (reads mods.toml inside the jar; requires the two version dirs to be truly independent) or `filename` (snapshot filename-family normalization; works for replay/junction setups)
@@ -152,17 +155,18 @@ remove+add pairs.
 ### Where the Tool Keeps Its Data
 
 - **Portable exe (recommended, no Python needed)**: all tool state (config / snapshots / plans / rules) lives in the `data/` folder next to `mcmig.exe` — nothing is ever written to AppData or user directories. Copy the whole client folder and the tool state travels with it. Inside `data/`, state is isolated per game root by a subfolder named after it (`data/<game-dir-name>/snapshots|plans|rules.yaml`), so multiple modpacks never mix; `data/config.toml` records the game root.
-- **Source run (Python)**: uses the `.mcmig/` layout in the current directory, same semantics.
+- **Source run (Python)**: two-pronged layout — snapshots and plans are written to `<game_root>/.mcmig` (generated artifacts travel with the game instance); `config.yaml` and `rules.yaml` stay in the working directory's `.mcmig` (bootstrap config travels with the workspace). Reads prefer the anchored location and automatically fall back to the legacy CWD layout with a migration hint when not found. `diff` must be able to locate the game root (`--game-root` / `MCMIG_GAME_ROOT` / `.mcmig/config.yaml`, any one of the three); otherwise it only searches the CWD (fixture-replay compatible).
 
 ### What Gets Written on the Game Side
 
-The tool never creates any tool directory inside the game root; the only thing written game-side during migration is the **conflict backup**: a file with the same name but different content is backed up to `<target-version>/_conflict_backup/` before being overwritten (mirroring the relative path; the first backup is the pre-overwrite original, and re-runs never overwrite it). Once the migration is verified fine, that folder can be safely deleted.
+The only directory the tool ever creates inside the game root is `.mcmig/` (snapshots and migration plans — pure tool artifacts, safely deletable and rebuildable by re-scanning); no other tool directory is created. The only thing written to game **content** during migration is the **conflict backup**: a file with the same name but different content is backed up to `<target-version>/_conflict_backup/` before being overwritten (mirroring the relative path; the first backup is the pre-overwrite original, and re-runs never overwrite it). Once the migration is verified fine, that folder can be safely deleted.
 
 ### How to Uninstall
 
 1. Delete the mcmig program folder (for the portable exe, `data/` is inside it — deleting it removes all tool state);
-2. Optional: delete `_conflict_backup/` in each `<game-root>/versions/<version>/` (harmless to keep);
-3. The game directory itself (mods/config/saves…) is never modified by the tool — no cleanup needed.
+2. Optional: delete `<game-root>/.mcmig/` (pure tool artifacts; re-scanning rebuilds them);
+3. Optional: delete `_conflict_backup/` in each `<game-root>/versions/<version>/` (harmless to keep);
+4. Game **content** directories themselves (mods/config/saves…) are never modified by the tool — no cleanup needed; apart from the `.mcmig/` handled in step 2, nothing else tool-related is left inside the game root.
 
 ### Verifying the Download (SHA256)
 

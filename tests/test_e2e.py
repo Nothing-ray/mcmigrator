@@ -150,7 +150,7 @@ def test_e2e_plan_whitelist_upgrades_to_migrate(mini_version_with_whitelist: Pat
 
 
 def test_e2e_plan_no_write_to_game_dir(mini_version: Path, tmp_path: Path, monkeypatch):
-    """plan 命令对游戏目录零写入(验收标准 3)。"""
+    """plan 命令对游戏实例文件零写入;.mcmig 为 F8 锚定的工具自有状态,不计入。"""
     game_root = tmp_path / "game"
     versions = game_root / "versions"
     versions.mkdir(parents=True)
@@ -160,9 +160,17 @@ def test_e2e_plan_no_write_to_game_dir(mini_version: Path, tmp_path: Path, monke
     _run(["scan", "mini", "--game-root", str(game_root)])
     _run(["scan", "target", "--game-root", str(game_root)])
 
-    before = {p: p.stat().st_mtime_ns for p in game_root.rglob("*") if p.is_file()}
+    def _game_files() -> dict[Path, int]:
+        # .mcmig 是工具自有状态(scan/plan 按 F8 锚定写入),排除后守护「游戏实例文件不被改写」
+        return {
+            p: p.stat().st_mtime_ns
+            for p in game_root.rglob("*")
+            if p.is_file() and ".mcmig" not in p.relative_to(game_root).parts
+        }
+
+    before = _game_files()
     _run(["plan", "mini", "target", "--game-root", str(game_root)])
-    after = {p: p.stat().st_mtime_ns for p in game_root.rglob("*") if p.is_file()}
+    after = _game_files()
     assert before == after
 
 
@@ -250,7 +258,7 @@ def test_e2e_scan_zero_regression_snapshot_format_unchanged(tmp_path: Path, monk
     (game_root / "versions" / "mini" / "options.txt").write_text("v\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert _run(["scan", "mini", "--game-root", str(game_root)]) == 0
-    snap = Snapshot.load(snapshot_path(tmp_path, "mini"))  # 旧 snapshot 仍可读
+    snap = Snapshot.load(snapshot_path(game_root, "mini"))  # 旧 snapshot 仍可读
     assert snap.file_count >= 1
 
 
@@ -541,7 +549,7 @@ def test_migrate_full_chain(tmp_path, monkeypatch, capsys):
     assert "PCL.ini" in out and "LaunchVersionSelect" in out  # PCL 提醒文案
 
     # plan 已回写执行状态
-    plan_file = tmp_path / ".mcmig" / "plans" / "src__dst.plan.json"
+    plan_file = game_root / ".mcmig" / "plans" / "src__dst.plan.json"
     doc = json.loads(plan_file.read_text(encoding="utf-8"))
     assert doc.get("executed_at")
 
@@ -582,7 +590,7 @@ def test_migrate_force_keeps_first_executed_at(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
 
     # 篡改首次执行状态为哨兵值:executed_at(时间锚点)+ 首跑统计(copied=1)
-    plan_file = tmp_path / ".mcmig" / "plans" / "src__dst.plan.json"
+    plan_file = game_root / ".mcmig" / "plans" / "src__dst.plan.json"
     doc = json.loads(plan_file.read_text(encoding="utf-8"))
     assert doc["executed_at"]
     doc["executed_at"] = "2000-01-01T00:00:00+08:00"
@@ -772,7 +780,7 @@ def test_swap_missing_src_snapshot_exit_2(tmp_path, monkeypatch, capsys):
     game_root, dst_dir, new_mods = _setup_swap_env(tmp_path, monkeypatch)
     _mk_jar(new_mods / "create.jar", "create", "[21.1.0,)")
     # 删除 _setup_swap_env 生成的 src 快照
-    (tmp_path / ".mcmig" / "snapshots" / "src.snapshot.json").unlink()
+    (game_root / ".mcmig" / "snapshots" / "src.snapshot.json").unlink()
     capsys.readouterr()
 
     rc = main(["swap", "src", "dst", str(new_mods.parent),
@@ -811,7 +819,7 @@ def test_swap_full_flow_generates_plan(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "mcmig migrate" in out          # 下一步提示
     assert (dst_dir / "mods" / "cp_lib.jar").exists()  # 装包完成
-    plan_file = tmp_path / ".mcmig" / "plans" / "src__dst.plan.json"
+    plan_file = game_root / ".mcmig" / "plans" / "src__dst.plan.json"
     doc = json.loads(plan_file.read_text(encoding="utf-8"))
     acts = {a["path"]: a for a in doc["actions"]}
     assert acts["mods/old-pack.jar"]["origin"] == "mod_swapped_out"  # 换包排除生效

@@ -87,6 +87,27 @@ def _snapshot_file(mcmig_dir: Path, version: str) -> Path:
     return mcmig_dir / "snapshots" / f"{version}.snapshot.json"
 
 
+def find_snapshot(data_dir: Path, legacy_dir: Path | None, version: str) -> tuple[Path, bool]:
+    """查找快照文件(F8 批次D 锚定):data_dir(锚定)优先,legacy_dir(旧 CWD 布局)回退。
+
+    Args:
+        data_dir: 生成物锚定 .mcmig 目录(game_root 侧)。
+        legacy_dir: 旧布局 .mcmig 目录(通常 CWD 侧);None 或与 data_dir 相同表示无回退。
+        version: 版本名。
+
+    Returns:
+        (快照路径, 是否旧布局命中);两侧均不存在时返回 (锚定路径, False),
+        调用方以此路径报「缺少快照」。
+    """
+    anchored = _snapshot_file(data_dir, version)
+    if anchored.exists() or legacy_dir is None or legacy_dir == data_dir:
+        return anchored, False
+    legacy = _snapshot_file(legacy_dir, version)
+    if legacy.exists():
+        return legacy, True
+    return anchored, False
+
+
 def scan_version(
     game_root: Path,
     version: str,
@@ -131,6 +152,7 @@ def build_plan(
     save: bool = True,
     mcmig_dir: Path,
     plans_dir: Path,
+    data_dir: Path | None = None,  # 生成物锚定目录(快照);None → mcmig_dir(GUI 兼容布局)
     exclude: Sequence[str] = (),
     include: Sequence[str] = (),
     rule_files: Sequence[Path] = (),
@@ -149,8 +171,11 @@ def build_plan(
         modpack_swap: 换包模式(源独有 mod 视为旧包自带,不回迁)。
         rescan_dst: True 时重扫 dst 生成最新快照并落盘(swap 装包后必开)。
         save: 是否持久化 plan 文件。
-        mcmig_dir: .mcmig 目录(rules.yaml 与 snapshots/ 所在)。
+        mcmig_dir: .mcmig 目录(rules.yaml 所在)。
         plans_dir: plan 目录(写为 plans_dir/<src>__<dst>.plan.json)。
+        data_dir: 生成物锚定目录(F8 批次D):快照读/写均落 <data_dir>/snapshots/;
+            None → 等于 mcmig_dir(GUI 兼容布局,行为不变)。mcmig_dir 侧快照仅作
+            旧布局回退(命中时 warning 提示整体迁移)。
         exclude: CLI 级临时规则 glob(本次按 never)。
         include: CLI 级临时规则 glob(本次按 must_migrate)。
         rule_files: 额外规则文件路径列表。
@@ -162,24 +187,32 @@ def build_plan(
         FileNotFoundError: src 快照不存在,或 rescan_dst=False 且 dst 快照不存在。
         ValueError: 快照存在但读取失败。
     """
-    src_path = _snapshot_file(mcmig_dir, src)
+    data = data_dir or mcmig_dir
+    legacy = mcmig_dir if data != mcmig_dir else None
+    src_path, src_legacy = find_snapshot(data, legacy, src)
     if not src_path.exists():
         raise FileNotFoundError(f"缺少 {src} 快照")
+    if src_legacy:
+        log.warning("[提示] %s 使用旧布局快照(%s),建议整体迁移至 %s",
+                    src, src_path.parent.parent, data)
     try:
         src_snap = Snapshot.load(src_path)
     except FileNotFoundError:
         raise
     except Exception as e:  # noqa: BLE001
         raise ValueError(f"{src} 快照读取失败: {e}") from e
-    dst_snap_path = _snapshot_file(mcmig_dir, dst)
+    dst_path, dst_legacy = find_snapshot(data, legacy, dst)
     if rescan_dst:
         # swap 装包刚改写 dst/mods,必须现场重扫以保证 dst 快照反映最新状态
-        dst_snap = scan_version(game_root, dst, mcmig_dir / "snapshots")
-    elif not dst_snap_path.exists():
+        dst_snap = scan_version(game_root, dst, data / "snapshots")
+    elif not dst_path.exists():
         raise FileNotFoundError(f"缺少 {dst} 快照")
     else:
+        if dst_legacy:
+            log.warning("[提示] %s 使用旧布局快照(%s),建议整体迁移至 %s",
+                        dst, dst_path.parent.parent, data)
         try:
-            dst_snap = Snapshot.load(dst_snap_path)
+            dst_snap = Snapshot.load(dst_path)
         except FileNotFoundError:
             raise
         except Exception as e:  # noqa: BLE001

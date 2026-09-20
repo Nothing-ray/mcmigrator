@@ -117,6 +117,81 @@ def test_build_plan_missing_src_snapshot_raises(tmp_path):
         )
 
 
+def test_find_snapshot_anchored_first_then_legacy(tmp_path: Path) -> None:
+    """锚定目录优先;锚定缺失时回退旧布局;均无返回锚定路径(报错指向新位置)。"""
+    from migration.pipeline import find_snapshot
+
+    data = tmp_path / "game" / ".mcmig"
+    legacy = tmp_path / "cwd" / ".mcmig"
+    data_snap = data / "snapshots" / "v.snapshot.json"
+    legacy_snap = legacy / "snapshots" / "v.snapshot.json"
+    data_snap.parent.mkdir(parents=True)
+    legacy_snap.parent.mkdir(parents=True)
+
+    # 两侧都有 → 锚定优先
+    data_snap.write_text("{}", encoding="utf-8")
+    legacy_snap.write_text("{}", encoding="utf-8")
+    p, is_legacy = find_snapshot(data, legacy, "v")
+    assert (p, is_legacy) == (data_snap, False)
+    # 仅旧布局 → 回退命中
+    data_snap.unlink()
+    p, is_legacy = find_snapshot(data, legacy, "v")
+    assert (p, is_legacy) == (legacy_snap, True)
+    # 均无 → 返回锚定路径(调用方报缺少快照)
+    legacy_snap.unlink()
+    p, is_legacy = find_snapshot(data, legacy, "v")
+    assert (p, is_legacy) == (data_snap, False)
+    # legacy_dir=None(同目录语义/GUI)→ 永不回退
+    assert find_snapshot(data, None, "v") == (data_snap, False)
+
+
+def test_build_plan_data_dir_reads_anchored_and_falls_back(tmp_path, caplog) -> None:
+    """data_dir 与 mcmig_dir 分离:快照优先读 data_dir,缺失回退 mcmig_dir(旧布局)。"""
+    import logging
+
+    game = tmp_path / "game"
+    _mk_version(game, "src", "fps:120\n")
+    _mk_version(game, "dst")
+    data = tmp_path / "data"  # 生成物锚定 .mcmig(game_root 侧,快照所在)
+    mcmig = tmp_path / "mcmig"  # 规则层 .mcmig(CWD 侧,旧布局快照回退位)
+    plans_dir = tmp_path / "plans"
+    plans_dir.mkdir()
+
+    # 1) 快照放 data_dir/snapshots → build_plan(data_dir=data) 成功
+    scan_version(game, "src", data / "snapshots")
+    scan_version(game, "dst", data / "snapshots")
+    plan, _ = build_plan(
+        tmp_path, game, "src", "dst",
+        mcmig_dir=mcmig, plans_dir=plans_dir, data_dir=data,
+    )
+    assert plan.summary()["must_migrate"] >= 1
+    # 锚定命中时不得触碰 mcmig_dir(旧布局位保持为空)
+    assert not (mcmig / "snapshots" / "src.snapshot.json").exists()
+
+    # 2) 快照只放 mcmig_dir/snapshots(旧布局) → 仍成功,并 warning 提示旧布局
+    for p in (data / "snapshots").iterdir():
+        p.unlink()
+    scan_version(game, "src", mcmig / "snapshots")
+    scan_version(game, "dst", mcmig / "snapshots")
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="migration.pipeline"):
+        plan, _ = build_plan(
+            tmp_path, game, "src", "dst",
+            mcmig_dir=mcmig, plans_dir=plans_dir, data_dir=data,
+        )
+    assert plan.summary()["must_migrate"] >= 1
+    assert any("旧布局" in m for m in caplog.messages)
+
+    # 3) rescan_dst=True → 新快照写 data_dir/snapshots(而非 mcmig_dir)
+    (mcmig / "snapshots" / "dst.snapshot.json").unlink()
+    build_plan(
+        tmp_path, game, "src", "dst", rescan_dst=True,
+        mcmig_dir=mcmig, plans_dir=plans_dir, data_dir=data,
+    )
+    assert (data / "snapshots" / "dst.snapshot.json").exists()
+    assert not (mcmig / "snapshots" / "dst.snapshot.json").exists()
+
+
 def test_execute_migration_ask_yes_set_decides_ask(tmp_path):
     """ask_yes 集合语义:命中的 ASK 迁移;未传 progress_cb 时 no-op 兜底不报错。"""
     src_root = tmp_path / "s"

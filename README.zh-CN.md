@@ -4,14 +4,14 @@
 
 > Minecraft 整合包版本迁移工具(只读 scan/diff)— 在同一整合包的版本隔离文件夹之间,比对玩家状态差异。
 
-同一整合包从一个 NeoForge 版本文件夹迁到另一个时,你想知道:**玩家在新版本里要保留/改动哪些文件?** `mcmigrator` 用 `scan` 扫描版本文件夹、用 `diff` 对比两份快照,产出迁移导向的 6 桶报告。**v0 纯只读**——绝不写入游戏目录,所有产物落在工作目录的 `.mcmig/`,可无限次试。
+同一整合包从一个 NeoForge 版本文件夹迁到另一个时,你想知道:**玩家在新版本里要保留/改动哪些文件?** `mcmigrator` 用 `scan` 扫描版本文件夹、用 `diff` 对比两份快照,产出迁移导向的 6 桶报告。**v0 纯只读**——绝不改动游戏文件,产物落在 `.mcmig/`(布局见「数据与卸载」),可无限次试。
 
 ## 特性
 
 - **分层哈希**:文本全量 MD5、mods 按文件名集合、bulk(`.sqlite`/`.zip`/`.mca`)按 size——快且精确(玩家会改的文本字节级,不会改的二进制走 size 代理)。
 - **数据驱动分类**:规则引擎(`pathspec`,gitignore 语义),分层 first-match-wins(CLI 覆盖 > 用户规则 > 内置默认 > unknown),改规则不重扫。
 - **迁移导向 6 桶 diff**:`to_migrate`(必迁)/ `candidate`(待确认)/ `mods`(按文件名集合)/ `only_in_dst`(目标自带)/ `identical`(一致)/ `never`(不迁)。
-- **零写入**:对游戏目录只读;回退/重复试验天然满足(游戏状态不可变)。
+- **游戏内容零改写**:只写工具自有 `.mcmig/`(快照/计划),mods/config/saves 等游戏文件绝不改动。
 
 ## 安装
 
@@ -52,6 +52,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 |------|------|
 | `mcmig scan <ver>` | 扫描版本文件夹,生成快照 + 分类汇总 |
 | `mcmig diff <src> <dst>` | 对比两份快照,产出 6 桶报告 |
+| `mcmig diff <src> <dst> --modpack-swap` | 换包验收视角:源独有 mod 归「换包排除」而非 to_add |
 | `mcmig plan <src> <dst>` | 生成迁移计划(只读,产出 action 列表) |
 | `mcmig migrate <src> <dst>` | 执行已保存的迁移计划(先 plan 后 migrate;覆盖自动备份到 `_conflict_backup/`) |
 | `mcmig swap <src> <dst> <新包目录>` | 整合包替换:兼容预检→装包→生成换包迁移计划 |
@@ -60,7 +61,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 
 ## 工作方式
 
-1. `scan` 遍历版本文件夹,按分层策略哈希,生成**原始清单快照**(`.mcmig/snapshots/<ver>.snapshot.json`,**不含分类**)。
+1. `scan` 遍历版本文件夹,按分层策略哈希,生成**原始清单快照**(`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`,**不含分类**)。
 2. `diff` 读两份快照,**按当前规则现算分类**,再把每个文件归入 6 桶。
 3. 改规则(用户 `.mcmig/rules.yaml` 或 CLI `--exclude`/`--include`)后**直接重 diff,无需重扫**——分类在读快照时现算。
 
@@ -132,6 +133,8 @@ diff 以**迁移源视角**报告:src=迁移源(旧实例),dst=目标(新实例)
 mods 桶标记:`shared`=两侧同名 jar;`to_add`=**源有目标无**(迁移时会补齐);
 `target_only`=目标自带。升级/改名由 modid 配对识别(rich 表 `⇄upgrade`/`⇄renamed` 标记 +
 表尾配对脚注;`--json` 输出顶层 `mod_pairs` 数组),不再表现为无关的"删旧+增新"。
+配对种类:升级 `⇄upgrade` / 改名 `⇄renamed` 不变;`⇄rebuilt` = 同版本号、文件名带
+-Patch/-feature 类尾缀的重新打包(警示前缀 ⚠,与同名桶 rebuilt 语义统一)。
 
 - `rebuilt`:两侧同名同版本号但内容不同(上游重新打包)——diff 标记,plan 默认保留目标侧并警告,不自动覆盖
 - `mod_pairs` 条目含 `source` 字段:`registry`(读取 jar 内 mods.toml,需两侧版本目录真实独立)或 `filename`(快照文件名家族归一,复放/junction 场景可用)
@@ -148,17 +151,18 @@ mods 桶标记:`shared`=两侧同名 jar;`to_add`=**源有目标无**(迁移时�
 ### 工具数据放在哪
 
 - **绿色 exe(推荐,免 Python)**:所有工具状态(配置/快照/计划/规则)都在 `mcmig.exe` 同级的 `data/` 文件夹内,绝不写入 AppData 或用户目录——整个客户端文件夹拷走即带走全部工具状态。`data/` 内再按游戏根目录名建子文件夹隔离(`data/<游戏目录名>/snapshots|plans|rules.yaml`),多个整合包互不串数据;`data/config.toml` 记录游戏根目录。
-- **源码运行(Python)**:沿用当前目录的 `.mcmig/` 布局,语义与上述一致。
+- **源码运行(Python)**:两分法布局——快照与 plan 写入 `<game_root>/.mcmig`(生成物跟游戏实例走);`config.yaml` 与 `rules.yaml` 仍在工作目录 `.mcmig`(引导配置跟工作区走)。读取时锚定位置优先,找不到自动回退旧 CWD 布局并提示迁移。diff 需能定位 game-root(`--game-root` / `MCMIG_GAME_ROOT` / `.mcmig/config.yaml` 三选一),否则仅查 CWD(夹具复放兼容)。
 
 ### 游戏侧会写什么
 
-工具绝不在游戏根目录创建任何工具目录;迁移期间唯一写入游戏侧的是**冲突备份**:同名但内容不同的文件在覆盖前会先备份到 `<目标版本>/_conflict_backup/`(镜像相对路径结构;首份备份为覆盖前的原件,重跑不会覆盖)。迁移完成并确认无误后,该文件夹可安全删除。
+工具在游戏根目录创建的唯一目录是 `.mcmig/`(快照与迁移计划,纯工具产物,删除后重新 scan 即可重建);除此之外不创建任何其他工具目录。迁移期间唯一写入游戏内容的是**冲突备份**:同名但内容不同的文件在覆盖前会先备份到 `<目标版本>/_conflict_backup/`(镜像相对路径结构;首份备份为覆盖前的原件,重跑不会覆盖)。迁移完成并确认无误后,该文件夹可安全删除。
 
 ### 如何卸载
 
 1. 删除 mcmig 程序文件夹(绿色 exe 下 `data/` 在其中,一并删除即清空全部工具状态);
-2. 可选:删除各 `<游戏根>/versions/<版本>/_conflict_backup/`(留着也无害);
-3. 游戏目录本身(mods/config/saves…)不会被工具改动,无需清理。
+2. 可选:删除 `<游戏根>/.mcmig/`(纯工具产物,重扫即重建);
+3. 可选:删除各 `<游戏根>/versions/<版本>/_conflict_backup/`(留着也无害);
+4. 游戏**内容**目录(mods/config/saves…)本身不会被工具改动,无需清理;游戏根内除第 2 步的 `.mcmig/` 外不残留其他工具文件。
 
 ### 校验下载完整性(SHA256)
 

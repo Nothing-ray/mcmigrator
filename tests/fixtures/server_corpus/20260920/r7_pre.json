@@ -1,0 +1,16 @@
+{
+  "tool_version": "0.6.0",
+  "snapshot_format": 1,
+  "version": "r7-pre",
+  "game_root": "C:\\fixture\\sanitized",
+  "scanned_at": "2026-09-20T14:20:00+08:00",
+  "hash_mode": "tiered",
+  "file_count": 5,
+  "files": [
+    {"path": "mods/kaleidoscopecookery-1.4.1-neoforge+mc1.21.1.jar", "size": 5018991, "md5": null},
+    {"path": "mods/letsdo-beachparty-neoforge-2.1.4.jar", "size": 7759926, "md5": null},
+    {"path": "mods/letsdo-wildernature-neoforge-1.1.5.jar", "size": 3352801, "md5": null},
+    {"path": "mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1.jar", "size": 1357431, "md5": null},
+    {"path": "mods/create-6.0.10-neoforge+mc1.21.1.jar", "size": 777777, "md5": null}
+  ]
+}

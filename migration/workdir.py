@@ -4,7 +4,9 @@ PyInstaller 单文件 exe(frozen)下采用「绿色软件」布局——所有 m
 (配置/快照/计划/规则)存放于 exe 同级的 ``data/`` 目录内,绝不写入
 APPDATA/用户目录,玩家整个客户端文件夹拷走即带走全部工具状态;
 快照/计划/规则再按「游戏根目录名(slug)」隔离子目录,支持多个整合包根共存
-互不串数据。源码运行(非 frozen)沿用 v0.x 的 ``cwd/.mcmig`` 布局,行为不变。
+互不串数据。源码运行(非 frozen)下,``cwd/.mcmig`` 兼容布局现由 **GUI 表面**
+使用(GUI 生成物仍走 workdir);CLI 自 0.7.0 起生成物(快照/计划)锚定
+``game_root/.mcmig``(由 ``cli.py`` 接线),不再落在本布局内。
 
 两种模式一览:
 - 绿色模式(frozen):root=exe_dir/data;config=root/config.toml(TOML);
@@ -12,7 +14,7 @@ APPDATA/用户目录,玩家整个客户端文件夹拷走即带走全部工具�
 - 兼容模式(源码):root=cwd/.mcmig;snapshots=root/snapshots、plans=root/plans、
   rules=root/rules.yaml、config=root/config.yaml(YAML ``game_root:`` 键,兼容现状)
 
-注意:本模块不接线 CLI(属后续任务);``_is_frozen``/``_exe_dir``/``_ensure_writable``
+注意:``_is_frozen``/``_exe_dir``/``_ensure_writable``
 为模块级小函数,兼作测试注入点。
 """
 

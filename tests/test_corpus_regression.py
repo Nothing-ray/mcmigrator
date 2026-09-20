@@ -210,3 +210,51 @@ def test_corpus_0914_idle_heartbeat_all_world() -> None:
     dst_only = _mods_jar_paths(dst) - _mods_jar_paths(src)
     assert src_only == set() and dst_only == set()
     assert pair_mods_by_filename(sorted(src_only), sorted(dst_only)) == []
+
+
+def test_corpus_20260920_four_pairs_three_upgrade_one_rebuilt() -> None:
+    """F20 黄金对:七轮换装 4 件按指纹合成 — 3×upgrade + 1×rebuilt(compat -Patch)。
+
+    七轮原始快照未随交付包,夹具以《旧件指纹.md》md5/size 真值合成(mods-only);
+    size 差 250B 的 compat 变体是 F20-3 盲区的最小复现。
+    """
+    from migration.moddb import pair_mods_by_filename
+
+    d = FIXTURES / "20260920"
+    src = Snapshot.load(d / "r7_pre.json")
+    dst = Snapshot.load(d / "r7_post.json")
+    pairs = pair_mods_by_filename(sorted(_mods_jar_paths(src) - _mods_jar_paths(dst)),
+                                  sorted(_mods_jar_paths(dst) - _mods_jar_paths(src)))
+    by_modid = {p.modid: p for p in pairs}
+    assert len(pairs) == 4
+    # 3 个升级对(真实升级,版本签名不同)
+    for modid, (sv, dv) in {
+        "kaleidoscopecookery-neoforge": ("1.4.1-mc1.21.1", "1.5.0-mc1.21.1"),
+        "letsdo-beachparty-neoforge": ("2.1.4", "2.1.5"),
+        "letsdo-wildernature-neoforge": ("1.1.5", "1.1.6"),
+    }.items():
+        p = by_modid[modid]
+        assert (p.kind, p.source) == ("upgrade", "filename")
+        assert (p.src_version, p.dst_version) == (sv, dv)
+    # compat 同版变体 → rebuilt(F20-3 核心)
+    p = by_modid["kaleidoscope-compat-neoforge"]
+    assert (p.kind, p.source) == ("rebuilt", "filename")
+    assert p.src_files == ["mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1.jar"]
+    assert p.dst_files == ["mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1-Patch.jar"]
+    assert p.src_version == p.dst_version == "2.9.7-mc1.21.1"
+
+
+def test_corpus_20260920_bucket_notes_unchanged_by_pairing() -> None:
+    """配对纯标注不变:compat 两条目在 mods 桶内仍是 to_add/target_only(spec §7 妥协)。"""
+    d = FIXTURES / "20260920"
+    src = Snapshot.load(d / "r7_pre.json")
+    dst = Snapshot.load(d / "r7_post.json")
+    rs, errs = build_ruleset(["r7_src", "r7_dst"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    notes = {i.path: i.note for i in report.mods}
+    assert notes["mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1.jar"] == "to_add"
+    assert notes["mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1-Patch.jar"] == "target_only"
+    assert notes["mods/create-6.0.10-neoforge+mc1.21.1.jar"] == "shared"
+    assert len(report.mods) == 9  # 4 to_add + 4 target_only + 1 shared

@@ -501,25 +501,46 @@ def check_mod_compat(
 _TAG_PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*")
 
 
-def normalize_jar_family(jar_rel_path: str) -> tuple[str, str]:
-    """jar 相对路径 → (家族键, 版本签名),文件名配对的归一化基础(F4 fallback)。
+def normalize_jar_family(jar_rel_path: str) -> tuple[str, str, str]:
+    """jar 相对路径 → (家族键, 版本签名, 变体尾缀),文件名配对的归一化基础(F4/F20-3)。
 
-    家族键 = 剥 [中文标签] 前缀、小写、按 -_+ 切词后仅保留纯字母词;
-    版本签名 = 含数字的词按序拼接(区分 upgrade/renamed 用)。
+    家族键 = 剥 [中文标签] 前缀、小写、按 -_+ 切词后仅保留纯字母词(**含尾缀词,规则不变**);
+    版本签名 = 含数字的词按序拼接(区分 upgrade/renamed 用);
+    变体尾缀 = 最后一个含数字词**之后**的连续纯字母词(如 -Patch/-feature),无则空串。
+    家族键仍含尾缀词是两级匹配零回归的关键:第一级全键配对行为与 0.6.3 完全一致,
+    尾缀只作为第二级(减尾键)配对的新信息。
 
     Args:
         jar_rel_path: 版本内相对路径(正斜杠,如 "mods/[标签] x-1.0.jar")。
 
     Returns:
-        (家族键, 版本签名);家族键可能为空串(调用方需跳过)。
+        (家族键, 版本签名, 变体尾缀);家族键可能为空串(调用方需跳过)。
     """
     name = jar_rel_path.rsplit("/", 1)[-1]
     name = _TAG_PREFIX_RE.sub("", name)
     stem = name.rsplit(".", 1)[0].lower()
     tokens = [t for t in re.split(r"[-_+]", stem) if t]
+    # 尾缀定位:最后一个含数字词(非纯字母词)之后的连续纯字母词
+    last_digit_idx = -1
+    for i, t in enumerate(tokens):
+        if not t.isalpha():
+            last_digit_idx = i
+    tail = "-".join(tokens[last_digit_idx + 1 :]) if last_digit_idx >= 0 else ""
     family = "-".join(t for t in tokens if t.isalpha())
     version_sig = "-".join(t for t in tokens if not t.isalpha())
-    return family, version_sig
+    return family, version_sig, tail
+
+
+def _reduced_family(family: str, tail: str) -> str:
+    """家族键剥掉尾部尾缀词(第二级匹配的减尾键);tail 为空时原样返回。
+
+    纯字母词经 "-" 连接成家族键,split("-") 可无损还原词表;
+    尾缀词必在词表末尾,故直接截断对应长度。
+    """
+    if not tail:
+        return family
+    n = len(tail.split("-"))
+    return "-".join(family.split("-")[:-n])
 
 
 @dataclass(frozen=True)
@@ -528,7 +549,7 @@ class ModPair:
 
     Attributes:
         modid: mod 标识符。
-        kind: "upgrade"(同 modid 异版本) 或 "renamed"(同 modid 同版本异文件名)。
+        kind: "upgrade"(同 modid 异版本) / "renamed"(同 modid 同版本异文件名) / "rebuilt"(同版本异尾缀重打包,批次D)。
         src_files: 源侧 jar 相对路径(通常 1 个)。
         dst_files: 目标侧 jar 相对路径。
         src_version: 源侧版本(空串视为 None)。
@@ -560,7 +581,8 @@ class ModPair:
 def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
     """按 modid 配对两侧注册表,产出升级/改名清单。
 
-    - 两侧均有该 modid:版本不同 → upgrade;版本相同但 jar 文件名不同 → renamed;
+    - 两侧均有该 modid:版本不同 → upgrade;版本相同但 jar 文件名不同 →
+      按尾缀启发式判 rebuilt(尾缀不同)或 renamed(尾缀相同);
       版本与文件名均相同 → 不配对(已是 shared)。
     - 仅一侧有 → 不配对(维持 to_add/target_only 原语义,planner 行为不变)。
     - 多 jar 同 modid(注册表按 modid 去重,罕见)整组按单条处理,不做逐 jar 拆分。
@@ -582,7 +604,11 @@ def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
         if s.version != d.version:
             kind = "upgrade"
         elif s.jar_filename != d.jar_filename:
-            kind = "renamed"
+            # 同版异名:文件名尾缀不同(如 -Patch/-feature)→ rebuilt(同版本重打包);
+            # 尾缀相同(如仅 [中文标签] 前缀差)→ renamed。与文件名配对两源判定统一(F20-3)。
+            s_tail = normalize_jar_family("mods/" + s.jar_filename)[2]
+            d_tail = normalize_jar_family("mods/" + d.jar_filename)[2]
+            kind = "rebuilt" if s_tail != d_tail else "renamed"
         else:
             continue
         pairs.append(
@@ -599,46 +625,84 @@ def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
 
 
 def pair_mods_by_filename(src_only: list[str], dst_only: list[str]) -> list[ModPair]:
-    """mods 桶 to_add/target_only 按归一化家族键配对(纯快照数据,无活体依赖)。
+    """mods 桶 to_add/target_only 按归一化家族键两级配对(纯快照数据,无活体依赖)。
 
-    junction 同体/跨机复放下注册表配对不可用,本函数以文件名为唯一依据;
-    同家族任一侧多候选(歧义)→ 整族放弃。版本签名不同 → upgrade,相同 → renamed。
+    第一级(0.6.3 语义,键与判定完全不变):家族键全等配对;
+    版本签名不同 → upgrade,相同 → renamed。歧义(同键任一侧多候选)整族放弃。
+    第二级(批次D F20-3,仅对第一级未配上的残余):家族键剥掉尾缀词(减尾键)后相等,
+    且双方版本签名相同、尾缀不同(含一侧空)→ kind="rebuilt"(同版本重打包/变体)。
 
     Args:
         src_only: 源侧独有 jar 相对路径(to_add 条目)。
         dst_only: 目标侧独有 jar 相对路径(target_only 条目)。
 
     Returns:
-        ModPair 列表(source="filename",modid=家族键,按家族键升序)。
+        ModPair 列表(source="filename",modid=家族键(第二级为减尾键),按 modid 升序)。
     """
-    by_src: dict[str, list[str]] = {}
-    by_dst: dict[str, list[str]] = {}
-    for p in src_only:
-        fam = normalize_jar_family(p)[0]
-        if fam:
-            by_src.setdefault(fam, []).append(p)
-    for p in dst_only:
-        fam = normalize_jar_family(p)[0]
-        if fam:
-            by_dst.setdefault(fam, []).append(p)
+    src_norm = {p: normalize_jar_family(p) for p in src_only}
+    dst_norm = {p: normalize_jar_family(p) for p in dst_only}
+
+    def _group(norm: dict[str, tuple[str, str, str]]) -> dict[str, list[str]]:
+        by: dict[str, list[str]] = {}
+        for p, (fam, _, _) in norm.items():
+            if fam:
+                by.setdefault(fam, []).append(p)
+        return by
+
     pairs: list[ModPair] = []
+    paired: set[str] = set()
+    # 第一级:家族键全等(0.6.3 行为原样)
+    by_src, by_dst = _group(src_norm), _group(dst_norm)
     for fam in sorted(set(by_src) & set(by_dst)):
         s_list, d_list = by_src[fam], by_dst[fam]
         if len(s_list) != 1 or len(d_list) != 1:
             continue  # 歧义放弃,不猜
-        s_sig = normalize_jar_family(s_list[0])[1]
-        d_sig = normalize_jar_family(d_list[0])[1]
+        s, d = s_list[0], d_list[0]
+        s_sig, d_sig = src_norm[s][1], dst_norm[d][1]
         pairs.append(
             ModPair(
                 modid=fam,
                 kind="upgrade" if s_sig != d_sig else "renamed",
-                src_files=[s_list[0]],
-                dst_files=[d_list[0]],
-                src_version=s_sig or None,
-                dst_version=d_sig or None,
+                src_files=[s], dst_files=[d],
+                src_version=s_sig or None, dst_version=d_sig or None,
                 source="filename",
             )
         )
+        paired.update((s, d))
+    # 第二级:减尾键相等 + 同版本签名 + 异尾缀 → rebuilt(仅第一级残余)
+    r_src: dict[str, list[str]] = {}
+    r_dst: dict[str, list[str]] = {}
+    for p, (fam, _, tail) in src_norm.items():
+        if p in paired or not fam:
+            continue
+        red = _reduced_family(fam, tail)
+        if red:
+            r_src.setdefault(red, []).append(p)
+    for p, (fam, _, tail) in dst_norm.items():
+        if p in paired or not fam:
+            continue
+        red = _reduced_family(fam, tail)
+        if red:
+            r_dst.setdefault(red, []).append(p)
+    for red in sorted(set(r_src) & set(r_dst)):
+        s_list, d_list = r_src[red], r_dst[red]
+        if len(s_list) != 1 or len(d_list) != 1:
+            continue  # 歧义放弃,不猜
+        s, d = s_list[0], d_list[0]
+        s_sig, d_sig = src_norm[s][1], dst_norm[d][1]
+        s_tail, d_tail = src_norm[s][2], dst_norm[d][2]
+        if s_sig != d_sig or s_tail == d_tail:
+            continue  # 版本不同非本级职责;尾缀相同属第一级改名语义(此处理论死枝守卫)
+        pairs.append(
+            ModPair(
+                modid=red,
+                kind="rebuilt",
+                src_files=[s], dst_files=[d],
+                src_version=s_sig or None, dst_version=d_sig or None,
+                source="filename",
+            )
+        )
+    pairs.sort(key=lambda p: p.modid)
     return pairs
 
 

@@ -65,8 +65,8 @@ class DiffReporter:
             kind = self._pair_by_path.get(item.path)
             if kind:
                 note = f"{note} ⇄{kind}"
-            if item.note == "rebuilt":
-                note = f"⚠ {note}"  # F17: 同名同版本异构建
+            if kind == "rebuilt" or item.note == "rebuilt":
+                note = f"⚠ {note}"  # F17/F20-3: 同名同版本异构建(配对或单条)统一警示
         elif bucket == "candidate" and note == "new":
             note = "new ←仅源"
         elif bucket == "only_in_dst" and note == "target_only":
