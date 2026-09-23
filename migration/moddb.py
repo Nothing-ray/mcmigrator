@@ -543,6 +543,26 @@ def _reduced_family(family: str, tail: str) -> str:
     return "-".join(family.split("-")[:-n])
 
 
+# 平台装饰词(F22):上游改命名风格时中段平台词干扰家族键,四级配对前剥除(枚举闭集)
+_PLATFORM_WORDS = frozenset({"neoforge", "forge", "fabric", "quilt", "mc", "minecraft"})
+
+
+def _platform_stripped(family: str, tail: str) -> str:
+    """减尾键再剥平台装饰词(第四级配对键);剥后为空返回空串(调用方跳过)。
+
+    Args:
+        family: 家族键(纯字母词 "-" 连接,含尾缀词)。
+        tail: 变体尾缀(空串表示无)。
+
+    Returns:
+        剥离平台词后的减尾键;家族词全为平台词时为空串。
+    """
+    reduced = _reduced_family(family, tail)
+    if not reduced:
+        return ""
+    return "-".join(w for w in reduced.split("-") if w not in _PLATFORM_WORDS)
+
+
 @dataclass(frozen=True)
 class ModPair:
     """跨侧配对的同一 mod(升级或改名)。
@@ -625,19 +645,24 @@ def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
 
 
 def pair_mods_by_filename(src_only: list[str], dst_only: list[str]) -> list[ModPair]:
-    """mods 桶 to_add/target_only 按归一化家族键两级配对(纯快照数据,无活体依赖)。
+    """mods 桶 to_add/target_only 按归一化家族键四级配对(纯快照数据,无活体依赖)。
 
     第一级(0.6.3 语义,键与判定完全不变):家族键全等配对;
     版本签名不同 → upgrade,相同 → renamed。歧义(同键任一侧多候选)整族放弃。
     第二级(批次D F20-3,仅对第一级未配上的残余):家族键剥掉尾缀词(减尾键)后相等,
     且双方版本签名相同、尾缀不同(含一侧空)→ kind="rebuilt"(同版本重打包/变体)。
+    第三级(F21,仅消费上级残余):减尾键相等 + 版本签名不同 → upgrade
+    (版本与尾缀同时变化:一级因家族键含尾缀词而失配,二级因要求同签名而失配)。
+    第四级(F22,仅消费上级残余):减尾键剥平台装饰词(neoforge/forge/fabric/quilt/
+    mc/minecraft)后相等 → 版本签名不同 → upgrade,相同 → renamed(作者改命名风格)。
 
     Args:
         src_only: 源侧独有 jar 相对路径(to_add 条目)。
         dst_only: 目标侧独有 jar 相对路径(target_only 条目)。
 
     Returns:
-        ModPair 列表(source="filename",modid=家族键(第二级为减尾键),按 modid 升序)。
+        ModPair 列表(source="filename",modid=家族键(第二/三级为减尾键,
+        第四级为剥平台词后的减尾键),按 modid 升序)。
     """
     src_norm = {p: normalize_jar_family(p) for p in src_only}
     dst_norm = {p: normalize_jar_family(p) for p in dst_only}
@@ -697,6 +722,58 @@ def pair_mods_by_filename(src_only: list[str], dst_only: list[str]) -> list[ModP
             ModPair(
                 modid=red,
                 kind="rebuilt",
+                src_files=[s], dst_files=[d],
+                src_version=s_sig or None, dst_version=d_sig or None,
+                source="filename",
+            )
+        )
+        paired.update((s, d))
+    # 第三级(F21):减尾键相等 + 版本签名不同 → upgrade(版本与尾缀同变;
+    # 一级因家族键含尾缀词而失配,二级因要求同签名而失配,本级收口)
+    for red in sorted(set(r_src) & set(r_dst)):
+        s_list = [p for p in r_src[red] if p not in paired]
+        d_list = [p for p in r_dst[red] if p not in paired]
+        if len(s_list) != 1 or len(d_list) != 1:
+            continue  # 歧义放弃,不猜
+        s, d = s_list[0], d_list[0]
+        if src_norm[s][1] == dst_norm[d][1]:
+            continue  # 同签名属第二级语义(此处理论死枝守卫)
+        pairs.append(
+            ModPair(
+                modid=red,
+                kind="upgrade",
+                src_files=[s], dst_files=[d],
+                src_version=src_norm[s][1] or None,
+                dst_version=dst_norm[d][1] or None,
+                source="filename",
+            )
+        )
+        paired.update((s, d))
+    # 第四级(F22):减尾键剥平台装饰词后相等 → upgrade/renamed(作者改命名风格)
+    p_src: dict[str, list[str]] = {}
+    p_dst: dict[str, list[str]] = {}
+    for p, (fam, _, tail) in src_norm.items():
+        if p in paired or not fam:
+            continue
+        stripped = _platform_stripped(fam, tail)
+        if stripped:
+            p_src.setdefault(stripped, []).append(p)
+    for p, (fam, _, tail) in dst_norm.items():
+        if p in paired or not fam:
+            continue
+        stripped = _platform_stripped(fam, tail)
+        if stripped:
+            p_dst.setdefault(stripped, []).append(p)
+    for key in sorted(set(p_src) & set(p_dst)):
+        s_list, d_list = p_src[key], p_dst[key]
+        if len(s_list) != 1 or len(d_list) != 1:
+            continue  # 歧义放弃,不猜
+        s, d = s_list[0], d_list[0]
+        s_sig, d_sig = src_norm[s][1], dst_norm[d][1]
+        pairs.append(
+            ModPair(
+                modid=key,
+                kind="upgrade" if s_sig != d_sig else "renamed",
                 src_files=[s], dst_files=[d],
                 src_version=s_sig or None, dst_version=d_sig or None,
                 source="filename",

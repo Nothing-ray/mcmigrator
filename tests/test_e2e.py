@@ -199,7 +199,7 @@ def test_e2e_plan_default_config_skipped(tmp_path: Path, monkeypatch):
 
 
 def test_e2e_acceptance_plan_format_and_origins(tmp_path: Path, monkeypatch, capsys):
-    """spec 验收标准整合:plan_format=2;.bak→bak_file;rebuild→rebuild;白名单→must_migrate;
+    """spec 验收标准整合:plan_format=2;.bak→never(F28);rebuild→rebuild;白名单→must_migrate;
     scan/diff 零回归(snapshot 可读)。"""
     import json
     game_root = tmp_path / "game"
@@ -238,9 +238,12 @@ def test_e2e_acceptance_plan_format_and_origins(tmp_path: Path, monkeypatch, cap
     assert doc["plan_format"] == 2
     origins = {a["path"]: a["origin"] for a in doc["actions"]}
     behaviors = {a["path"]: a["behavior"] for a in doc["actions"]}
-    # 验收 1:.bak → bak_file(非 default_config)
-    assert origins.get("config/create-1.toml.bak") == "bak_file"
-    assert behaviors.get("config/create-1.toml.bak") == "copy"
+    # F28(批次E):.bak 本体归 never 默认规则 → plan 为 skip/never;
+    # 判定法父提升不受影响(读快照全集):create.toml 仍 config_modified/copy
+    assert origins.get("config/create-1.toml.bak") == "never"
+    assert behaviors.get("config/create-1.toml.bak") == "skip"
+    assert origins.get("config/create.toml") == "config_modified"
+    assert behaviors.get("config/create.toml") == "copy"
     # 验收 1:高危文件 → rebuild
     assert origins.get("config/fml.toml") == "rebuild"
     assert behaviors.get("config/fml.toml") == "skip"
@@ -824,3 +827,56 @@ def test_swap_full_flow_generates_plan(tmp_path, monkeypatch, capsys):
     acts = {a["path"]: a for a in doc["actions"]}
     assert acts["mods/old-pack.jar"]["origin"] == "mod_swapped_out"  # 换包排除生效
     assert acts["options.txt"]["behavior"] == "copy"
+
+
+# ---- 批次E F28 用户主权:用户规则把 `.bak` 提回 pass-2 机制 ----
+
+
+def test_e2e_user_rule_promotes_bak_back_to_pass2(
+    mini_version_with_bak: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """F28 用户主权护栏:默认 never 的 `.bak` 被用户规则提回 candidate 后,
+    planner pass-2 机制照常(origin=bak_file,随父 config 命运);
+    无用户规则时同构造落 never/skip(证明差异确实来自用户层压过默认层)。
+    """
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    versions.mkdir(parents=True)
+    shutil.move(str(mini_version_with_bak), str(versions / "mini"))
+    (versions / "target").mkdir()
+    # dst 装有 create mod → create.toml 不是孤儿,父能走到 config_modified
+    _write_mod_jar(versions / "target" / "mods" / "create.jar", "create")
+    monkeypatch.chdir(tmp_path)
+    assert _run(["scan", "mini", "--game-root", str(game_root)]) == 0
+    assert _run(["scan", "target", "--game-root", str(game_root)]) == 0
+
+    def _plan_actions() -> dict[str, dict]:
+        """跑一次 plan --json,返回 path → action 映射。"""
+        buf = io.StringIO()
+        assert _run(["plan", "mini", "target", "--json", "--game-root", str(game_root)], buf) == 0
+        return {a["path"]: a for a in json.loads(buf.getvalue())["actions"]}
+
+    # ① 无用户规则:`.bak` 归默认 never 规则 → skip/never;父 config 仍被 .bak 判定法提升
+    base = _plan_actions()
+    assert base["config/create-1.toml.bak"]["origin"] == "never"
+    assert base["config/create-1.toml.bak"]["behavior"] == "skip"
+    assert base["config/create.toml"]["origin"] == "config_modified"
+    assert base["config/create.toml"]["behavior"] == "copy"
+
+    # ② 用户规则(match/decide 详写格式,优先级高于 default)把 `.bak` 提为 ask
+    #    → 进 candidate → pass-2 继承父命运:bak_file/copy
+    (tmp_path / ".mcmig").mkdir(exist_ok=True)
+    (tmp_path / ".mcmig" / "rules.yaml").write_text(
+        "version: 1\n"
+        "rules:\n"
+        '  - match: "**/*.bak"\n'
+        "    decide: ask\n"
+        "    reason: 测试:用户显式保留 .bak\n",
+        encoding="utf-8",
+    )
+    promoted = _plan_actions()
+    assert promoted["config/create-1.toml.bak"]["origin"] == "bak_file"
+    assert promoted["config/create-1.toml.bak"]["behavior"] == "copy"
+    # behavior 随父 config 命运(父 copy → .bak copy)
+    assert promoted["config/create-1.toml.bak"]["behavior"] == \
+        promoted["config/create.toml"]["behavior"]

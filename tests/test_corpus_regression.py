@@ -19,22 +19,23 @@ from migration.snapshot import Snapshot
 
 FIXTURES = Path(__file__).parent / "fixtures" / "server_corpus"
 
+# F28(批次E)后 `**/*.bak` 归默认 never:identical/candidate/only_in_dst 相应流入 never
 ROUNDS = {
     "20260908": ("snapshot_before.json", "snapshot_after.json",
-                 {"to_migrate": 257, "candidate": 5, "mods": 130,
-                  "only_in_dst": 1, "identical": 636, "never": 143}),
+                 {"to_migrate": 257, "candidate": 3, "mods": 130,
+                  "only_in_dst": 1, "identical": 592, "never": 189}),
     "20260912": ("snapshot_9_8_player.json", "snapshot_9_11_fresh.json",
-                 {"to_migrate": 550, "candidate": 7, "mods": 122,
-                  "only_in_dst": 0, "identical": 631, "never": 149}),
+                 {"to_migrate": 550, "candidate": 6, "mods": 122,
+                  "only_in_dst": 0, "identical": 588, "never": 193}),
     "20260914": ("r4_pre.json", "r4_post.json",
                  {"to_migrate": 12, "candidate": 1, "mods": 117,
-                  "only_in_dst": 0, "identical": 737, "never": 41}),
+                  "only_in_dst": 0, "identical": 694, "never": 84}),
     "20260914b": ("r5_pre.json", "r5_post.json",
                   {"to_migrate": 0, "candidate": 0, "mods": 112,
-                   "only_in_dst": 0, "identical": 750, "never": 47}),  # T4 后 hs_err/replay 3 件 only_in_dst→never
+                   "only_in_dst": 0, "identical": 707, "never": 90}),  # T4 后 hs_err/replay 3 件 only_in_dst→never
     "20260919": ("r6_pre.json", "r6_post.json",
-                 {"to_migrate": 11, "candidate": 16, "mods": 120,
-                  "only_in_dst": 8, "identical": 1126, "never": 55}),  # T4 后 candidate 19→16
+                 {"to_migrate": 11, "candidate": 14, "mods": 120,
+                  "only_in_dst": 2, "identical": 1085, "never": 104}),  # T4 后 candidate 19→16;F28 后 6 件 dst 侧 .bak only_in_dst→never
 }
 
 
@@ -113,7 +114,7 @@ def test_corpus_r3_evolution_fully_explained() -> None:
     actual = {k: len(getattr(report, k))
               for k in ["to_migrate", "candidate", "mods", "only_in_dst", "identical", "never"]}
     assert actual == {"to_migrate": 22, "candidate": 1, "mods": 112,
-                      "only_in_dst": 91, "identical": 636, "never": 37}
+                      "only_in_dst": 91, "identical": 593, "never": 80}  # F28:43 件 .bak identical→never
     tm = {i.path: i for i in report.to_migrate}
     assert "server.properties" in tm  # E1/E2 真实改动 + F12 噪声成分(无 ctx 时字节判定)
     assert any(p.startswith("world/") for p in tm)  # 世界演化数据
@@ -131,7 +132,7 @@ def test_corpus_r3_pure_config_drift_golden() -> None:
     actual = {k: len(getattr(report, k))
               for k in ["to_migrate", "candidate", "mods", "only_in_dst", "identical", "never"]}
     assert actual == {"to_migrate": 1, "candidate": 1, "mods": 112,
-                      "only_in_dst": 0, "identical": 748, "never": 37}
+                      "only_in_dst": 0, "identical": 705, "never": 80}  # F28:43 件 .bak identical→never
     assert [i.path for i in report.to_migrate] == ["server.properties"]
     assert [i.path for i in report.candidate] == ["config/alltheleaks.json"]
 
@@ -258,3 +259,85 @@ def test_corpus_20260920_bucket_notes_unchanged_by_pairing() -> None:
     assert notes["mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1-Patch.jar"] == "target_only"
     assert notes["mods/create-6.0.10-neoforge+mc1.21.1.jar"] == "shared"
     assert len(report.mods) == 9  # 4 to_add + 4 target_only + 1 shared
+
+
+def test_corpus_bak_files_in_never_and_judgement_intact() -> None:
+    """F28:.bak 全量归 never;判定法父提升不受影响(planner 读快照全集,实证于 0912 轮)。"""
+    from migration.planner import Planner, find_bak_siblings
+    d = FIXTURES / "20260912"
+    src = Snapshot.load(d / "snapshot_9_8_player.json")
+    dst = Snapshot.load(d / "snapshot_9_11_fresh.json")
+    rs, errs = build_ruleset(["a", "b"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    # ① .bak 全量进 never,其余五桶零残留
+    assert [i for i in report.never if i.path.endswith(".bak")]
+    for b in ("to_migrate", "candidate", "only_in_dst", "identical", "mods"):
+        assert not [i for i in getattr(report, b) if i.path.endswith(".bak")]
+    # ② 判定法父提升保持:infernalmobs.cfg(candidate 且 src 有 .bak 兄弟,勘察实证唯一件)
+    #    仍被 planner 提升为 config_modified/copy(find_bak_siblings 读 src_index 快照全集)
+    src_index = {e.path: e for e in src.files}
+    assert find_bak_siblings("config/infernalmobs.cfg", set(src_index))
+    plan = Planner(report, src_index).plan()
+    act = {a.path: a for a in plan.actions}
+    assert (act["config/infernalmobs.cfg"].origin.value,
+            act["config/infernalmobs.cfg"].behavior.value) == ("config_modified", "copy")
+    # ③ .bak 本体在 plan 中 skip/never(0.7.0 为 bak_file/copy 或 identical/skip)
+    baks = [a for a in plan.actions if a.path.endswith(".bak")]
+    assert baks and all(
+        a.behavior.value == "skip" and a.origin.value == "never" for a in baks)
+
+
+def test_corpus_20260921_three_tiers_and_bucket_rebuilt() -> None:
+    """F21/F22 黄金对:八轮换装按 diff JSON 真值合成 —
+    lootr 一级 + 酒馆三级(版本+尾缀同变)+ field 四级(平台词剥离)+ 灾变桶内 rebuilt。"""
+    from migration.moddb import pair_mods_by_filename
+    d = FIXTURES / "20260921"
+    src = Snapshot.load(d / "r8_pre.json")
+    dst = Snapshot.load(d / "r8_post.json")
+    pairs = pair_mods_by_filename(sorted(_mods_jar_paths(src) - _mods_jar_paths(dst)),
+                                  sorted(_mods_jar_paths(dst) - _mods_jar_paths(src)))
+    by = {p.modid: p for p in pairs}
+    assert len(pairs) == 3
+    assert (by["lootr-neoforge"].kind, by["lootr-neoforge"].source) == \
+        ("upgrade", "filename")  # 一级
+    assert by["kaleidoscope-world-liquor-neoforge"].kind == "upgrade"  # 三级(F21)
+    assert by["kaleidoscope-world-liquor-neoforge"].src_version == "1.1.8-1.21.1"
+    assert by["field-emitters"].kind == "upgrade"  # 四级(F22,剥 neoforge 平台词)
+    # 桶语义不变:灾变同名重建(size 73375661→73375667)留在 mods 桶标 rebuilt
+    rs, errs = build_ruleset(["r8a", "r8b"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    notes = {i.path: i.note for i in report.mods}
+    assert notes["mods/[灾变] L_Ender's Cataclysm 1.21.1-3.33.jar"] == "rebuilt"
+    assert len(report.mods) == 8  # 3 to_add + 3 target_only + 1 rebuilt + 1 shared
+
+
+def test_corpus_20260923_five_upgrades_and_swap_keeps_pairs() -> None:
+    """r9 黄金:5 对纯升级全一级(三/四级零扰动哨兵);swap 分桶后配对仍取快照差集(F23 语料级)。"""
+    from migration.moddb import pair_mods_by_filename
+    d = FIXTURES / "20260923"
+    src = Snapshot.load(d / "r9_pre.json")
+    dst = Snapshot.load(d / "r9_post.json")
+    src_only = sorted(_mods_jar_paths(src) - _mods_jar_paths(dst))
+    dst_only = sorted(_mods_jar_paths(dst) - _mods_jar_paths(src))
+    assert len(src_only) == len(dst_only) == 5
+    pairs = pair_mods_by_filename(src_only, dst_only)
+    assert {p.modid: p.kind for p in pairs} == {
+        "kaleidoscopecookery-neoforge": "upgrade",
+        "resource-replicator-neoforge": "upgrade",  # 非对称 CJK 前缀仍一级(标签剥离)
+        "alltheleaks-neoforge": "upgrade",
+        "irons-spellbooks": "upgrade",
+        "mekltgt": "upgrade",
+    }
+    # swap 视角:分桶改变(to_add 归 never),配对输入取快照差集 → 5 对不丢
+    rs, errs = build_ruleset(["r9a", "r9b"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs), modpack_swap=True).diff()
+    assert not [i for i in report.mods if i.note == "to_add"]
+    assert sum(1 for i in report.never if i.note == "modpack_swap") == 5
+    assert sum(1 for i in report.mods if i.note == "target_only") == 5
+    assert len(pair_mods_by_filename(src_only, dst_only)) == 5

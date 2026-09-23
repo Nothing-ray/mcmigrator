@@ -67,6 +67,13 @@ class DiffReporter:
                 note = f"{note} ⇄{kind}"
             if kind == "rebuilt" or item.note == "rebuilt":
                 note = f"⚠ {note}"  # F17/F20-3: 同名同版本异构建(配对或单条)统一警示
+        elif bucket == "never" and note == "modpack_swap":
+            # F23:换包排除的旧 jar 若参与配对,--show-never 视角同样可见 ⇄ 标记
+            kind = self._pair_by_path.get(item.path)
+            if kind:
+                note = f"{note} ⇄{kind}"
+                if kind == "rebuilt":
+                    note = f"⚠ {note}"  # F17/F20-3 镜像:同名同版本异构建,换包视角同样警示
         elif bucket == "candidate" and note == "new":
             note = "new ←仅源"
         elif bucket == "only_in_dst" and note == "target_only":

@@ -52,7 +52,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 |------|------|
 | `mcmig scan <ver>` | 扫描版本文件夹,生成快照 + 分类汇总 |
 | `mcmig diff <src> <dst>` | 对比两份快照,产出 6 桶报告 |
-| `mcmig diff <src> <dst> --modpack-swap` | 换包验收视角:源独有 mod 归「换包排除」而非 to_add |
+| `mcmig diff <src> <dst> --modpack-swap` | 换包验收视角:源独有 mod 归「换包排除」而非 to_add;配对标记保留(新 mod 标 `⇄upgrade` 表示是升级而非全新增) |
 | `mcmig plan <src> <dst>` | 生成迁移计划(只读,产出 action 列表) |
 | `mcmig migrate <src> <dst>` | 执行已保存的迁移计划(先 plan 后 migrate;覆盖自动备份到 `_conflict_backup/`) |
 | `mcmig swap <src> <dst> <新包目录>` | 整合包替换:兼容预检→装包→生成换包迁移计划 |
@@ -83,9 +83,9 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 |--------|------|------|------|
 | ✅ 必迁 | 复制 | 玩家核心数据,丢失不可逆 | `options.txt`、`saves/`、`local/ftbchunks/` |
 | ✏️ 改过的 config | 复制 | 有 `.bak` 且内容不同=玩家游戏内改过 | `config/create-client.toml` |
-| 📋 备份文件 | 复制 | `.bak` 文件,跟随父 config 迁移 | `config/create-1.toml.bak` |
+| 📋 备份文件 | 复制 | `.bak` 文件(默认归 never,本体不迁;仅用户规则显式提升时跟随父 config 迁移) | `config/create-1.toml.bak` |
 | 📦 补 Mod | 复制 | 源独有 mod(玩家额外添加的) | `mods/extra.jar` |
-| 📦 换包排除 | 跳过 | `--modpack-swap` 下源独有 mod 视为旧包自带,不回迁;rules.yaml 显式 must_migrate 仍放行 | 旧整合包的 `mods/old-pack.jar` |
+| 📦 换包排除 | 跳过 | `--modpack-swap` 下源独有 mod 视为旧包自带,不回迁;rules.yaml 显式 must_migrate 仍放行;**配对标记保留**(新 mod 标 `⇄upgrade` = 升级而非全新增) | 旧整合包的 `mods/old-pack.jar` |
 | ❓ 待确认 | 询问 | 无可靠自动判定,需人工确认 | `kubejs/**`、`resourcepacks/*.zip` |
 | 👻 孤儿数据 | 跳过 | 对应的 mod 未安装在目标版本,迁移无意义 | `config/jade/**`(Jade 已移除) |
 | 🔒 版本敏感 | 跳过 | 版本/硬件派生,跨版本迁移高危,让目标重建 | `config/fml.toml` |
@@ -135,15 +135,21 @@ mods 桶标记:`shared`=两侧同名 jar;`to_add`=**源有目标无**(迁移时�
 表尾配对脚注;`--json` 输出顶层 `mod_pairs` 数组),不再表现为无关的"删旧+增新"。
 配对种类:升级 `⇄upgrade` / 改名 `⇄renamed` 不变;`⇄rebuilt` = 同版本号、文件名带
 -Patch/-feature 类尾缀的重新打包(警示前缀 ⚠,与同名桶 rebuilt 语义统一)。
+文件名配对共四级兜底:①全名同族 ②剥变体尾缀(同版本→rebuilt)③剥尾缀后版本升级
+(如 `1.1.8-feature`→`1.1.9-fix`)④再剥 `neoforge/forge/fabric/mc` 等平台装饰词
+(作者改命名风格);上级配不上的才进下一级,registry(modid)配对始终优先。
 
 - `rebuilt`:两侧同名同版本号但内容不同(上游重新打包)——diff 标记,plan 默认保留目标侧并警告,不自动覆盖
 - `mod_pairs` 条目含 `source` 字段:`registry`(读取 jar 内 mods.toml,需两侧版本目录真实独立)或 `filename`(快照文件名家族归一,复放/junction 场景可用)
 - 两侧版本目录指向同一路径(NTFS junction)时,注册表配对自动失效并提示,文件名配对兜底
+  (双快照不同时刻=标准影子根用法,不再提示,仅降 debug 日志;同刻自比对仍提醒)
 - 源侧 mod 已被目标移除时,其 config 会被标注为孤儿(`never/orphan`)——独立 `diff` 与 `plan` 语义一致
 - `*.properties`(如服务端 `server.properties`,vanilla 重写导致的转义/时间戳/编码噪声)与
   `*.json`/`*.toml`(mod 启动重写导致的键序/表序噪声)在字节不同但键值语义相同时
   报告为 `identical/semantics` 而非 modified
 - JVM 崩溃残留(`hs_err_pid*.log`/`replay_pid*.log`)归入 never 桶,不迁移
+- `*.bak` 备份文件(任何目录,不限 config;世代累积的标记物)同样归入 never 桶,本体不迁;
+  `.bak` 判定法不受影响,用户规则可覆盖回迁
 - 孤儿标注与语义复核依赖快照的 `game_root` 可达;不可达时(跨机复放)自动降级为纯字节对比,stderr 提示一行
 
 ## 数据与卸载
@@ -186,6 +192,9 @@ mcmigrator/
 ├── AGENTS.md           # 项目规范(给 AI 协作者)
 └── README.md
 ```
+
+> 数据文件哈希按 LF 归一化生成/校验,`core.autocrlf=true` 的检出不会误报数据损坏(F24);
+> `.gitattributes` 已锁 `migration/data/` 行尾,贡献者无需手工转行尾。
 
 ## 设计与文档
 

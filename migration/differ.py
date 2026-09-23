@@ -49,8 +49,8 @@ class DiffReport:
     never: list[DiffItem] = field(default_factory=list)
 
 
-def _is_mod(path: str) -> bool:
-    """是否为 mods 目录下的 jar(按文件名集合处理)。"""
+def is_mod_jar(path: str) -> bool:
+    """是否为 mods 目录下的 jar(按文件名集合处理;CLI 配对输入推导同源,F23)。"""
     return path.startswith(MODS_PREFIX) and path.endswith(".jar")
 
 
@@ -126,7 +126,7 @@ class Differ:
         for path in sorted(set(self.src) | set(self.dst)):
             s = self.src.get(path)
             d = self.dst.get(path)
-            if _is_mod(path):
+            if is_mod_jar(path):
                 # 换包模式:src 独有 mod 不回迁(旧 modpack 自带,非玩家私货),
                 # 但用户显式 must_migrate 规则命中的 jar 仍放行(用户主权)
                 if (

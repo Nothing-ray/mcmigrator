@@ -22,6 +22,11 @@ never:
   - config/ars_nouveau/search_index/**     # Lucene 索引(运行时可重建)
   - mods_*/**                         # 服务端运维回滚备份目录(mods_9.4_旧/ 等,非玩家状态;F5)
                                       # 客户端版本文件夹内无此形态,不命中
+  - "**/*.bak"                        # 任何目录下的 .bak(不限 config;-N 世代累积的备份标记物;
+                                      # F28):本体一律不迁。本条目在 never: 段内,与 must_migrate:
+                                      # 同为顶级段,按首命中优先压过 saves/** 等(never 段先于 must_migrate);
+                                      # 判定法父提升不受影响(planner 读快照全集,.bak 只当改动标记);
+                                      # 用户规则层级更高,可覆盖本行把特定 .bak 提回 pass-2 机制
 must_migrate:
   - options.txt
   - servers.dat

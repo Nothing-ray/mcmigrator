@@ -660,6 +660,9 @@ def test_diff_junction_same_dir_orphan_ok_registry_pairs_skipped(
     write_mod_jar(va / "mods" / "[tw] waystones-1.0.2.jar", "waystones", "1.0.2")
     assert main(["scan", "b", "--game-root", str(root), "-q"]) == 0
     capsys.readouterr()
+    # F27:钉死同刻(两次 scan 可能同秒也可能异秒,显式改写消除抖动)
+    _force_scanned_at(snapshot_path(root, "b"),
+                      json.loads(snapshot_path(root, "a").read_text(encoding="utf-8"))["scanned_at"])
 
     assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
     captured = capsys.readouterr()
@@ -709,6 +712,9 @@ def test_diff_junction_same_dir_semantic_recheck_falls_back_to_bytes(
     (va / "config" / "create.json").write_text('{"v": 2}', encoding="utf-8")
     assert main(["scan", "b", "--game-root", str(root), "-q"]) == 0
     capsys.readouterr()
+    # F27:钉死同刻(两次 scan 可能同秒也可能异秒,显式改写消除抖动)
+    _force_scanned_at(snapshot_path(root, "b"),
+                      json.loads(snapshot_path(root, "a").read_text(encoding="utf-8"))["scanned_at"])
 
     assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
     captured = capsys.readouterr()
@@ -721,6 +727,57 @@ def test_diff_junction_same_dir_semantic_recheck_falls_back_to_bytes(
     assert ident == []
     # 提示行须同时声明语义复核降级(与注册表配对降级一并告知)
     assert "语义复核" in captured.err
+
+
+def _force_scanned_at(snapshot_file: Path, value: str) -> None:
+    """改写快照 JSON 的 scanned_at(钉死时间戳,消除秒级精度的门控抖动,F27)。"""
+    doc = json.loads(snapshot_file.read_text(encoding="utf-8"))
+    doc["scanned_at"] = value
+    snapshot_file.write_text(
+        json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def test_diff_junction_same_dir_different_scan_times_hint_silent(
+        tmp_path, monkeypatch, capsys) -> None:
+    """F27:不同刻双快照(标准影子根用法)降级提示静默;同刻保留提示。"""
+    import subprocess
+    import os
+    from tests.conftest import write_mod_jar
+
+    root = tmp_path / "root"
+    va = root / "versions" / "a"
+    (va / "mods").mkdir(parents=True)
+    write_mod_jar(va / "mods" / "x-1.0.jar", "x", "1.0")
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J",
+                        str(root / "versions" / "b"), str(va)],
+                       check=True, capture_output=True)
+    else:
+        (root / "versions" / "b").symlink_to(va, target_is_directory=True)
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+
+    assert main(["scan", "a", "--game-root", str(root), "-q"]) == 0
+    capsys.readouterr()
+    (va / "mods" / "x-1.0.jar").unlink()
+    write_mod_jar(va / "mods" / "x-2.0.jar", "x", "2.0")
+    assert main(["scan", "b", "--game-root", str(root), "-q"]) == 0
+    capsys.readouterr()
+    # 钉死不同刻(实际两次 scan 可能同秒,显式改写消除抖动)
+    _force_scanned_at(snapshot_path(root, "a"), "2026-09-23T11:00:00+08:00")
+    _force_scanned_at(snapshot_path(root, "b"), "2026-09-23T11:40:00+08:00")
+
+    assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
+    captured = capsys.readouterr()
+    assert len(json.loads(captured.out)["mod_pairs"]) == 1  # 文件名配对照常
+    assert "junction" not in captured.err   # 提示静默(F27)
+    assert "语义复核" not in captured.err
+
+    # 同刻(疑似自比对错误)→ 提示保留
+    _force_scanned_at(snapshot_path(root, "b"), "2026-09-23T11:00:00+08:00")
+    assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
+    captured = capsys.readouterr()
+    assert "junction" in captured.err
 
 
 def test_diff_modpack_swap_routes_src_only_mods_to_never(tmp_path, monkeypatch, capsys):
@@ -813,3 +870,50 @@ def test_plan_writes_plan_to_game_root(tmp_path, monkeypatch):
     assert main(["plan", "mini_b", "mini", "--game-root", str(game_root)]) == 0
     assert plan_path(game_root, "mini_b", "mini").exists()
     assert not plan_path(tmp_path, "mini_b", "mini").exists()
+
+
+# ---- 批次E F23/F26:swap 视角配对标记保留 ----
+
+
+def test_diff_modpack_swap_keeps_pairing_markers(tmp_path, monkeypatch, capsys) -> None:
+    """F23/F26:swap 下配对输入取快照集合差——mod_pairs 非空、渲染保 ⇄upgrade 与汇总行。
+
+    两侧 jar modid 故意不同(模拟作者改名/无活体复放)→ registry 配对为空,
+    纯文件名配对路径正是九轮 5/5 复现的盲区。
+    """
+    game_root = _setup_game(tmp_path, ["old", "new"])
+    for v in ("old", "new"):
+        d = game_root / "versions" / v / "mods"
+        d.mkdir(parents=True, exist_ok=True)
+        for f in d.glob("*.jar"):
+            f.unlink()
+    from tests.conftest import write_mod_jar
+    write_mod_jar(game_root / "versions" / "old" / "mods" / "a-1.0.jar", "mod_old", "1.0")
+    write_mod_jar(game_root / "versions" / "new" / "mods" / "a-2.0.jar", "mod_new", "2.0")
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+    assert main(["scan", "old", "--game-root", str(game_root), "-q"]) == 0
+    assert main(["scan", "new", "--game-root", str(game_root), "-q"]) == 0
+    capsys.readouterr()
+
+    # --json:mod_pairs 保留(0.7.0 为空),note 字段保持原始值不被标记污染
+    assert main(["diff", "old", "new", "--game-root", str(game_root),
+                 "--modpack-swap", "--json"]) == 0
+    res = capsys.readouterr()
+    doc = json.loads(res.out)
+    assert len(doc["mod_pairs"]) == 1
+    mp = doc["mod_pairs"][0]
+    assert (mp["modid"], mp["kind"], mp["source"]) == ("a", "upgrade", "filename")
+    notes = {i["path"]: i["note"] for i in doc["buckets"]["mods"]}
+    assert notes["mods/a-2.0.jar"] == "target_only"  # JSON note 纯度
+    never_notes = {i["path"]: i["note"]
+                   for i in doc["buckets"]["never"] if i["note"] == "modpack_swap"}
+    assert list(never_notes) == ["mods/a-1.0.jar"]
+    assert "换包模式" in res.err
+
+    # rich 渲染:target_only 带 ⇄upgrade + 配对汇总行(0.7.0 均丢失)
+    assert main(["diff", "old", "new", "--game-root", str(game_root),
+                 "--modpack-swap"]) == 0
+    out = capsys.readouterr().out
+    assert "target_only ⇄upgrade" in out
+    assert "配对: ⇄upgrade ×1" in out

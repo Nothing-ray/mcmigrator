@@ -26,11 +26,15 @@ log = logging.getLogger(__name__)
 
 
 def sha256_file(path: Path) -> str:
-    """计算文件 SHA-256(hex 小写;分块读取避免大文件占内存)。"""
+    """计算文件 SHA-256(hex 小写;CRLF→LF 归一化后哈希,F24)。
+
+    归一化使 LF 提交字节与 autocrlf=true 检出的 CRLF 工作区算出同一哈希;
+    对 LF 文件是 no-op,故 manifest 数值与既有清单一致,无需全量重生成。
+    """
     digest = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
+            digest.update(chunk.replace(b"\r\n", b"\n"))
     return digest.hexdigest()
 
 

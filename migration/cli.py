@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import __version__, doctor, rules
 from .classifier import Classifier
-from .differ import Differ
+from .differ import Differ, is_mod_jar
 from .fsops import FsOpsError, copy_atomic
 from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
 from .pipeline import build_plan, execute_migration, find_snapshot, list_versions, scan_version
@@ -20,6 +20,8 @@ from .workdir import WorkdirError, resolve_workdir
 from rich.prompt import Confirm
 
 from .snapshot import Snapshot, snapshot_path
+
+log = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -359,10 +361,25 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     if ctx is not None and not ctx.same_dir:
         registry_pairs = pair_mods(ctx.src_mods, ctx.dst_mods)
     elif ctx is not None and ctx.same_dir:
-        _print_err("[提示] 两侧版本目录指向同一路径(junction?):注册表配对与语义复核不可用,已使用文件名配对/字节比较")
+        # F27:不同刻双快照=「同目录前后两时刻」标准影子根用法,提示恒噪声 → 降 debug;
+        # 同刻=疑似自比对错误 → 保留 stderr 提示
+        if src.scanned_at == dst.scanned_at:
+            _print_err(
+                "[提示] 两侧快照同刻且版本目录指向同一路径(junction 同体):"
+                "注册表配对与语义复核不可用,已使用文件名配对/字节比较"
+            )
+        else:
+            log.debug(
+                "junction 同体双快照(不同刻,标准影子根用法):"
+                "注册表配对与语义复核不可用,已使用文件名配对/字节比较"
+            )
+    # F23/F26:配对输入从快照集合直接推导(与 Differ.is_mod_jar 同源判定)——
+    # modpack_swap 只改分桶,不再饿死配对(swap 下 target_only 保留 ⇄upgrade)
+    src_paths = {e.path for e in src.files}
+    dst_paths = {e.path for e in dst.files}
     filename_pairs = pair_mods_by_filename(
-        [i.path for i in report.mods if i.note == "to_add"],
-        [i.path for i in report.mods if i.note == "target_only"],
+        sorted(p for p in src_paths - dst_paths if is_mod_jar(p)),
+        sorted(p for p in dst_paths - src_paths if is_mod_jar(p)),
     )
     pairs = merge_mod_pairs(registry_pairs, filename_pairs)
     # F19 换包模式提示:有排除项时 stderr 一行(不污染 --json 的 stdout)

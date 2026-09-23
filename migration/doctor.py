@@ -38,11 +38,11 @@ def _data_dir() -> Path:
 
 
 def _sha256_of(path: Path) -> str:
-    """计算文件 SHA-256(hex 小写;分块读取避免大文件占内存)。"""
+    """计算文件 SHA-256(hex 小写;CRLF→LF 归一化后哈希,与 tools/gen_manifest.py 同语义(F24))。"""
     digest = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
+            digest.update(chunk.replace(b"\r\n", b"\n"))
     return digest.hexdigest()
 
 

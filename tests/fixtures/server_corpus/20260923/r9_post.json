@@ -1,0 +1,17 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r9-post",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-09-23T11:40:08+08:00",
+ "hash_mode": "tiered",
+ "file_count": 6,
+ "files": [
+  {"path": "mods/[森罗物语：厨房] kaleidoscopecookery-1.5.1-neoforge+mc1.21.1.jar", "size": 3486612, "md5": null},
+  {"path": "mods/[资源复制机] resource_replicator-1.1.2-mc1.21.1-neoforge.jar", "size": 434596, "md5": null},
+  {"path": "mods/alltheleaks-1.1.13+1.21.1-neoforge.jar", "size": 565062, "md5": null},
+  {"path": "mods/irons_spellbooks-1.21.1-3.15.4.jar", "size": 13529099, "md5": null},
+  {"path": "mods/mekltgt-1.5.4.jar", "size": 448037, "md5": null},
+  {"path": "mods/[机械动力] create-1.21.1-6.0.10.jar", "size": 777777, "md5": null}
+ ]
+}

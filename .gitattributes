@@ -1,0 +1,3 @@
+# 数据清单按 LF 字节哈希生成/校验;锁检出行尾,防 autocrlf 伪差(F24)
+migration/data/*.yaml text eol=lf
+migration/data/manifest.sha256 text eol=lf

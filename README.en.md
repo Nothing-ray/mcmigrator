@@ -3,7 +3,7 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.7.0 / 2026-09-20
+> Last synced: v0.8.0 / 2026-09-23
 
 > A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
 
@@ -55,7 +55,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 |---------|---------|
 | `mcmig scan <ver>` | Scan a version folder, producing a snapshot + classification summary |
 | `mcmig diff <src> <dst>` | Compare two snapshots into a 6-bucket report |
-| `mcmig diff <src> <dst> --modpack-swap` | Swap-acceptance view: source-only mods land in "swapped out" instead of to_add |
+| `mcmig diff <src> <dst> --modpack-swap` | Swap-acceptance view: source-only mods land in "swapped out" instead of to_add; pairing marks are kept (a new mod marked `⇄upgrade` is an upgrade, not a brand-new addition) |
 | `mcmig plan <src> <dst>` | Generate a migration plan (read-only, produces an action list) |
 | `mcmig migrate <src> <dst>` | Execute the saved migration plan (plan first, then migrate; overwrites are auto-backed up to `_conflict_backup/`) |
 | `mcmig swap <src> <dst> <new-pack-dir>` | Modpack swap: compatibility precheck → install pack → generate swap migration plan |
@@ -88,9 +88,9 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 |--------|----------|---------|---------|
 | ✅ Must-migrate | Copy | Core player data, irreversible if lost | `options.txt`, `saves/`, `local/ftbchunks/` |
 | ✏️ Modified config | Copy | Has `.bak` with different content = player edited in-game | `config/create-client.toml` |
-| 📋 Backup file | Copy | `.bak` file, follows its parent config | `config/create-1.toml.bak` |
+| 📋 Backup file | Copy | `.bak` file (never by default — the backup itself is not migrated; follows its parent config only when a user rule promotes it) | `config/create-1.toml.bak` |
 | 📦 Add mod | Copy | Source-only mod (player-added) | `mods/extra.jar` |
-| 📦 Swapped out | Skip | With `--modpack-swap`, source-only mods are treated as old-pack built-ins, not migrated back; explicit `must_migrate` in rules.yaml still passes | Old modpack's `mods/old-pack.jar` |
+| 📦 Swapped out | Skip | With `--modpack-swap`, source-only mods are treated as old-pack built-ins, not migrated back; explicit `must_migrate` in rules.yaml still passes; **pairing marks kept** (a new mod marked `⇄upgrade` = an upgrade, not a brand-new addition) | Old modpack's `mods/old-pack.jar` |
 | ❓ Needs review | Ask | No reliable auto-detection, needs manual confirmation | `kubejs/**`, `resourcepacks/*.zip` |
 | 👻 Orphan data | Skip | Corresponding mod not installed in target; migrating is pointless | `config/jade/**` (Jade removed) |
 | 🔒 Version-sensitive | Skip | Version/hardware-derived, high-risk across versions, let target rebuild | `config/fml.toml` |
@@ -141,13 +141,21 @@ markers + a pairing footnote; top-level `mod_pairs` array in `--json` output) in
 remove+add pairs. Pair kinds: upgrade `⇄upgrade` / rename `⇄renamed` unchanged; `⇄rebuilt` = a
 same-version-number repack whose filename carries a -Patch/-feature-style suffix (warning prefix ⚠,
 same semantics as the same-name rebuilt bucket).
+Filename pairing falls back through four levels: ① an identical full family key; ② the variant
+suffix stripped (same version → rebuilt); ③ suffix stripped, version upgraded (e.g.
+`1.1.8-feature` → `1.1.9-fix`); ④ platform decoration words (`neoforge`/`forge`/`fabric`/`mc`…)
+stripped as well (the author changed naming style). A candidate only reaches the next level when
+the previous one failed to pair it, and registry (modid) pairing always takes priority.
 
 - `rebuilt`: same name and version on both sides but different content (upstream repack) — flagged in diff; plan keeps the target side by default with a warning, never auto-overwrites
 - `mod_pairs` entries carry a `source` field: `registry` (reads mods.toml inside the jar; requires the two version dirs to be truly independent) or `filename` (snapshot filename-family normalization; works for replay/junction setups)
-- When both version dirs resolve to the same path (NTFS junction), registry pairing is automatically voided with a hint and filename pairing takes over
+- When both version dirs resolve to the same path (NTFS junction), registry pairing is automatically voided with a hint and filename pairing takes over (two snapshots of the same directory taken at different times — the standard shadow-root usage — are no longer hinted, logged at debug level only; same-timestamp self-comparison still warns)
 - When a mod was removed on the target side, its config is flagged as orphan (`never/orphan`) — standalone `diff` now matches `plan`
 - `*.properties` (e.g. server `server.properties`; vanilla rewrite noise — escaping/timestamp/encoding) and `*.json`/`*.toml` (key/table-order noise from mod startup rewrites) that differ in bytes but not in key/value semantics are reported as `identical/semantics` instead of modified
 - JVM crash remnants (`hs_err_pid*.log` / `replay_pid*.log`) go to the never bucket, never migrated
+- `*.bak` backup files (in **any** directory, not just config; generation-accumulated markers) also go to
+  the never bucket — the backup itself is not migrated, the `.bak` heuristic is unaffected, and a user rule
+  can promote it back
 - Orphan flagging and semantic re-checks require the snapshot's `game_root` to be reachable; otherwise diff degrades to pure byte comparison with a one-line stderr hint
 
 ## Data & Uninstall
@@ -190,6 +198,10 @@ mcmigrator/
 ├── AGENTS.md           # project conventions (for AI collaborators) — in Chinese
 └── README.md
 ```
+
+> Data-file hashes are generated/verified with LF normalization, so a `core.autocrlf=true` checkout
+> never reports false corruption (F24); `.gitattributes` pins `migration/data/` line endings, so
+> contributors need no manual line-ending conversion.
 
 ## Design & Documentation
 

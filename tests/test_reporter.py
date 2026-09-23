@@ -363,3 +363,28 @@ def test_render_no_footnote_without_to_add():
     DiffReporter(r, src_version="a", dst_version="b").render(
         ReportOptions(), console=Console(file=buf, force_terminal=False, width=200))
     assert "有意删除" not in buf.getvalue()
+
+
+def test_display_note_never_modpack_swap_gets_pair_marker():
+    """F23:never 桶 modpack_swap 条目(--show-never 可见)亦带 ⇄ 配对标记。"""
+    report = DiffReport()
+    report.never.append(DiffItem(path="mods/a-1.0.jar", src=None, dst=None,
+                                 note="modpack_swap"))
+    pair = ModPair(modid="a", kind="upgrade", src_files=["mods/a-1.0.jar"],
+                   dst_files=["mods/a-2.0.jar"], src_version="1.0", dst_version="2.0",
+                   source="filename")
+    r = DiffReporter(report, src_version="a", dst_version="b", mod_pairs=[pair])
+    assert r._display_note("never", report.never[0]) == "modpack_swap ⇄upgrade"
+
+
+def test_display_note_never_modpack_swap_rebuilt_gets_warning_marker() -> None:
+    """F23 镜像:never 桶 modpack_swap 条目配对为 rebuilt 时同样加 ⚠ 前缀
+    (与 mods 桶 `⚠ … ⇄rebuilt` 形态一致,换包视角警示重建件)。"""
+    report = DiffReport()
+    report.never.append(DiffItem(path="mods/b-1.0.jar", src=None, dst=None,
+                                 note="modpack_swap"))
+    pair = ModPair(modid="b", kind="rebuilt", src_files=["mods/b-1.0.jar"],
+                   dst_files=["mods/b-1.0-Patch.jar"], src_version="1.0", dst_version="1.0",
+                   source="filename")
+    r = DiffReporter(report, src_version="a", dst_version="b", mod_pairs=[pair])
+    assert r._display_note("never", report.never[0]) == "⚠ modpack_swap ⇄rebuilt"

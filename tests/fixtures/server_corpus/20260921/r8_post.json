@@ -1,0 +1,16 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r8-post",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-09-21T22:35:00+08:00",
+ "hash_mode": "tiered",
+ "file_count": 5,
+ "files": [
+  {"path": "mods/[森罗酒馆：世界名酒] kaleidoscope_world_liquor-1.1.9-neoforge+1.21.1-fix.jar", "size": 6783865, "md5": null},
+  {"path": "mods/field-emitters-1.2.1.jar", "size": 789839, "md5": null},
+  {"path": "mods/lootr-neoforge-1.21.1-1.11.38.126.jar", "size": 1034358, "md5": null},
+  {"path": "mods/[灾变] L_Ender's Cataclysm 1.21.1-3.33.jar", "size": 73375667, "md5": null},
+  {"path": "mods/[机械动力] create-1.21.1-6.0.10.jar", "size": 777777, "md5": null}
+ ]
+}

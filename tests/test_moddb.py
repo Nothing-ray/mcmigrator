@@ -13,6 +13,7 @@ from migration.moddb import (
     generate_orphan_rules,
     load_mod_config_map,
     map_config_to_mod,
+    pair_mods_by_filename,
     read_neoforge_version,
     scan_mods,
 )
@@ -893,14 +894,18 @@ def test_pair_mods_by_filename_tier2_ambiguity_skipped():
 
 
 def test_pair_mods_by_filename_tier2_sig_diff_not_rebuilt():
-    """减尾键相同但版本签名不同 → 不配(属第一级职责,第一级没配上即非同族)。"""
+    """减尾键相同但版本签名不同 → 非 rebuilt;批次E F21 起由第三级收口为 upgrade。
+
+    0.7.0(batchD)曾判「不配」;F21 论证:残余中减尾键相等且 sig 异时,
+    尾缀必亦变(尾缀相同则全家族键相等、一级早已配上),故三级按 upgrade 配对。
+    """
     from migration.moddb import pair_mods_by_filename
 
     pairs = pair_mods_by_filename(
         ["mods/x-1.0.jar"],
         ["mods/x-2.0-Patch.jar"],
     )
-    assert pairs == []
+    assert [(p.modid, p.kind) for p in pairs] == [("x", "upgrade")]
 
 
 def test_modpair_source_in_to_dict_and_registry_default():
@@ -929,3 +934,89 @@ def test_merge_mod_pairs_registry_wins():
     by_id = {p.modid: p for p in merged}
     assert by_id["waystones"].source == "registry"  # 覆盖文件冲突时 registry 优先
     assert by_id["caves"].source == "filename"
+
+
+# ---- 批次E F21/F22:三级(版本+尾缀同变)与四级(平台词剥离)配对 ----
+
+
+def test_pair_filename_tier3_version_and_tail_both_changed():
+    """F21:版本号与尾缀同时变化 → 减尾键相等 + 版本签名不同 → upgrade(三级)。"""
+    src = ["mods/kaleidoscope_world_liquor-1.1.8-neoforge+1.21.1-feature.jar"]
+    dst = ["mods/kaleidoscope_world_liquor-1.1.9-neoforge+1.21.1-fix.jar"]
+    pairs = pair_mods_by_filename(src, dst)
+    assert len(pairs) == 1
+    p = pairs[0]
+    assert (p.modid, p.kind, p.source) == (
+        "kaleidoscope-world-liquor-neoforge", "upgrade", "filename")
+    assert (p.src_version, p.dst_version) == ("1.1.8-1.21.1", "1.1.9-1.21.1")
+
+
+def test_pair_filename_tier3_not_triggered_when_tail_equal():
+    """尾缀相同仅版本变 → 一级职责(全家族键相等),modid 仍为全家族键。"""
+    pairs = pair_mods_by_filename(["mods/x-1.0-fix.jar"], ["mods/x-2.0-fix.jar"])
+    assert [(p.modid, p.kind) for p in pairs] == [("x-fix", "upgrade")]
+
+
+def test_pair_filename_tier3_ambiguity_guard():
+    """三级歧义守卫:减尾键同、一侧多候选 → 整族放弃(不猜)。"""
+    src = ["mods/x-1.0-a.jar", "mods/x-1.0-b.jar"]  # 减尾键均为 x
+    dst = ["mods/x-2.0-c.jar"]
+    assert pair_mods_by_filename(src, dst) == []
+
+
+def test_platform_stripped_helper():
+    """平台词剥离:减尾键内枚举词剥除;纯平台词家族 → 空串(调用方跳过)。"""
+    from migration.moddb import _platform_stripped
+    assert _platform_stripped("field-emitters-neoforge", "") == "field-emitters"
+    assert _platform_stripped("field-emitters-neoforge", "patch") == "field-emitters"
+    assert _platform_stripped("kaleidoscope-world-liquor-neoforge", "feature") == \
+        "kaleidoscope-world-liquor"
+    assert _platform_stripped("neoforge", "") == ""
+
+
+def test_pair_filename_tier4_platform_word_renamed_style():
+    """F22:命名风格全变(去平台中段)→ 剥平台词后相等 + sig 异 → upgrade(四级)。"""
+    pairs = pair_mods_by_filename(
+        ["mods/field-emitters-neoforge-1.21.1-1.1.0.jar"],
+        ["mods/field-emitters-1.2.1.jar"])
+    assert len(pairs) == 1
+    p = pairs[0]
+    assert (p.modid, p.kind, p.source) == ("field-emitters", "upgrade", "filename")
+    assert (p.src_version, p.dst_version) == ("1.21.1-1.1.0", "1.2.1")
+
+
+def test_pair_filename_tier4_same_version_platform_only_rename():
+    """四级 sig 相等(仅平台词差)→ renamed。"""
+    pairs = pair_mods_by_filename(["mods/x-neoforge-1.0.jar"], ["mods/x-1.0.jar"])
+    assert [(p.modid, p.kind) for p in pairs] == [("x", "renamed")]
+
+
+def test_pair_filename_tier4_empty_stripped_key_skipped():
+    """剥平台词后空键(家族键纯平台词)不参与四级配对。"""
+    assert pair_mods_by_filename(["mods/neoforge-1.0.jar"], ["mods/mc-2.0.jar"]) == []
+
+
+def test_pair_filename_tiers_do_not_touch_tier1_2_semantics():
+    """零回归哨兵:同版异尾缀(rebuilt)与纯升级(upgrade)判定与 0.7.0 一致。"""
+    src = ["mods/compat-2.9.7-Patch-final.jar", "mods/lootr-1.0.jar"]
+    dst = ["mods/compat-2.9.7-Patch.jar", "mods/lootr-2.0.jar"]
+    by = {p.modid: p for p in pair_mods_by_filename(src, dst)}
+    assert by["compat"].kind == "rebuilt"  # 二级(减尾键相等+同签名+异尾缀)
+    assert by["lootr"].kind == "upgrade"   # 一级(全家族键相等)
+
+
+def test_pair_filename_tier4_ambiguity_guard() -> None:
+    """四级(F22)歧义守卫:剥平台词后键相同、任一侧多候选 → 整族放弃(不猜)。
+
+    组内对照证明该键确实由四级处理:单候选时 x-neoforge-1.0 ⇄ x-1.0 被四级配为
+    renamed —— 故下面多候例句被丢弃的原因只能是歧义守卫,而非被一/二/三级提前吃掉。
+    """
+    # 对照:单候选 → 四级生效(sig 同 → renamed)
+    control = pair_mods_by_filename(["mods/x-neoforge-1.0.jar"], ["mods/x-1.0.jar"])
+    assert [(p.modid, p.kind, p.source) for p in control] == [("x", "renamed", "filename")]
+    # src 侧多候选:两件剥平台词后都归一为 "x" → 整族放弃
+    assert pair_mods_by_filename(
+        ["mods/x-neoforge-1.0.jar", "mods/x-forge-1.0.jar"], ["mods/x-1.0.jar"]) == []
+    # dst 侧多候选:镜像方向同样放弃
+    assert pair_mods_by_filename(
+        ["mods/x-1.0.jar"], ["mods/x-neoforge-1.0.jar", "mods/x-forge-1.0.jar"]) == []
