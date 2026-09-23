@@ -16,7 +16,7 @@
 | **F23/F26 swap 视角配对标记丢失** ★ | 普通视角 `⇄upgrade` + 汇总行齐备;`--modpack-swap` 后新件退化为裸 `target_only`、汇总行消失(r8 1 对、r9 5/5 干净复现)。根因:源独有 mod 被 Differ 移入 never 桶,**配对输入取自 `report.mods` 的 to_add 列表**(cli.py:363-366)随之扑空 | `diff_r9pre_r9post_swap.txt`(厨房/资源复制机/alltheleaks/irons/mekltgt 全裸 target_only) |
 | **F24 autocrlf 行尾伪差** | `core.autocrlf=true` 贡献机检出 CRLF 后 `doctor verify_data_manifest` 报 4 件 yaml「损坏」;manifest 哈希 == git blob(LF) ≠ 工作区(CRLF)。数据本体完好 | r8 报告 F24 字节级三对照;本仓库 autocrlf=false 未复现 |
 | **F27 junction 降级提示恒触发** | 九轮三组 diff 全弹「两侧版本目录指向同一路径…」。精化:提示按**实时路径**判定,而 diff 消费的是**时间点冻结的快照**——九轮标准的「同目录前后两刻双快照」用法下,提示恒属噪声(行为本身——注册表跳过/字节比较——是对的) | `diff_r9pre_r9post_swap.txt` 第 1 行;cli.py:362 |
-| **F28 .bak 世代累积** | lootr 每次升级首启把旧配置存为 `-N.toml.bak`,N 单调递增永不清理;`.125→.126` 已产生第 2 世代,代代进 diff 噪声(modified/only_in_dst)。当前规则体系完全没有 `.bak` 的处理 | r9 报告 F28;`diff_r8post_r9pre.json` |
+| **F28 .bak 世代累积** | lootr 每次升级首启把旧配置存为 `-N.toml.bak`,N 单调递增永不清理;`.125→.126` 已产生第 2 世代,代代进 diff 噪声(modified/only_in_dst)。规则层无 `.bak` 处理;**planner 侧已有判定法代码化**:父 config 提升读 `find_bak_siblings(path, src_index)`(快照全集,不依赖分桶,never 化不伤判定),`.bak` 本体走 candidate→pass2→`bak_file`/copy | r9 报告 F28;`diff_r8post_r9pre.json`;planner.py:113-134/216-217 |
 | F25 NTFS 隧道 CreationTime 失真 | 轮转日志同名重建继承旧元数据,启动验证脚本判新会话的坑——**纯运维侧**,不动工具,记录于观察 README | r9 报告 F25 |
 
 八/九轮原始快照未随包(仅 diff JSON + 报告表格),回归夹具按报告明细合成 mods-only 快照对(§4)。
@@ -117,10 +117,27 @@ never 列表新增:
 
 ```yaml
   - "**/*.bak"                       # NeoForge/mod 配置备份(-N 后缀世代累积不清理;F28)
-                                     # .bak 是「玩家改过」标记物,本体无迁移价值;判定法看存在性不受影响
+                                     # .bak 是「玩家改过」标记物,本体无迁移价值;判定法不受影响(见下)
 ```
 
 随后 `.venv/Scripts/python tools/gen_manifest.py` 重生成 manifest(仅 default_rules.yaml 行变化)。
+
+**与 planner 判定法交互(勘察定案,双向核实)**:
+
+- **判定法父提升不受影响**: `_for_candidate` 的 `find_bak_siblings(item.path, src_paths)`
+  读 `src_index`(快照全集)而非任何桶——`.bak` 落 never 后,父 config 的
+  CONFIG_MODIFIED 提升路径原样成立
+- **`.bak` 本体行为变更(有意)**: 此前 candidate→pass2→`bak_file`/copy(e2e 断言锚定);
+  归 never 后 plan 行为变为 SKIP/NEVER。理由:`.bak` 是标记物,旧历史迁到全新目标无价值
+  (目标首次改动自会生成新 .bak),与 `_conflict_backup/**` 同哲学;用户主权保留——
+  用户规则(优先级高于 default)仍可把特定 .bak 提回 candidate/pass2 机制照常工作
+- **planner pass-2 `.bak` 机制保留不删**: 用户规则提升路径仍可达,删除反而收窄主权
+- **既有测试有意变更**: e2e bak_file 断言改 never/skip;六轮语料桶锚定更新
+  (20260908: candidate 5→3/identical 636→592/never 143+46=189;
+  20260912: candidate 7→6/identical 631→588/never 149+44=193;
+  20260914: identical 737→694/never 41+43=84;20260914b: identical 750→707/never 47+43=90;
+  20260919: candidate 16→14/only_in_dst 8→2/identical 1126→1085/never 55+49=104;
+  20260920 mods-only 夹具无 .bak 不变)
 
 ### T7 语料回归:八/九轮黄金对(tests/fixtures/server_corpus/ + test_corpus_regression.py)
 
@@ -158,13 +175,16 @@ never 列表新增:
    swap 视角 mod_pairs 不丢、⇄upgrade 标记与汇总行保留(F23/F26 闭环)
 3. 模拟 autocrlf:CRLF 工作区下 `doctor verify_data_manifest` 无「损坏」
 4. junction 双快照不同刻 diff 输出零降级提示;同刻保留提示
-5. `.bak` 在 diff 六桶中归 never(--show-never 可见,note=never)
+5. `.bak` 在 diff 六桶中归 never(--show-never 可见,note=never);plan 中 `.bak` 行为
+   SKIP/NEVER;父 config 的 CONFIG_MODIFIED 提升不受影响(判定法保持)
 6. `mcmig -V` → 0.8.0;`migration/data/manifest.sha256` 与 data 目录一致
 
 ## 6. 妥协与遗留
 
 - **三级 upgrade 不辨版本方向**(降级也标 upgrade):与一级语义一致(一级同样不辨方向),不引入版本比较器
 - **平台词表为枚举闭集**:六词覆盖实测语料;新平台词(如 future loader)出现时再扩
+- **`.bak` 本体不再迁**:旧历史件价值低,目标侧自会生成;用户规则可覆盖回迁。六轮语料桶
+  锚定与 e2e bak_file 断言随之有意更新(数字见 T6)
 - **F25 NTFS 隧道**:运维侧知识,记入观察 README 与九轮报告,不进工具代码/文档主线
 - **schema v2 / GUI 锚定 / modid 碰撞 / hint helper / uninstall 措辞**:批次 F backlog 沿挂
 - 八/九轮原始快照未入库:黄金对为报告明细合成的 mods-only 夹具(与批次D 同法);完整复放等 schema v2
