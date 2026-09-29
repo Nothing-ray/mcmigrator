@@ -25,3 +25,6 @@ dist/
 
 # 客户端 9.19 语料实验室(junction 挂载,机器本地)
 /.lab_client919/
+
+# git worktrees(隔离工作区)
+.worktrees/
