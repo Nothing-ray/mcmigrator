@@ -11,11 +11,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib.resources
 import shutil
 from pathlib import Path
 
+from .fsops import sha256_normalized
 from .workdir import WorkDir, WorkdirError, _ensure_writable, resolve_workdir
 
 # 数据清单文件名(与 tools/gen_manifest.py 的约定一致)
@@ -38,12 +38,9 @@ def _data_dir() -> Path:
 
 
 def _sha256_of(path: Path) -> str:
-    """计算文件 SHA-256(hex 小写;CRLF→LF 归一化后哈希,与 tools/gen_manifest.py 同语义(F24))。"""
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk.replace(b"\r\n", b"\n"))
-    return digest.hexdigest()
+    """计算文件 SHA-256(CRLF→LF 归一化,F24;单点实现在 fsops.sha256_normalized,
+    与 tools/gen_manifest.py 的 sha256_file 同源,语义详见彼处 docstring)。"""
+    return sha256_normalized(path)
 
 
 def _parse_manifest(text: str) -> dict[str, str]:

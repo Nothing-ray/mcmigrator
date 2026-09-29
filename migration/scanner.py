@@ -62,5 +62,6 @@ class Scanner:
             hash_mode="strict" if self.strict else "tiered",
             file_count=len(entries),
             files=entries,
+            resolved_root=str(self.version_dir.resolve()),
         )
         return snap, errors

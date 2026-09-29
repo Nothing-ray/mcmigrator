@@ -260,7 +260,8 @@ def _run_plan_job(job: Job, workdir: WorkDir, game_root: Path, src: str, dst: st
         job.emit({"type": "phase", "name": "scan_dst"})
         scan_version(game_root, dst, workdir.snapshots)
         job.emit({"type": "phase", "name": "plan"})
-        plan, compat_warnings = build_plan(
+        # 批次F:build_plan 三元组返回;GUI 暂不渲染 ⇄ 注记,_pairs 忽略(行为不变)
+        plan, compat_warnings, _pairs = build_plan(
             Path.cwd(),
             game_root,
             src,

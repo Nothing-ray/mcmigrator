@@ -3,7 +3,7 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.8.0 / 2026-09-23
+> Last synced: v0.9.0 / 2026-09-29
 
 > A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
 
@@ -66,7 +66,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 
 ## How It Works
 
-1. `scan` traverses the version folder, hashes by the tiered strategy, and produces a **raw manifest snapshot** (`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`, **no classification**).
+1. `scan` traverses the version folder, hashes by the tiered strategy, and produces a **raw manifest snapshot** (`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`, **no classification**). The snapshot carries an optional identity field `resolved_root` (the version directory `resolve()`d at scan time — the real path behind any NTFS junction); older snapshots default it to `None`, fully compatible.
 2. `diff` reads two snapshots, **classifies by current rules on the fly**, and assigns each file to one of 6 buckets.
 3. After changing rules (user `.mcmig/rules.yaml` or CLI `--exclude`/`--include`), **re-run `diff` without rescanning** — classification is computed at snapshot-read time.
 
@@ -141,15 +141,16 @@ markers + a pairing footnote; top-level `mod_pairs` array in `--json` output) in
 remove+add pairs. Pair kinds: upgrade `⇄upgrade` / rename `⇄renamed` unchanged; `⇄rebuilt` = a
 same-version-number repack whose filename carries a -Patch/-feature-style suffix (warning prefix ⚠,
 same semantics as the same-name rebuilt bucket).
-Filename pairing falls back through four levels: ① an identical full family key; ② the variant
+Filename pairing falls back through **five lattice levels** (table-driven: each level = pairing key + precondition + kind judgment; a generic loop consumes each level's leftovers from the one above, so adding a new pairing shape is one lattice entry): ① an identical full family key; ② the variant
 suffix stripped (same version → rebuilt); ③ suffix stripped, version upgraded (e.g.
 `1.1.8-feature` → `1.1.9-fix`); ④ platform decoration words (`neoforge`/`forge`/`fabric`/`mc`…)
-stripped as well (the author changed naming style). A candidate only reaches the next level when
+stripped as well (the author changed naming style); ⑤ finally a **closed set of decoration words** stripped (`all`/`patch`/`fix`/`feature`/`release`/`up`/`port`/`api`/`lib`/`compat`, removed wherever they appear in the family key; words outside the closed set are never stripped, to prevent false pairs). A candidate only reaches the next level when
 the previous one failed to pair it, and registry (modid) pairing always takes priority.
 
 - `rebuilt`: same name and version on both sides but different content (upstream repack) — flagged in diff; plan keeps the target side by default with a warning, never auto-overwrites
 - `mod_pairs` entries carry a `source` field: `registry` (reads mods.toml inside the jar; requires the two version dirs to be truly independent) or `filename` (snapshot filename-family normalization; works for replay/junction setups)
-- When both version dirs resolve to the same path (NTFS junction), registry pairing is automatically voided with a hint and filename pairing takes over (two snapshots of the same directory taken at different times — the standard shadow-root usage — are no longer hinted, logged at debug level only; same-timestamp self-comparison still warns)
+- The `plan` report likewise decorates paired jars' COPY-row paths with `⇄<kind>` (a `rebuilt` pair gets the `⚠` prefix, mirroring diff semantics); the decoration is render-level only — the persisted `plan.json` carries no pairing (schema unchanged)
+- When both version dirs resolve to the same path (NTFS junction), registry pairing is automatically voided with a hint and filename pairing takes over (two snapshots of the same directory taken at different times — the standard shadow-root usage — are no longer hinted, logged at debug level only; same-timestamp self-comparison still warns). Self-comparison detection is now single-point: the same snapshot file is the primary verdict; junction setups fall back to "same dir + same timestamp"; replays (no live directory) emit a "suspected self-comparison" corroboration hint when the snapshots' `resolved_root` values are equal and timestamps match
 - When a mod was removed on the target side, its config is flagged as orphan (`never/orphan`) — standalone `diff` now matches `plan`
 - `*.properties` (e.g. server `server.properties`; vanilla rewrite noise — escaping/timestamp/encoding) and `*.json`/`*.toml` (key/table-order noise from mod startup rewrites) that differ in bytes but not in key/value semantics are reported as `identical/semantics` instead of modified
 - JVM crash remnants (`hs_err_pid*.log` / `replay_pid*.log`) go to the never bucket, never migrated
@@ -157,6 +158,10 @@ the previous one failed to pair it, and registry (modid) pairing always takes pr
   the never bucket — the backup itself is not migrated, the `.bak` heuristic is unaffected, and a user rule
   can promote it back
 - Orphan flagging and semantic re-checks require the snapshot's `game_root` to be reachable; otherwise diff degrades to pure byte comparison with a one-line stderr hint
+
+### Known client-only mod list
+
+`migration/data/client_mods.yaml` keeps a list of known client-only mods (constructor-crash risks when deploying to a dedicated server; the first entry, `glacier_dragon`/`frost-dragon`, comes from a real r11 dedicated-server crash). Each entry may provide either or both matching keys — `modid` (live registry channel) and `family` (filename-family key, works in replay mode) — plus a `reason` documenting the evidence. During `diff`, mods-bucket rows that hit the list get a `client_only` annotation plus a one-line stderr warning. **Annotation only, never a block** — the tool is a differ, not a deployer; whether to exclude is your call. To extend the list: add an entry to that yaml, then re-run `tools/gen_manifest.py` to refresh the data-integrity manifest.
 
 ## Data & Uninstall
 
@@ -208,6 +213,8 @@ mcmigrator/
 Detailed design in `Reference/` (in Chinese): `specs/` (version design specs), `design/` (subsystem design memos), `plans/` (implementation plans).
 
 ## Contributing
+
+For local development and running tests, install the dev dependency group: `pip install -e ".[dev]"` (pytest and ruff included). **uv users note**: `uv sync` in exact mode installs only runtime dependencies and prunes pytest — use `uv pip install -e ".[dev]"` for test environments instead.
 
 Contributions welcome (in Chinese or English):
 

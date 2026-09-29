@@ -61,7 +61,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 
 ## 工作方式
 
-1. `scan` 遍历版本文件夹,按分层策略哈希,生成**原始清单快照**(`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`,**不含分类**)。
+1. `scan` 遍历版本文件夹,按分层策略哈希,生成**原始清单快照**(`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`,**不含分类**)。快照含可选身份字段 `resolved_root`(scan 时对版本目录 `resolve()` 的结果,NTFS junction 展开后的真实路径);旧快照缺省 `None`,完全兼容。
 2. `diff` 读两份快照,**按当前规则现算分类**,再把每个文件归入 6 桶。
 3. 改规则(用户 `.mcmig/rules.yaml` 或 CLI `--exclude`/`--include`)后**直接重 diff,无需重扫**——分类在读快照时现算。
 
@@ -135,14 +135,20 @@ mods 桶标记:`shared`=两侧同名 jar;`to_add`=**源有目标无**(迁移时�
 表尾配对脚注;`--json` 输出顶层 `mod_pairs` 数组),不再表现为无关的"删旧+增新"。
 配对种类:升级 `⇄upgrade` / 改名 `⇄renamed` 不变;`⇄rebuilt` = 同版本号、文件名带
 -Patch/-feature 类尾缀的重新打包(警示前缀 ⚠,与同名桶 rebuilt 语义统一)。
-文件名配对共四级兜底:①全名同族 ②剥变体尾缀(同版本→rebuilt)③剥尾缀后版本升级
-(如 `1.1.8-feature`→`1.1.9-fix`)④再剥 `neoforge/forge/fabric/mc` 等平台装饰词
-(作者改命名风格);上级配不上的才进下一级,registry(modid)配对始终优先。
+文件名配对兜底共**五级键格**(表驱动:每级=「配对键+前置条件+种类判定」,通用循环逐级
+消费上级剩余候选,新增配对形态只需加一行格条目):①全名同族 ②剥变体尾缀(同版本→
+rebuilt)③剥尾缀后版本升级(如 `1.1.8-feature`→`1.1.9-fix`)④再剥 `neoforge/forge/
+fabric/mc` 等平台装饰词(作者改命名风格)⑤最后剥**装饰词闭集**(`all/patch/fix/
+feature/release/up/port/api/lib/compat`,家族键任意位置出现即剥,闭集外之词不剥防伪配);
+上级配不上的才进下一级,registry(modid)配对始终优先。
 
 - `rebuilt`:两侧同名同版本号但内容不同(上游重新打包)——diff 标记,plan 默认保留目标侧并警告,不自动覆盖
 - `mod_pairs` 条目含 `source` 字段:`registry`(读取 jar 内 mods.toml,需两侧版本目录真实独立)或 `filename`(快照文件名家族归一,复放/junction 场景可用)
+- `plan` 报告的 COPY 行同样对配对 jar 的路径追加 `⇄<kind>` 注记(`rebuilt` 镜像 diff 语义加 `⚠` 前缀);注记仅在渲染层,`plan.json` 持久化不含配对(schema 不变)
 - 两侧版本目录指向同一路径(NTFS junction)时,注册表配对自动失效并提示,文件名配对兜底
-  (双快照不同时刻=标准影子根用法,不再提示,仅降 debug 日志;同刻自比对仍提醒)
+  (双快照不同时刻=标准影子根用法,不再提示,仅降 debug 日志;同刻自比对仍提醒)。
+  自比对检测已单点化:同一快照文件直接主判;junction 场景回退「同目录+同刻」;
+  复放(无活体目录)时以快照 `resolved_root` 相等且同刻输出「疑似自比对」佐证提示
 - 源侧 mod 已被目标移除时,其 config 会被标注为孤儿(`never/orphan`)——独立 `diff` 与 `plan` 语义一致
 - `*.properties`(如服务端 `server.properties`,vanilla 重写导致的转义/时间戳/编码噪声)与
   `*.json`/`*.toml`(mod 启动重写导致的键序/表序噪声)在字节不同但键值语义相同时
@@ -151,6 +157,10 @@ mods 桶标记:`shared`=两侧同名 jar;`to_add`=**源有目标无**(迁移时�
 - `*.bak` 备份文件(任何目录,不限 config;世代累积的标记物)同样归入 never 桶,本体不迁;
   `.bak` 判定法不受影响,用户规则可覆盖回迁
 - 孤儿标注与语义复核依赖快照的 `game_root` 可达;不可达时(跨机复放)自动降级为纯字节对比,stderr 提示一行
+
+### 已知客户端 mod 清单
+
+`migration/data/client_mods.yaml` 维护一份「已知客户端 mod」清单(专服部署时的构造期崩溃风险件,首条 `glacier_dragon`/`frost-dragon` 来自 r11 专服实证)。每条目可给 `modid`(活体注册表通道)与 `family`(文件名家族键,复放通道)双键之任一,并附 `reason` 记录依据。`diff` 时命中清单的 mods 桶行会追加 `client_only` 注记,并在 stderr 输出一行警示。**仅标注、不拦截**——工具是对比器不是部署器,是否排除由你决定。扩充清单:编辑该 yaml 增加条目,再重跑 `tools/gen_manifest.py` 刷新数据完整性清单。
 
 ## 数据与卸载
 
@@ -201,6 +211,8 @@ mcmigrator/
 详细设计见 `Reference/`:`specs/`(版本设计规格)、`design/`(子系统设计备忘)、`plans/`(实现计划)。
 
 ## 贡献
+
+本地开发/跑测试:安装开发依赖组 `pip install -e ".[dev]"`(含 pytest 与 ruff)。**uv 用户注意**:`uv sync` 精确模式只装运行时依赖、会剪掉 pytest,测试环境请改用 `uv pip install -e ".[dev]"`。
 
 欢迎提交以下内容(中文/英文均可):
 

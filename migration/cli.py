@@ -11,15 +11,21 @@ from pathlib import Path
 
 from . import __version__, doctor, rules
 from .classifier import Classifier
-from .differ import Differ, is_mod_jar
 from .fsops import FsOpsError, copy_atomic
 from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
-from .pipeline import build_plan, execute_migration, find_snapshot, list_versions, scan_version
+from .pipeline import (
+    build_plan,
+    execute_migration,
+    find_snapshot,
+    list_versions,
+    run_diff,
+    scan_version,
+)
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
 from .workdir import WorkdirError, resolve_workdir
 from rich.prompt import Confirm
 
-from .snapshot import Snapshot, snapshot_path
+from .snapshot import snapshot_path
 
 log = logging.getLogger(__name__)
 
@@ -294,103 +300,43 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
+    """diff 子命令:参数展开 → pipeline.run_diff → notices 转发与渲染。
+
+    编排逻辑(快照定位/孤儿规则/规则集/Differ/双源配对/身份检测/换包提示)
+    已下沉 pipeline.run_diff,本函数只负责参数展开、既有错误文案与结果渲染;
+    stderr 提示行(notices)逐行转发,与下沉前 CLI 输出逐字节一致。
+    """
     cwd = Path.cwd()
-    # F8 锚定:game-root 可解析 → 锚定优先+旧 CWD 布局回退(命中提示整体迁移);
-    # 不可解析(夹具复放/纯快照对比)→ CWD-only,0.6.x 行为,零提示零扰动
+    # F8 锚定:game-root 可解析 → 锚定优先+旧 CWD 布局回退;
+    # 不可解析(夹具复放/纯快照对比)→ CWD-only,0.6.x 行为
     game_root = _try_resolve_game_root(args)
-    if game_root is not None:
-        data_dir = game_root / ".mcmig"
-        legacy_dir = cwd / ".mcmig"
-        src_path, src_leg = find_snapshot(data_dir, legacy_dir, args.src)
-        dst_path, dst_leg = find_snapshot(data_dir, legacy_dir, args.dst)
-        if src_leg or dst_leg:
-            _print_err(f"[提示] 使用旧布局快照({legacy_dir}),建议整体迁移至 {data_dir}")
-    else:
-        src_path = snapshot_path(cwd, args.src)
-        dst_path = snapshot_path(cwd, args.dst)
-    missing = [n for n, p in ((args.src, src_path), (args.dst, dst_path)) if not p.exists()]
-    if missing:
-        _print("[错误] 缺少快照: " + ", ".join(missing))
+    try:
+        outcome = run_diff(
+            cwd,
+            src=args.src,
+            dst=args.dst,
+            modpack_swap=args.modpack_swap,
+            exclude=args.exclude,
+            include=args.include,
+            rule_files=[Path(f) for f in args.rule],
+            game_root=game_root,
+        )
+    except FileNotFoundError as e:
+        # 异常消息形如「缺少 <名[, 名...]> 快照」→ 剥壳还原既有多列友好文案
+        names = str(e).removeprefix("缺少 ").removesuffix(" 快照")
+        _print("[错误] 缺少快照: " + names)
         _print("请先运行: mcmig scan <版本名>")
         return 2
-    try:
-        src = Snapshot.load(src_path)
-        dst = Snapshot.load(dst_path)
-    except Exception as e:  # noqa: BLE001
-        _print(f"[错误] 快照读取失败: {e}")
+    except ValueError as e:
+        _print(f"[错误] {e}")
         return 2
-    mcmig_dir = cwd / ".mcmig"
-    # 扫描上下文(F2/F4/F12 基座):两侧版本目录可达时扫描 mods 并注入配对/语义复核;
-    # 不可达(跨机复放/夹具/手动删除)→ ctx=None,降级为纯快照对比(0.6.1 行为)
-    from .moddb import (
-        generate_orphan_rules,
-        load_mod_config_map,
-        merge_mod_pairs,
-        pair_mods,
-        pair_mods_by_filename,
+    for n in outcome.notices:
+        _print_err(n)
+    reporter = DiffReporter(
+        outcome.report, src_version=args.src, dst_version=args.dst,
+        mod_pairs=outcome.mod_pairs,
+        client_only_paths=outcome.client_only_paths,  # F30① 客户端件标注(空集时输出不变)
     )
-    from .pipeline import resolve_diff_context
-
-    ctx = resolve_diff_context(src, dst)
-    orphan_rules: list[rules.Rule] = []
-    if ctx is not None:
-        # F2 孤儿规则:与 pipeline.build_plan 完全同源(src config × dst 注册表 × 覆盖表)
-        orphan_rules = generate_orphan_rules(src.files, ctx.dst_mods, load_mod_config_map())
-    else:
-        _print_err("[提示] mods 扫描不可用(game_root 不可达):孤儿标注与注册表配对已跳过,文件名配对仍可用")
-    rs, errs = build_ruleset(
-        [args.src, args.dst],
-        exclude=args.exclude,
-        include=args.include,
-        rule_files=[Path(f) for f in args.rule],
-        mcmig_dir=mcmig_dir,
-        orphan_rules=orphan_rules,
-    )
-    for e in errs:
-        _print(f"[规则警告] {e}")
-    clf = Classifier(rs)
-    # F12/F16: content_reader 注入语义复核(.properties/.json/.toml)
-    # F19: modpack_swap 透传 differ(与 plan/swap 流程同源,换装验收旧 jar 归换包排除)
-    report = Differ(
-        src.files, dst.files, clf,
-        content_reader=ctx.read_file if ctx is not None else None,
-        modpack_swap=args.modpack_swap,
-    ).diff()
-    # F4 双源配对:registry(读 jar,目录真实独立时)优先;filename(纯快照)兜底
-    registry_pairs: list = []
-    if ctx is not None and not ctx.same_dir:
-        registry_pairs = pair_mods(ctx.src_mods, ctx.dst_mods)
-    elif ctx is not None and ctx.same_dir:
-        # F27:不同刻双快照=「同目录前后两时刻」标准影子根用法,提示恒噪声 → 降 debug;
-        # 同刻=疑似自比对错误 → 保留 stderr 提示
-        if src.scanned_at == dst.scanned_at:
-            _print_err(
-                "[提示] 两侧快照同刻且版本目录指向同一路径(junction 同体):"
-                "注册表配对与语义复核不可用,已使用文件名配对/字节比较"
-            )
-        else:
-            log.debug(
-                "junction 同体双快照(不同刻,标准影子根用法):"
-                "注册表配对与语义复核不可用,已使用文件名配对/字节比较"
-            )
-    # F23/F26:配对输入从快照集合直接推导(与 Differ.is_mod_jar 同源判定)——
-    # modpack_swap 只改分桶,不再饿死配对(swap 下 target_only 保留 ⇄upgrade)
-    src_paths = {e.path for e in src.files}
-    dst_paths = {e.path for e in dst.files}
-    filename_pairs = pair_mods_by_filename(
-        sorted(p for p in src_paths - dst_paths if is_mod_jar(p)),
-        sorted(p for p in dst_paths - src_paths if is_mod_jar(p)),
-    )
-    pairs = merge_mod_pairs(registry_pairs, filename_pairs)
-    # F19 换包模式提示:有排除项时 stderr 一行(不污染 --json 的 stdout)
-    if args.modpack_swap:
-        n_swap = sum(1 for i in report.never if i.note == "modpack_swap")
-        if n_swap:
-            _print_err(
-                f"[提示] 换包模式: {n_swap} 个源独有 mod 按旧包自带排除"
-                "(never/换包排除,--show-never 可见)"
-            )
-    reporter = DiffReporter(report, src_version=args.src, dst_version=args.dst, mod_pairs=pairs)
     if args.json:
         _print(reporter.to_json())
         return 0
@@ -428,7 +374,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     game_root = gr if gr is not None else _resolve_game_root(args)
     data_dir = game_root / ".mcmig"
     try:
-        plan, compat_warnings = build_plan(
+        plan, compat_warnings, pairs = build_plan(
             cwd,
             game_root,
             args.src,
@@ -446,7 +392,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     except (FileNotFoundError, ValueError) as e:
         _print(f"[错误] {e}")
         return 2
-    reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst)
+    reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst, mod_pairs=pairs)
     if args.json:
         _print(reporter.to_json(compat_warnings))
     else:
@@ -598,7 +544,7 @@ def _cmd_swap(args: argparse.Namespace) -> int:
         _print("[提示] dry-run 未写盘,跳过规划步骤。去掉 --dry-run 将自动生成迁移计划。")
         return 0
     try:
-        plan, compat_warnings = build_plan(
+        plan, compat_warnings, _pairs = build_plan(
             Path.cwd(),
             game_root,
             args.src,

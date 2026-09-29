@@ -1020,3 +1020,66 @@ def test_pair_filename_tier4_ambiguity_guard() -> None:
     # dst 侧多候选:镜像方向同样放弃
     assert pair_mods_by_filename(
         ["mods/x-1.0.jar"], ["mods/x-neoforge-1.0.jar", "mods/x-forge-1.0.jar"]) == []
+
+
+# ---- 批次F Task 2:五级(装饰词闭集剥离键)+ 键格表驱动重构 ----
+
+
+def test_decoration_stripped_unit() -> None:
+    """五级键函数:减尾键剥平台词+闭集装饰词(任意位置);剥空返回空串。"""
+    from migration.moddb import _decoration_stripped
+    assert _decoration_stripped("foo-up-neoforge", "") == "foo"
+    # 注:brief 原文此行为 ("foo", "up"),违反 normalize_jar_family 不变量
+    # (family 必含尾缀词,真实形态 family="foo-up"),按不变量修正输入
+    assert _decoration_stripped("foo-up", "up") == "foo"       # 尾缀 up 被减尾后剩 foo
+    assert _decoration_stripped("frost-dragon", "") == "frost-dragon"  # 非闭集词不动
+    assert _decoration_stripped("patch-lib", "") == ""          # 全剥空 → 调用方跳过
+
+
+def test_pair_level5_decoration_word_forms() -> None:
+    """五级(F 批次):非平台装饰词增删形态 — 版本变→upgrade,同版→renamed。"""
+    got = pair_mods_by_filename(["mods/foo-up-1.2.3.jar"], ["mods/foo-1.2.4.jar"])
+    assert [(p.kind, p.modid) for p in got] == [("upgrade", "foo")]
+    got = pair_mods_by_filename(["mods/foo-1.2.3.jar"], ["mods/foo-release-1.2.3.jar"])
+    assert [(p.kind, p.modid) for p in got] == [("renamed", "foo")]
+
+
+def test_pair_level5_closed_set_guard() -> None:
+    """闭集外装饰词不得收敛:create-goggles 与 create 是两个 mod,不许伪配。"""
+    assert pair_mods_by_filename(
+        ["mods/create-goggles-1.0.0.jar"], ["mods/create-6.0.10.jar"]) == []
+
+
+def test_pair_level5_ambiguity_guard() -> None:
+    """五级歧义守卫:同键任一侧多候选整族放弃(与 1-4 级同纪律)。"""
+    got = pair_mods_by_filename(
+        ["mods/foo-up-1.0.0.jar", "mods/foo-up-2.0.0.jar"],
+        ["mods/foo-1.5.0.jar"])
+    assert got == []
+
+
+def test_pair_covered_forms_pinned() -> None:
+    """覆盖面实证钉死(spec §3.1):以下形态在一级即配,防未来重构退化。"""
+    # 平台词尾缀↔中段互换(版本变)→ upgrade;同版 → renamed
+    got = pair_mods_by_filename(["mods/foo-1.2.3-neoforge.jar"], ["mods/foo-neoforge-1.2.4.jar"])
+    assert [(p.kind, p.modid) for p in got] == [("upgrade", "foo-neoforge")]
+    got = pair_mods_by_filename(["mods/foo-1.2.3-neoforge.jar"], ["mods/foo-neoforge-1.2.3.jar"])
+    assert [(p.kind, p.modid) for p in got] == [("renamed", "foo-neoforge")]
+    # 变体词换位(版本变)→ upgrade(家族键位置无关)
+    got = pair_mods_by_filename(["mods/foo-1.2.3-patch.jar"], ["mods/foo-patch-1.2.4.jar"])
+    assert [(p.kind, p.modid) for p in got] == [("upgrade", "foo-patch")]
+
+
+def test_load_client_mods_entries() -> None:
+    """清单加载:返回 (modid 集, 家族键集);打包数据可读。"""
+    from migration.moddb import load_client_mods
+    modids, families = load_client_mods()
+    assert "glacier_dragon" in modids
+    assert "frost-dragon" in families
+
+
+def test_load_client_mods_malformed_scalar_guard() -> None:
+    """畸形标量守卫:client_only 为标量(如 42/true)→ 返回空集不抛(格式异常不阻断 diff)。"""
+    from migration.moddb import _parse_client_mods_yaml
+    assert _parse_client_mods_yaml("client_only: 42") == (set(), set())
+    assert _parse_client_mods_yaml("client_only: true") == (set(), set())

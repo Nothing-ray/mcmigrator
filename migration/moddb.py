@@ -13,6 +13,7 @@ import re
 import tomllib
 import zipfile
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -272,6 +273,41 @@ def load_mod_config_map() -> OverrideTable:
             continue
         entries.append((match, modid, str(m.get("reason", ""))))
     return OverrideTable(entries)
+
+
+def load_client_mods() -> tuple[set[str], set[str]]:
+    """加载已知客户端 mod 清单(data/client_mods.yaml)。
+
+    Returns:
+        (modid 集合, 家族键集合);文件缺失/格式异常返回空集(不阻断 diff)。
+    """
+    try:
+        text = resources.files("migration").joinpath("data/client_mods.yaml").read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return set(), set()
+    return _parse_client_mods_yaml(text)
+
+
+def _parse_client_mods_yaml(text: str) -> tuple[set[str], set[str]]:
+    """解析 client_mods.yaml 文本,返回 (modid 集, 家族键集);格式异常返回空集。"""
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return set(), set()
+    entries = doc.get("client_only") if isinstance(doc, dict) else None
+    # 畸形标量守卫:client_only 为标量(如 42/true)时迭代会 TypeError,
+    # 收窄为 None 走空集路径,兑现「格式异常返回空集不阻断 diff」契约
+    if not isinstance(entries, list):
+        entries = None
+    modids: set[str] = set()
+    families: set[str] = set()
+    for e in entries or []:
+        if isinstance(e, dict):
+            if e.get("modid"):
+                modids.add(str(e["modid"]))
+            if e.get("family"):
+                families.add(str(e["family"]))
+    return modids, families
 
 
 def map_config_to_mod(
@@ -563,6 +599,42 @@ def _platform_stripped(family: str, tail: str) -> str:
     return "-".join(w for w in reduced.split("-") if w not in _PLATFORM_WORDS)
 
 
+# 装饰词闭集(五级,F 批次):语料实见的变体/打包形态词,家族键里任意位置出现即剥除;
+# 枚举闭集与 _PLATFORM_WORDS 同哲学——新词随语料出现再扩,防盲目截词伪配
+_DECORATION_WORDS = frozenset(
+    {"all", "patch", "fix", "feature", "release", "up", "port", "api", "lib", "compat"}
+)
+
+
+def _decoration_stripped(family: str, tail: str) -> str:
+    """减尾键先剥平台词再删闭集装饰词(第五级配对键);剥后为空返回空串(调用方跳过)。
+
+    Args:
+        family: 家族键(纯字母词 "-" 连接,含尾缀词)。
+        tail: 变体尾缀(空串表示无)。
+
+    Returns:
+        剥离平台词与装饰词后的键;词全被剥掉时为空串。
+    """
+    reduced = _reduced_family(family, tail)
+    if not reduced:
+        return ""
+    return "-".join(
+        w for w in reduced.split("-")
+        if w not in _PLATFORM_WORDS and w not in _DECORATION_WORDS
+    )
+
+
+def _kind_by_sig(s_sig: str, d_sig: str) -> str:
+    """版本签名比较:异→upgrade,同→renamed(键格第 1/4/5 级共用)。"""
+    return "upgrade" if s_sig != d_sig else "renamed"
+
+
+def _variant_kind_by_tail(s_tail: str, d_tail: str) -> str:
+    """同版本异名变体判定:尾缀异→rebuilt,同→renamed(键格第 2 级与 pair_mods 共用)。"""
+    return "rebuilt" if s_tail != d_tail else "renamed"
+
+
 @dataclass(frozen=True)
 class ModPair:
     """跨侧配对的同一 mod(升级或改名)。
@@ -598,6 +670,40 @@ class ModPair:
         }
 
 
+# 键格:每级 = (键函数, 前置条件, kind 函数);通用循环逐级消费上级残余,
+# 任一侧多候选整族放弃。新增配对形态 = 加一行条目,不再复制整段流程(批次F 收口)。
+# key: (family, tail) -> str;pred/kind: 接收 normalize_jar_family 三元组 (family, sig, tail)
+@dataclass(frozen=True)
+class _Level:
+    """键格单级条目:键函数 + 前置条件(可选) + kind 判定函数。
+
+    Attributes:
+        key: (家族键, 变体尾缀) → 配对键;空串键不参与本级。
+        pred: 前置条件,None 表示无条件;False 时该候选对跳过(不加配)。
+        kind: 由两侧归一化三元组判定 "upgrade"/"renamed"/"rebuilt"。
+    """
+
+    key: Callable[[str, str], str]
+    pred: Callable[[tuple[str, str, str], tuple[str, str, str]], bool] | None
+    kind: Callable[[tuple[str, str, str], tuple[str, str, str]], str]
+
+
+_LATTICE: list[_Level] = [
+    _Level(key=lambda fam, tail: fam, pred=None,
+           kind=lambda s, d: _kind_by_sig(s[1], d[1])),                        # 一级(0.6.3)
+    _Level(key=_reduced_family,
+           pred=lambda s, d: s[1] == d[1] and s[2] != d[2],                    # 同签名+异尾缀
+           kind=lambda s, d: "rebuilt"),                                       # 二级(批次D)
+    _Level(key=_reduced_family,
+           pred=lambda s, d: s[1] != d[1],                                     # 异签名
+           kind=lambda s, d: "upgrade"),                                       # 三级(批次E)
+    _Level(key=_platform_stripped, pred=None,
+           kind=lambda s, d: _kind_by_sig(s[1], d[1])),                        # 四级(批次E)
+    _Level(key=_decoration_stripped, pred=None,
+           kind=lambda s, d: _kind_by_sig(s[1], d[1])),                        # 五级(批次F)
+]
+
+
 def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
     """按 modid 配对两侧注册表,产出升级/改名清单。
 
@@ -624,11 +730,10 @@ def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
         if s.version != d.version:
             kind = "upgrade"
         elif s.jar_filename != d.jar_filename:
-            # 同版异名:文件名尾缀不同(如 -Patch/-feature)→ rebuilt(同版本重打包);
-            # 尾缀相同(如仅 [中文标签] 前缀差)→ renamed。与文件名配对两源判定统一(F20-3)。
+            # 同版异名:与文件名配对第 2 级共用变体判定单点(F20-3 语义不变)
             s_tail = normalize_jar_family("mods/" + s.jar_filename)[2]
             d_tail = normalize_jar_family("mods/" + d.jar_filename)[2]
-            kind = "rebuilt" if s_tail != d_tail else "renamed"
+            kind = _variant_kind_by_tail(s_tail, d_tail)
         else:
             continue
         pairs.append(
@@ -645,140 +750,63 @@ def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:
 
 
 def pair_mods_by_filename(src_only: list[str], dst_only: list[str]) -> list[ModPair]:
-    """mods 桶 to_add/target_only 按归一化家族键四级配对(纯快照数据,无活体依赖)。
+    """mods 桶 to_add/target_only 按归一化家族键五级键格配对(纯快照数据,无活体依赖)。
 
+    通用循环逐级消费上级残余(键格表 _LATTICE),任一侧同键多候选整族放弃(不猜):
     第一级(0.6.3 语义,键与判定完全不变):家族键全等配对;
-    版本签名不同 → upgrade,相同 → renamed。歧义(同键任一侧多候选)整族放弃。
-    第二级(批次D F20-3,仅对第一级未配上的残余):家族键剥掉尾缀词(减尾键)后相等,
-    且双方版本签名相同、尾缀不同(含一侧空)→ kind="rebuilt"(同版本重打包/变体)。
-    第三级(F21,仅消费上级残余):减尾键相等 + 版本签名不同 → upgrade
-    (版本与尾缀同时变化:一级因家族键含尾缀词而失配,二级因要求同签名而失配)。
-    第四级(F22,仅消费上级残余):减尾键剥平台装饰词(neoforge/forge/fabric/quilt/
-    mc/minecraft)后相等 → 版本签名不同 → upgrade,相同 → renamed(作者改命名风格)。
+    版本签名不同 → upgrade,相同 → renamed。
+    第二级(批次D F20-3):减尾键相等 + 同签名 + 异尾缀 → rebuilt(同版本重打包/变体)。
+    第三级(F21):减尾键相等 + 签名不同 → upgrade(版本与尾缀同变的收口)。
+    第四级(F22):减尾键剥平台装饰词(neoforge/forge/fabric/quilt/mc/minecraft)后相等
+    → upgrade/renamed(作者改命名风格)。
+    第五级(批次F):减尾键再剥闭集装饰词(_DECORATION_WORDS,任意位置)后相等
+    → upgrade/renamed(非平台装饰词增删形态,闭集外词不剥防伪配)。
 
     Args:
         src_only: 源侧独有 jar 相对路径(to_add 条目)。
         dst_only: 目标侧独有 jar 相对路径(target_only 条目)。
 
     Returns:
-        ModPair 列表(source="filename",modid=家族键(第二/三级为减尾键,
-        第四级为剥平台词后的减尾键),按 modid 升序)。
+        ModPair 列表(source="filename",modid=该级配对键,按 modid 升序)。
     """
     src_norm = {p: normalize_jar_family(p) for p in src_only}
     dst_norm = {p: normalize_jar_family(p) for p in dst_only}
 
-    def _group(norm: dict[str, tuple[str, str, str]]) -> dict[str, list[str]]:
-        by: dict[str, list[str]] = {}
-        for p, (fam, _, _) in norm.items():
-            if fam:
-                by.setdefault(fam, []).append(p)
-        return by
-
     pairs: list[ModPair] = []
     paired: set[str] = set()
-    # 第一级:家族键全等(0.6.3 行为原样)
-    by_src, by_dst = _group(src_norm), _group(dst_norm)
-    for fam in sorted(set(by_src) & set(by_dst)):
-        s_list, d_list = by_src[fam], by_dst[fam]
-        if len(s_list) != 1 or len(d_list) != 1:
-            continue  # 歧义放弃,不猜
-        s, d = s_list[0], d_list[0]
-        s_sig, d_sig = src_norm[s][1], dst_norm[d][1]
-        pairs.append(
-            ModPair(
-                modid=fam,
-                kind="upgrade" if s_sig != d_sig else "renamed",
-                src_files=[s], dst_files=[d],
-                src_version=s_sig or None, dst_version=d_sig or None,
-                source="filename",
+    for level in _LATTICE:
+        ks: dict[str, list[str]] = {}
+        kd: dict[str, list[str]] = {}
+        for p, (fam, _, tail) in src_norm.items():
+            if p in paired or not fam:
+                continue
+            k = level.key(fam, tail)
+            if k:
+                ks.setdefault(k, []).append(p)
+        for p, (fam, _, tail) in dst_norm.items():
+            if p in paired or not fam:
+                continue
+            k = level.key(fam, tail)
+            if k:
+                kd.setdefault(k, []).append(p)
+        for key in sorted(set(ks) & set(kd)):
+            s_list, d_list = ks[key], kd[key]
+            if len(s_list) != 1 or len(d_list) != 1:
+                continue  # 歧义放弃,不猜
+            s, d = s_list[0], d_list[0]
+            s_norm_v, d_norm_v = src_norm[s], dst_norm[d]
+            if level.pred is not None and not level.pred(s_norm_v, d_norm_v):
+                continue
+            pairs.append(
+                ModPair(
+                    modid=key,
+                    kind=level.kind(s_norm_v, d_norm_v),
+                    src_files=[s], dst_files=[d],
+                    src_version=s_norm_v[1] or None, dst_version=d_norm_v[1] or None,
+                    source="filename",
+                )
             )
-        )
-        paired.update((s, d))
-    # 第二级:减尾键相等 + 同版本签名 + 异尾缀 → rebuilt(仅第一级残余)
-    r_src: dict[str, list[str]] = {}
-    r_dst: dict[str, list[str]] = {}
-    for p, (fam, _, tail) in src_norm.items():
-        if p in paired or not fam:
-            continue
-        red = _reduced_family(fam, tail)
-        if red:
-            r_src.setdefault(red, []).append(p)
-    for p, (fam, _, tail) in dst_norm.items():
-        if p in paired or not fam:
-            continue
-        red = _reduced_family(fam, tail)
-        if red:
-            r_dst.setdefault(red, []).append(p)
-    for red in sorted(set(r_src) & set(r_dst)):
-        s_list, d_list = r_src[red], r_dst[red]
-        if len(s_list) != 1 or len(d_list) != 1:
-            continue  # 歧义放弃,不猜
-        s, d = s_list[0], d_list[0]
-        s_sig, d_sig = src_norm[s][1], dst_norm[d][1]
-        s_tail, d_tail = src_norm[s][2], dst_norm[d][2]
-        if s_sig != d_sig or s_tail == d_tail:
-            continue  # 版本不同非本级职责;尾缀相同属第一级改名语义(此处理论死枝守卫)
-        pairs.append(
-            ModPair(
-                modid=red,
-                kind="rebuilt",
-                src_files=[s], dst_files=[d],
-                src_version=s_sig or None, dst_version=d_sig or None,
-                source="filename",
-            )
-        )
-        paired.update((s, d))
-    # 第三级(F21):减尾键相等 + 版本签名不同 → upgrade(版本与尾缀同变;
-    # 一级因家族键含尾缀词而失配,二级因要求同签名而失配,本级收口)
-    for red in sorted(set(r_src) & set(r_dst)):
-        s_list = [p for p in r_src[red] if p not in paired]
-        d_list = [p for p in r_dst[red] if p not in paired]
-        if len(s_list) != 1 or len(d_list) != 1:
-            continue  # 歧义放弃,不猜
-        s, d = s_list[0], d_list[0]
-        if src_norm[s][1] == dst_norm[d][1]:
-            continue  # 同签名属第二级语义(此处理论死枝守卫)
-        pairs.append(
-            ModPair(
-                modid=red,
-                kind="upgrade",
-                src_files=[s], dst_files=[d],
-                src_version=src_norm[s][1] or None,
-                dst_version=dst_norm[d][1] or None,
-                source="filename",
-            )
-        )
-        paired.update((s, d))
-    # 第四级(F22):减尾键剥平台装饰词后相等 → upgrade/renamed(作者改命名风格)
-    p_src: dict[str, list[str]] = {}
-    p_dst: dict[str, list[str]] = {}
-    for p, (fam, _, tail) in src_norm.items():
-        if p in paired or not fam:
-            continue
-        stripped = _platform_stripped(fam, tail)
-        if stripped:
-            p_src.setdefault(stripped, []).append(p)
-    for p, (fam, _, tail) in dst_norm.items():
-        if p in paired or not fam:
-            continue
-        stripped = _platform_stripped(fam, tail)
-        if stripped:
-            p_dst.setdefault(stripped, []).append(p)
-    for key in sorted(set(p_src) & set(p_dst)):
-        s_list, d_list = p_src[key], p_dst[key]
-        if len(s_list) != 1 or len(d_list) != 1:
-            continue  # 歧义放弃,不猜
-        s, d = s_list[0], d_list[0]
-        s_sig, d_sig = src_norm[s][1], dst_norm[d][1]
-        pairs.append(
-            ModPair(
-                modid=key,
-                kind="upgrade" if s_sig != d_sig else "renamed",
-                src_files=[s], dst_files=[d],
-                src_version=s_sig or None, dst_version=d_sig or None,
-                source="filename",
-            )
-        )
+            paired.update((s, d))
     pairs.sort(key=lambda p: p.modid)
     return pairs
 

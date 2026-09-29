@@ -104,6 +104,28 @@ def md5_of(path: Path) -> str | None:
     return h.hexdigest()
 
 
+def sha256_normalized(path: Path) -> str:
+    """计算文件 SHA-256(hex 小写;CRLF→LF 归一化后哈希,F24)。
+
+    gen_manifest(清单生成)与 doctor(清单校验)共用同一实现,
+    避免 F24 归一化逻辑两处漂移;LF 文件为 no-op。
+
+    Args:
+        path: 目标文件。
+
+    Returns:
+        16 进制 SHA-256 字符串(归一化字节流)。
+
+    Raises:
+        OSError: 文件不可读(与两处原实现一致,由调用方决定容错策略)。
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk.replace(b"\r\n", b"\n"))
+    return digest.hexdigest()
+
+
 def _map_oserror(e: OSError, phase: str, src: Path, dst: Path) -> FsOpsError:
     """把底层 OSError 映射为类型化异常(中文 why,保留原始异常为 __cause__)。
 

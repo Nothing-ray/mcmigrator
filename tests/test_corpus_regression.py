@@ -341,3 +341,79 @@ def test_corpus_20260923_five_upgrades_and_swap_keeps_pairs() -> None:
     assert sum(1 for i in report.never if i.note == "modpack_swap") == 5
     assert sum(1 for i in report.mods if i.note == "target_only") == 5
     assert len(pair_mods_by_filename(src_only, dst_only)) == 5
+
+
+def test_corpus_20260929_twelve_pairs_renamed_first_show() -> None:
+    """r11 黄金对(第十轮语料):12/12 配对 — 11 upgrade + torchmaster renamed 首秀。
+
+    DragonSurvival 为一级配对(-all 两侧同在,spec §0 更正);3 件真移除裸 to_add
+    + 4 件净增 target_only;swap 视角 15 旧件归换包排除且配对不丢(F23 哨兵)。
+    """
+    from migration.moddb import pair_mods_by_filename
+    d = FIXTURES / "20260929"
+    src = Snapshot.load(d / "r11_pre.json")
+    dst = Snapshot.load(d / "r11_post.json")
+    src_only = sorted(_mods_jar_paths(src) - _mods_jar_paths(dst))
+    dst_only = sorted(_mods_jar_paths(dst) - _mods_jar_paths(src))
+    assert (len(src_only), len(dst_only)) == (15, 16)
+    pairs = pair_mods_by_filename(src_only, dst_only)
+    by = {p.modid: p for p in pairs}
+    assert len(pairs) == 12
+    assert sum(1 for p in pairs if p.kind == "upgrade") == 11
+    # torchmaster:裸名 → [火炬大师] 前缀,同版本同 md5 纯改名 → renamed(而非 upgrade)
+    assert by["torchmaster-neoforge"].kind == "renamed"
+    assert by["torchmaster-neoforge"].src_version == "1.21.1-21.1.13"
+    # DragonSurvival:版本+日期双变但 -all 两侧同在 → 一级(非三级),modid 含 -all
+    assert by["dragonsurvival-all"].kind == "upgrade"
+    assert by["dragonsurvival-all"].src_version == "1.21.1-v2.0.70-13.09.2026"
+    assert by["dragonsurvival-all"].dst_version == "1.21.1-v2.0.71-25.09.2026"
+    # 桶语义:3 删 + 4 增(frost_dragon 为 F30 客户端件,T5 在此夹具上再锚 client_only)
+    rs, errs = build_ruleset(["a", "b"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    notes = {i.path: i.note for i in report.mods}
+    for p in ("mods/[机械动力：食物注药] Create-Food-Filling-1.21.1-1.5.1.jar",
+              "mods/fzzy_config-0.7.7+1.21+neoforge.jar",
+              "mods/tarotcards-2.3.5-neoforge-1.21.1.jar"):
+        assert notes[p] == "to_add"
+    for p in ("mods/Azotosaurus-freesky-1.4.5.jar",
+              "mods/[FTB 区块] ftb-chunks-neoforge-2101.1.22.jar",
+              "mods/[FTB 团队] ftb-teams-neoforge-2101.1.11.jar",
+              "mods/frost_dragon-1.0.0.jar"):
+        assert notes[p] == "target_only"
+    # swap 视角:to_add 全归换包排除,配对输入取快照差集 → 12 对不丢
+    sw = Differ(src.files, dst.files, Classifier(rs), modpack_swap=True).diff()
+    assert not [i for i in sw.mods if i.note == "to_add"]
+    assert sum(1 for i in sw.never if i.note == "modpack_swap") == 15
+    assert len(pair_mods_by_filename(src_only, dst_only)) == 12
+
+
+def test_corpus_20260929_frost_dragon_client_only_annotation(tmp_path) -> None:
+    """F30①:复放 diff(无活体)下已知客户端件按家族键命中 —
+    frost_dragon 行标 client_only + stderr 警示行;其余行不变;--json 不受影响。"""
+    import io
+    import json
+
+    from rich.console import Console
+    from migration.pipeline import run_diff
+    from migration.reporter import DiffReporter, ReportOptions
+    d = FIXTURES / "20260929"
+    # 复放布置:夹具快照按标准命名落到 tmp 的 .mcmig/snapshots(game_root 不传 → 无活体 ctx)
+    snaps = tmp_path / ".mcmig" / "snapshots"
+    snaps.mkdir(parents=True)
+    Snapshot.load(d / "r11_pre.json").save(snaps / "r11-pre.snapshot.json")
+    Snapshot.load(d / "r11_post.json").save(snaps / "r11-post.snapshot.json")
+    out = run_diff(tmp_path, src="r11-pre", dst="r11-post")
+    assert any("客户端" in n and "frost_dragon" in n for n in out.notices)
+    buf = io.StringIO()
+    reporter = DiffReporter(out.report, src_version="r11-pre", dst_version="r11-post",
+                            mod_pairs=out.mod_pairs, client_only_paths=out.client_only_paths)
+    reporter.render(ReportOptions(mods_only=True), console=Console(file=buf, width=200))
+    text = buf.getvalue()
+    assert "frost_dragon-1.0.0.jar" in text and "client_only" in text
+    # 共享件不受污染:抽一条 shared 行不含 client_only
+    assert "BlockBox-1.21.1-0.1.3.jar" in text
+    # json 无 client_only 字段(结构不变)
+    payload = json.loads(reporter.to_json())
+    assert "client_only" not in payload and set(payload) == {"src", "dst", "summary", "buckets", "mod_pairs"}

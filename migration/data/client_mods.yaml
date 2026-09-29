@@ -1,0 +1,8 @@
+# 已知客户端 mod 清单(F30):专服部署时构造期崩溃风险件。
+# 仅标注警示、不自动排除(工具是对比器不是部署器);匹配键二选一即可:
+#   modid  = 活体 mods.toml 的 modId(registry 可达时命中)
+#   family = 文件名家族键(normalize_jar_family,复放模式命中)
+client_only:
+  - modid: glacier_dragon
+    family: frost-dragon
+    reason: r11 专服构造期加载 LocalPlayer 于 DEDICATED_SERVER 崩溃(F30 实证,已隔离)

@@ -917,3 +917,78 @@ def test_diff_modpack_swap_keeps_pairing_markers(tmp_path, monkeypatch, capsys) 
     out = capsys.readouterr().out
     assert "target_only ⇄upgrade" in out
     assert "配对: ⇄upgrade ×1" in out
+
+
+# ---- 批次F Task 3:自比对/junction 同体检测单点 diff_identity_notices ----
+
+
+def test_diff_identity_notices_paths_and_replay(tmp_path: Path) -> None:
+    """自比对检测统一:① 同一快照文件 → 提示;② 复放模式(无活体)resolved_root+同刻 → 提示;
+    ③ resolved_root 同、刻不同 → None(静默);④ 旧快照缺字段 → 回退 ctx.same_dir+scanned_at。"""
+    from migration.moddb import ModRegistry
+    from migration.pipeline import DiffContext, diff_identity_notices
+    from migration.snapshot import Snapshot
+
+    def mk(scanned_at: str, resolved_root: str | None = None) -> Snapshot:
+        """最小快照工厂:只填身份相关字段(diff_identity_notices 的输入面)。"""
+        return Snapshot(version="v", game_root="C:/g", scanned_at=scanned_at,
+                        hash_mode="tiered", file_count=0, files=[],
+                        resolved_root=resolved_root)
+
+    p = tmp_path / "a.snapshot.json"
+    pa = tmp_path / "pa.snapshot.json"
+    pb = tmp_path / "pb.snapshot.json"
+    for f in (p, pa, pb):
+        f.write_text("{}", encoding="utf-8")
+    snap_a = mk("2026-09-29T10:00:00+08:00")
+    ctx_same_dir = DiffContext(
+        src_mods=ModRegistry(), dst_mods=ModRegistry(),
+        src_dir=tmp_path, dst_dir=tmp_path, same_dir=True,
+    )
+    # ① 同文件
+    assert diff_identity_notices(p, p, snap_a, snap_a, ctx=None) is not None
+    # ② 复放:两文件不同,但 resolved_root 相同 + scanned_at 相同,ctx=None
+    assert "自比对" in diff_identity_notices(
+        pa, pb,
+        mk("2026-09-29T10:00:00+08:00", "C:/real/v"),
+        mk("2026-09-29T10:00:00+08:00", "C:/real/v"),
+        None)
+    # ③ 同物理根不同刻 → None
+    assert diff_identity_notices(
+        pa, pb,
+        mk("2026-09-29T10:00:00+08:00", "C:/real/v"),
+        mk("2026-09-29T11:00:00+08:00", "C:/real/v"),
+        None) is None
+    # ④ 回退:resolved_root 均 None,ctx.same_dir=True 且同刻 → 现行 F27 文案
+    msg = diff_identity_notices(
+        pa, pb,
+        mk("2026-09-29T10:00:00+08:00"),
+        mk("2026-09-29T10:00:00+08:00"),
+        ctx_same_dir)
+    assert "同刻" in msg and "junction 同体" in msg
+
+
+def test_diff_same_snapshot_file_self_hint(tmp_path: Path, monkeypatch, capsys) -> None:
+    """CLI:mcmig diff X X(同名快照)stderr 出自比对提示(复放模式同样触发)。"""
+    game_root = _setup_game(tmp_path, ["solo"])
+    monkeypatch.chdir(tmp_path)
+    from migration.cli import main
+
+    assert main(["scan", "solo", "--game-root", str(game_root), "-q"]) == 0
+    capsys.readouterr()
+    # live 模式:同一快照文件装入两侧 → 主判提示(stderr),stdout 仍为合法 JSON
+    assert main(["diff", "solo", "solo", "--game-root", str(game_root), "--json"]) == 0
+    captured = capsys.readouterr()
+    json.loads(captured.out)
+    assert "自比对" in captured.err
+
+    # 复放模式(无 game-root,快照挪到 CWD 旧布局)同样触发
+    import shutil
+    replay_dir = tmp_path / ".mcmig" / "snapshots"
+    replay_dir.mkdir(parents=True)
+    shutil.copy(str(snapshot_path(game_root, "solo")), str(replay_dir / "solo.snapshot.json"))
+    monkeypatch.delenv("MCMIG_GAME_ROOT", raising=False)
+    assert main(["diff", "solo", "solo", "--json"]) == 0
+    captured = capsys.readouterr()
+    json.loads(captured.out)
+    assert "自比对" in captured.err

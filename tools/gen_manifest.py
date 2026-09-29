@@ -11,13 +11,21 @@ LF 行尾、按文件名排序)。清单随仓库提交、随发行包分发,由
 
 from __future__ import annotations
 
-import hashlib
 import logging
+import sys
 from pathlib import Path
 
 # 数据目录:本脚本位于 <仓库>/tools/,数据位于 <仓库>/migration/data/
 # (按脚本自身位置定位,与运行时 cwd 无关)
 DATA_DIR = Path(__file__).resolve().parents[1] / "migration" / "data"
+
+# 单点哈希实现来自 migration.fsops(P7 收口):按脚本直接运行时 <仓库>/tools/
+# 是 sys.path[0],仓库根不在路径上,须先补注才能 import migration
+_REPO_ROOT = DATA_DIR.parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from migration.fsops import sha256_normalized  # noqa: E402
 
 # 清单文件名(与 migration/doctor.py 的 MANIFEST_NAME 约定一致)
 MANIFEST_NAME = "manifest.sha256"
@@ -28,14 +36,12 @@ log = logging.getLogger(__name__)
 def sha256_file(path: Path) -> str:
     """计算文件 SHA-256(hex 小写;CRLF→LF 归一化后哈希,F24)。
 
-    归一化使 LF 提交字节与 autocrlf=true 检出的 CRLF 工作区算出同一哈希;
-    对 LF 文件是 no-op,故 manifest 数值与既有清单一致,无需全量重生成。
+    单点实现在 migration.fsops.sha256_normalized(本函数仅委托转发,与
+    doctor._sha256_of 同源):归一化使 LF 提交字节与 autocrlf=true 检出的
+    CRLF 工作区算出同一哈希;对 LF 文件是 no-op,故 manifest 数值与既有
+    清单一致,无需全量重生成。
     """
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk.replace(b"\r\n", b"\n"))
-    return digest.hexdigest()
+    return sha256_normalized(path)
 
 
 def build_manifest_text(data_dir: Path) -> str:

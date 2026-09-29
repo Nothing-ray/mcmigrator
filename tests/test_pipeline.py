@@ -93,7 +93,7 @@ def test_build_plan_returns_plan_and_saves(tmp_path):
     scan_version(game, "dst", snaps)
     plans_dir = tmp_path / "plans"
     plans_dir.mkdir()
-    plan, warns = build_plan(
+    plan, warns, _pairs = build_plan(
         tmp_path, game, "src", "dst",
         mcmig_dir=tmp_path, plans_dir=plans_dir,
     )
@@ -160,7 +160,7 @@ def test_build_plan_data_dir_reads_anchored_and_falls_back(tmp_path, caplog) -> 
     # 1) 快照放 data_dir/snapshots → build_plan(data_dir=data) 成功
     scan_version(game, "src", data / "snapshots")
     scan_version(game, "dst", data / "snapshots")
-    plan, _ = build_plan(
+    plan, _, _pairs = build_plan(
         tmp_path, game, "src", "dst",
         mcmig_dir=mcmig, plans_dir=plans_dir, data_dir=data,
     )
@@ -175,7 +175,7 @@ def test_build_plan_data_dir_reads_anchored_and_falls_back(tmp_path, caplog) -> 
     scan_version(game, "dst", mcmig / "snapshots")
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="migration.pipeline"):
-        plan, _ = build_plan(
+        plan, _, _pairs = build_plan(
             tmp_path, game, "src", "dst",
             mcmig_dir=mcmig, plans_dir=plans_dir, data_dir=data,
         )
@@ -386,6 +386,23 @@ def test_resolve_context_empty_game_root_returns_none():
     assert resolve_diff_context(_snap("a", ""), _snap("b", "C:\\nonexistent")) is None
 
 
+def test_diff_client_only_registry_modid_channel(tmp_path: Path) -> None:
+    """F30① 活体补锚(T5 递延):家族键通道不命中(文件名家族 ≠ frost-dragon),
+    modId=glacier_dragon 经注册表反查通道命中 client_only —— 警示行 +
+    client_only_paths 恰为该 jar(仅标注不拦截)。"""
+    from migration.pipeline import run_diff
+
+    root, _ = _make_game_root(tmp_path, "a", "glacier_dragon", "1.0.0")
+    _make_game_root(tmp_path, "b", "othermod", "2.0")  # dst 无该 jar → src 侧落 mods 桶
+    snaps = root / ".mcmig" / "snapshots"
+    scan_version(root, "a", snaps)
+    scan_version(root, "b", snaps)
+    out = run_diff(tmp_path, src="a", dst="b", mcmig_dir=root / ".mcmig")
+    # 家族键 "glacier-dragon" 不在清单(仅 frost-dragon)→ 命中只能来自 registry modid
+    assert out.client_only_paths == {"mods/glacier_dragon-1.0.0.jar"}
+    assert any("客户端" in n and "glacier_dragon-1.0.0.jar" in n for n in out.notices)
+
+
 def test_context_read_file_roundtrip_and_missing(tmp_path):
     from migration.pipeline import resolve_diff_context
 
@@ -430,3 +447,62 @@ def test_resolve_diff_context_distinct_dirs_same_dir_false(tmp_path):
 
     ctx = resolve_diff_context(_snap("a", str(root)), _snap("b", str(root)))
     assert ctx is not None and ctx.same_dir is False
+
+
+# ---- 批次F Task 4:diff 编排下沉 run_diff ----
+
+
+def test_run_diff_outcome_and_notices(tmp_path: Path) -> None:
+    """run_diff 下沉:六桶/配对/快照齐备;swap 提示与「mods 扫描不可用」进 notices。"""
+    import json
+
+    from migration.pipeline import run_diff
+
+    game_root = tmp_path / "game"
+    va = game_root / "versions" / "a"
+    vb = game_root / "versions" / "b"
+    (va / "mods").mkdir(parents=True)
+    (vb / "mods").mkdir(parents=True)
+    (va / "options.txt").write_text("fps:60\n", encoding="utf-8")
+    (va / "mods" / "x-1.0.0.jar").write_bytes(b"")  # 占位 jar(空文件,注册表不可解析)
+    (vb / "mods" / "x-1.1.0.jar").write_bytes(b"")
+    data = game_root / ".mcmig" / "snapshots"
+    scan_version(game_root, "a", data)
+    scan_version(game_root, "b", data)
+
+    out = run_diff(tmp_path, src="a", dst="b", game_root=game_root)
+    assert out.src.version == "a" and out.dst.version == "b"
+    assert any(i.path.startswith("mods/") for i in out.report.mods)
+    assert isinstance(out.mod_pairs, list)
+    # 空占位 jar 注册表配对为空,文件名配对兜底:x 1.0.0 → 1.1.0 upgrade
+    assert len(out.mod_pairs) == 1
+    assert (out.mod_pairs[0].kind, out.mod_pairs[0].source) == ("upgrade", "filename")
+    assert out.notices == []  # live 双目录健康路径零提示
+
+    # swap 模式:排除提示进 notices(有排除时)
+    out_sw = run_diff(tmp_path, src="a", dst="b", modpack_swap=True, game_root=game_root)
+    assert any("换包模式" in n for n in out_sw.notices)
+
+    # 复放(game_root=None):快照直取 cwd/.mcmig;ctx 按快照内 game_root 判定(I-1:
+    # 与 game_root 参数无关),故把复放份的 game_root 改写为不存在路径模拟真复放
+    # (tmp 夹具根可达,不改写则 ctx 激活、降级提示不会出现)
+    legacy = tmp_path / ".mcmig" / "snapshots"
+    legacy.mkdir(parents=True)
+    for n in ("a", "b"):
+        doc = json.loads((data / f"{n}.snapshot.json").read_text(encoding="utf-8"))
+        doc["game_root"] = r"C:\\definitely\\missing"
+        (legacy / f"{n}.snapshot.json").write_text(
+            json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    out_replay = run_diff(tmp_path, src="a", dst="b")
+    assert any("mods 扫描不可用" in n for n in out_replay.notices)
+    assert out_replay.mod_pairs  # 文件名配对兜底仍可用
+
+
+def test_run_diff_missing_snapshot_raises(tmp_path: Path) -> None:
+    """缺快照 → FileNotFoundError(消息含版本名),CLI 层保持既有退出码 2 文案。"""
+    import pytest
+
+    from migration.pipeline import run_diff
+
+    with pytest.raises(FileNotFoundError, match="b"):
+        run_diff(tmp_path, src="a", dst="b", game_root=tmp_path)

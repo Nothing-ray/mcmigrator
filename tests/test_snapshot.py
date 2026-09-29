@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from migration.scanner import Scanner
 from migration.snapshot import FileEntry, Snapshot, SnapshotFormatError
 
 
@@ -91,3 +92,31 @@ def test_load_rejects_file_entry_missing_path(tmp_path: Path):
     )
     with pytest.raises(SnapshotFormatError):
         Snapshot.load(sp)
+
+
+# ---- 批次F Task 3:快照身份字段 resolved_root ----
+
+
+def test_snapshot_resolved_root_roundtrip_and_legacy(tmp_path: Path) -> None:
+    """resolved_root 往返持久化;旧快照(无该键)加载得 None 不炸。"""
+    snap = Snapshot(version="v", game_root="C:\\g", scanned_at="2026-09-29T10:00:00+08:00",
+                    hash_mode="tiered", file_count=0, files=[], resolved_root="C:\\real\\v")
+    p = tmp_path / "s.json"
+    snap.save(p)
+    loaded = Snapshot.load(p)
+    assert loaded.resolved_root == "C:\\real\\v"
+    # 旧布局:手写无 resolved_root 键的 JSON
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(json.dumps({
+        "tool_version": "0.6.0", "snapshot_format": 1, "version": "v",
+        "game_root": "C:\\g", "scanned_at": "t", "hash_mode": "tiered",
+        "file_count": 0, "files": []}, ensure_ascii=False), encoding="utf-8")
+    assert Snapshot.load(legacy).resolved_root is None
+
+
+def test_scanner_records_resolved_root(tmp_path: Path) -> None:
+    """scan 落盘 resolved_root=版本目录 resolve()(junction 解析后的物理路径)。"""
+    ver = tmp_path / "versions" / "v1"
+    (ver / "mods").mkdir(parents=True)
+    snap, _ = Scanner(ver, "v1").build_snapshot(str(tmp_path))
+    assert snap.resolved_root == str(ver.resolve())

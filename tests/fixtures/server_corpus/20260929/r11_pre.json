@@ -1,0 +1,561 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r11-pre",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-09-29T13:04:43+08:00",
+ "hash_mode": "tiered",
+ "file_count": 110,
+ "files": [
+  {
+   "path": "mods/BlockBox-1.21.1-0.1.3.jar",
+   "size": 909114,
+   "md5": null
+  },
+  {
+   "path": "mods/CreeperFirework-neoforge-2.2.0.jar",
+   "size": 41106,
+   "md5": null
+  },
+  {
+   "path": "mods/Cyberspace 5.0.2 (NF1.21.1).jar",
+   "size": 2566515,
+   "md5": null
+  },
+  {
+   "path": "mods/Mekanism-1.21.1-10.7.19.85.jar",
+   "size": 11976009,
+   "md5": null
+  },
+  {
+   "path": "mods/MekanismGenerators-1.21.1-10.7.19.85.jar",
+   "size": 1114598,
+   "md5": null
+  },
+  {
+   "path": "mods/MekanismOutputFaster-1.21.1-0.0.1.jar",
+   "size": 10422,
+   "md5": null
+  },
+  {
+   "path": "mods/MekanismTools-1.21.1-10.7.19.85.jar",
+   "size": 526620,
+   "md5": null
+  },
+  {
+   "path": "mods/NaturesCompass-1.21.1-3.4.0-neoforge.jar",
+   "size": 224657,
+   "md5": null
+  },
+  {
+   "path": "mods/Patchouli-1.21.1-93-NEOFORGE.jar",
+   "size": 646777,
+   "md5": null
+  },
+  {
+   "path": "mods/ScorchedGuns-1.5.jar",
+   "size": 19006006,
+   "md5": null
+  },
+  {
+   "path": "mods/TheSplashMilk-neoforge-3.0.1.jar",
+   "size": 85891,
+   "md5": null
+  },
+  {
+   "path": "mods/Wing Kirin - V.3.2.0.jar",
+   "size": 1252029,
+   "md5": null
+  },
+  {
+   "path": "mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.45.jar",
+   "size": 1219809,
+   "md5": null
+  },
+  {
+   "path": "mods/[农夫乐事] FarmersDelight-1.21.1-1.3.4.jar",
+   "size": 3160490,
+   "md5": null
+  },
+  {
+   "path": "mods/[冰焰龙] frostfire_dragon-1.6.0.jar",
+   "size": 806243,
+   "md5": null
+  },
+  {
+   "path": "mods/[圆石生成器] cobblestone_generator-1.2.1-mc1.21.1-neoforge.jar",
+   "size": 117588,
+   "md5": null
+  },
+  {
+   "path": "mods/[奇异饰品] artifacts-neoforge-13.2.5.jar",
+   "size": 1086922,
+   "md5": null
+  },
+  {
+   "path": "mods/[无尽贪婪：重生] Re-Avaritia-neoforge-1.21.1-1.4.2-release.jar",
+   "size": 3764805,
+   "md5": null
+  },
+  {
+   "path": "mods/[晶咒龙] crystcursed_dragon-1.4.0.jar",
+   "size": 2116497,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力] create-1.21.1-6.0.10.jar",
+   "size": 19123767,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：创意传动] create_connected-1.3.3-mc1.21.1.jar",
+   "size": 6786783,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：懒惰刻] CreateLazyTick-2.6.25-6.0.10-neoforge-1.21.1.jar",
+   "size": 473591,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：改进] createimp-1.4.1.jar",
+   "size": 1499777,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：食物注药] Create-Food-Filling-1.21.1-1.5.1.jar",
+   "size": 43010,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：齿轮与麦穗] create_ratatouille-1.21.1-1.4.0.jar",
+   "size": 918946,
+   "md5": null
+  },
+  {
+   "path": "mods/[村民物品化／简单村民] easy-villagers-neoforge-1.21.1-1.1.42.jar",
+   "size": 456700,
+   "md5": null
+  },
+  {
+   "path": "mods/[森罗物语：兼容] kaleidoscope_compat-2.9.7-neoforge+mc1.21.1-Patch.jar",
+   "size": 1357181,
+   "md5": null
+  },
+  {
+   "path": "mods/[森罗物语：厨房] kaleidoscopecookery-1.5.1-neoforge+mc1.21.1.jar",
+   "size": 3486612,
+   "md5": null
+  },
+  {
+   "path": "mods/[森罗酒馆：世界名酒] kaleidoscope_world_liquor-1.1.9-neoforge+1.21.1-fix.jar",
+   "size": 6783865,
+   "md5": null
+  },
+  {
+   "path": "mods/[沉浸式奏乐] immersive_melodies-neoforge-0.8.0+1.21.1.jar",
+   "size": 5565133,
+   "md5": null
+  },
+  {
+   "path": "mods/[沙滩派对] letsdo-beachparty-neoforge-2.1.5.jar",
+   "size": 7766490,
+   "md5": null
+  },
+  {
+   "path": "mods/[潮汐] tide-neoforge-1.21.1-2.1.1.jar",
+   "size": 2155309,
+   "md5": null
+  },
+  {
+   "path": "mods/[灾变] L_Ender's Cataclysm 1.21.1-3.33.jar",
+   "size": 73375667,
+   "md5": null
+  },
+  {
+   "path": "mods/[烘焙坊] bakeries-1.21.1-NeoForge-1.0.4.jar",
+   "size": 2528698,
+   "md5": null
+  },
+  {
+   "path": "mods/[矿石种植工艺] cp_lib-5.0.26-neoforge-1.21.1.jar",
+   "size": 1842764,
+   "md5": null
+  },
+  {
+   "path": "mods/[神秘遗物+] enigmaticlegacyplus-1.21.1-1.1.1.jar",
+   "size": 7233336,
+   "md5": null
+  },
+  {
+   "path": "mods/[稀有精英怪] infernalmobs-1.21.1.3NF.jar",
+   "size": 141468,
+   "md5": null
+  },
+  {
+   "path": "mods/[精妙存储] sophisticatedstorage-1.21.1-1.5.91.2127.jar",
+   "size": 1869204,
+   "md5": null
+  },
+  {
+   "path": "mods/[精妙核心] sophisticatedcore-1.21.1-1.5.1.2341.jar",
+   "size": 1785221,
+   "md5": null
+  },
+  {
+   "path": "mods/[精妙背包] sophisticatedbackpacks-1.21.1-3.26.3.2158.jar",
+   "size": 1251706,
+   "md5": null
+  },
+  {
+   "path": "mods/[资源复制机] resource_replicator-1.1.2-mc1.21.1-neoforge.jar",
+   "size": 434596,
+   "md5": null
+  },
+  {
+   "path": "mods/[超越维度] beyonddimensions-1.21.1-neoforge-0.7.30.jar",
+   "size": 3550119,
+   "md5": null
+  },
+  {
+   "path": "mods/[野性自然] letsdo-wildernature-neoforge-1.1.6.jar",
+   "size": 3335904,
+   "md5": null
+  },
+  {
+   "path": "mods/[龙之生存] DragonSurvival-1.21.1-v2.0.70-13.09.2026-all.jar",
+   "size": 13736896,
+   "md5": null
+  },
+  {
+   "path": "mods/alexscaves-up-0.1.4.jar",
+   "size": 82569132,
+   "md5": null
+  },
+  {
+   "path": "mods/alltheleaks-1.1.13+1.21.1-neoforge.jar",
+   "size": 565062,
+   "md5": null
+  },
+  {
+   "path": "mods/architectury-13.0.11-neoforge.jar",
+   "size": 584734,
+   "md5": null
+  },
+  {
+   "path": "mods/automobility-0.5.0.h+1.21.1-neoforge.jar",
+   "size": 1331432,
+   "md5": null
+  },
+  {
+   "path": "mods/avaritia_expand-0.3.6.jar",
+   "size": 530975,
+   "md5": null
+  },
+  {
+   "path": "mods/balm-neoforge-1.21.1-21.0.65.jar",
+   "size": 783793,
+   "md5": null
+  },
+  {
+   "path": "mods/biolith-neoforge-3.0.14.jar",
+   "size": 218062,
+   "md5": null
+  },
+  {
+   "path": "mods/biomespy-neoforge-1.21.1-1.3.3.jar",
+   "size": 38566,
+   "md5": null
+  },
+  {
+   "path": "mods/blackaures_paintings-1.3-neoforge-1.21.1.jar",
+   "size": 331498,
+   "md5": null
+  },
+  {
+   "path": "mods/caelus-neoforge-7.0.1+1.21.1.jar",
+   "size": 50235,
+   "md5": null
+  },
+  {
+   "path": "mods/catburger_neoforge1.21.1-1.0.7.jar",
+   "size": 57205,
+   "md5": null
+  },
+  {
+   "path": "mods/citadel-up-0.2.1.jar",
+   "size": 2983698,
+   "md5": null
+  },
+  {
+   "path": "mods/cloth-config-15.0.140-neoforge.jar",
+   "size": 1163890,
+   "md5": null
+  },
+  {
+   "path": "mods/cp_create-3.0.3-neoforge-1.21.1.jar",
+   "size": 434708,
+   "md5": null
+  },
+  {
+   "path": "mods/cp_mek-3.0.2-neoforge-1.21.1.jar",
+   "size": 243200,
+   "md5": null
+  },
+  {
+   "path": "mods/create-confectionery1.21.1_v1.1.3b.jar",
+   "size": 2128923,
+   "md5": null
+  },
+  {
+   "path": "mods/create_compressed-2.2.0-neoforge-1.21.1.jar",
+   "size": 159734,
+   "md5": null
+  },
+  {
+   "path": "mods/create_power_loader-2.0.5-mc1.21.1.jar",
+   "size": 442369,
+   "md5": null
+  },
+  {
+   "path": "mods/create_wrapped-1.0.3-neoforge-1.21.1.jar",
+   "size": 725708,
+   "md5": null
+  },
+  {
+   "path": "mods/createmoremachines-1.21.1-2.7.jar",
+   "size": 2141416,
+   "md5": null
+  },
+  {
+   "path": "mods/createprism-1.2.2.jar",
+   "size": 1287223,
+   "md5": null
+  },
+  {
+   "path": "mods/curios-neoforge-9.5.1+1.21.1.jar",
+   "size": 410690,
+   "md5": null
+  },
+  {
+   "path": "mods/dragon_rings-1.0.0-neoforge-1.21.1.jar",
+   "size": 16092574,
+   "md5": null
+  },
+  {
+   "path": "mods/easy-piglins-neoforge-1.21.1-1.1.0.jar",
+   "size": 226948,
+   "md5": null
+  },
+  {
+   "path": "mods/etched-5.1.0.jar",
+   "size": 628299,
+   "md5": null
+  },
+  {
+   "path": "mods/eternalappetite-1.3.1.jar",
+   "size": 17180,
+   "md5": null
+  },
+  {
+   "path": "mods/fetzisdisplays-neoforge-1.1.0-1.21.jar",
+   "size": 1374210,
+   "md5": null
+  },
+  {
+   "path": "mods/field-emitters-1.3.0.jar",
+   "size": 826369,
+   "md5": null
+  },
+  {
+   "path": "mods/framework-neoforge-1.21.1-0.13.11.jar",
+   "size": 387334,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-essentials-neoforge-2101.1.10.jar",
+   "size": 217288,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-library-neoforge-2101.1.36.jar",
+   "size": 1439427,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-ultimine-neoforge-2101.1.15.jar",
+   "size": 177109,
+   "md5": null
+  },
+  {
+   "path": "mods/fzzy_config-0.7.7+1.21+neoforge.jar",
+   "size": 2392693,
+   "md5": null
+  },
+  {
+   "path": "mods/gachaaddiction-1.1.4.jar",
+   "size": 1577084,
+   "md5": null
+  },
+  {
+   "path": "mods/geckolib-neoforge-1.21.1-4.9.2.jar",
+   "size": 630584,
+   "md5": null
+  },
+  {
+   "path": "mods/irons_spellbooks-1.21.1-3.15.4.jar",
+   "size": 13529099,
+   "md5": null
+  },
+  {
+   "path": "mods/just_sink-neoforge-1.2.0-1.21.1.jar",
+   "size": 60897,
+   "md5": null
+  },
+  {
+   "path": "mods/kaleidoscope_grilling-1.1.1-neoforge1.21.1.jar",
+   "size": 3245725,
+   "md5": null
+  },
+  {
+   "path": "mods/kaleidoscopetavern-1.2.0-neoforge+mc1.21.1.jar",
+   "size": 1708047,
+   "md5": null
+  },
+  {
+   "path": "mods/kotlinforforge-5.12.0-all.jar",
+   "size": 7279276,
+   "md5": null
+  },
+  {
+   "path": "mods/lionfishapi-3.1.jar",
+   "size": 91596,
+   "md5": null
+  },
+  {
+   "path": "mods/logisticsnetworks-1.21.1-1.16.2.jar",
+   "size": 1944437,
+   "md5": null
+  },
+  {
+   "path": "mods/lootr-neoforge-1.21.1-1.11.38.126.jar",
+   "size": 1034358,
+   "md5": null
+  },
+  {
+   "path": "mods/lukis-grand-capitals-1.1.2.jar",
+   "size": 11217284,
+   "md5": null
+  },
+  {
+   "path": "mods/luncheon-meat-s-delight-1.0.6-neoforge-1.21.1.jar",
+   "size": 139930,
+   "md5": null
+  },
+  {
+   "path": "mods/mekanicalcreate-0.2.7.jar",
+   "size": 325815,
+   "md5": null
+  },
+  {
+   "path": "mods/mekltgt-1.5.4.jar",
+   "size": 448037,
+   "md5": null
+  },
+  {
+   "path": "mods/mekmm-1.21.1-1.4.1.jar",
+   "size": 3659440,
+   "md5": null
+  },
+  {
+   "path": "mods/meowmere-0.0.6-3DGui.jar",
+   "size": 46733,
+   "md5": null
+  },
+  {
+   "path": "mods/mobbottle-neoforge-1.21.1-0.1.jar",
+   "size": 40260,
+   "md5": null
+  },
+  {
+   "path": "mods/nenus_pop_plushies-2.9.0-neoforge-1.21.1.jar",
+   "size": 3010291,
+   "md5": null
+  },
+  {
+   "path": "mods/nomansland-1.5.12.jar",
+   "size": 30302164,
+   "md5": null
+  },
+  {
+   "path": "mods/player-animation-lib-forge-2.0.4+1.21.1.jar",
+   "size": 203149,
+   "md5": null
+  },
+  {
+   "path": "mods/ratatouille_fried_delights-1.0.4.jar",
+   "size": 1214071,
+   "md5": null
+  },
+  {
+   "path": "mods/royal-variations-[NeoForge]_1.21.1_2.0.4.jar",
+   "size": 780226,
+   "md5": null
+  },
+  {
+   "path": "mods/serverwarashi-1.21.1-2.0.4.jar",
+   "size": 734726,
+   "md5": null
+  },
+  {
+   "path": "mods/smrb-1.0.0.jar",
+   "size": 6416,
+   "md5": null
+  },
+  {
+   "path": "mods/someassemblyrequired-5.2.8.jar",
+   "size": 451898,
+   "md5": null
+  },
+  {
+   "path": "mods/tarotcards-2.3.5-neoforge-1.21.1.jar",
+   "size": 166150,
+   "md5": null
+  },
+  {
+   "path": "mods/the_beyond-0.0.5-InDev.jar",
+   "size": 9039273,
+   "md5": null
+  },
+  {
+   "path": "mods/torchmaster-neoforge-1.21.1-21.1.13.jar",
+   "size": 161205,
+   "md5": null
+  },
+  {
+   "path": "mods/uppers-2.0.1.jar",
+   "size": 30559,
+   "md5": null
+  },
+  {
+   "path": "mods/waterwheelimmortal-neoforge-1.0.1.jar",
+   "size": 104301,
+   "md5": null
+  },
+  {
+   "path": "mods/xaeroworldmap-neoforge-1.21.1-1.41.2.jar",
+   "size": 1387921,
+   "md5": null
+  },
+  {
+   "path": "mods/youkaisfeasts-1.1.0.jar",
+   "size": 3957882,
+   "md5": null
+  },
+  {
+   "path": "mods/zenith-1.1.2.jar",
+   "size": 53969,
+   "md5": null
+  }
+ ]
+}

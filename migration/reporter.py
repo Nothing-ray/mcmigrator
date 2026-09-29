@@ -44,6 +44,7 @@ class DiffReporter:
         src_version: str,
         dst_version: str,
         mod_pairs: list[ModPair] | None = None,
+        client_only_paths: set[str] | None = None,
     ) -> None:
         self.report = report
         self.src_version = src_version
@@ -54,17 +55,25 @@ class DiffReporter:
         for p in self.mod_pairs:
             for f in (*p.src_files, *p.dst_files):
                 self._pair_by_path[f] = p.kind
+        # client_only 标记集(F30①):run_diff 匹配出的已知客户端 mod 路径,
+        # mods 桶注记追加 client_only 段;None/空集时输出与 parts 化前逐字节一致
+        self._client_only: set[str] = client_only_paths or set()
 
     def _display_note(self, bucket: str, item: DiffItem) -> str:
         """rich 显示用 note:F3 方向提示(candidate/only_in_dst)+ F4 配对标记(mods)。
 
+        mods 分支注记 parts 化(⇄<kind> 与 client_only 各为一段,空则不加):
+        为 T5 的 client_only 标记预留扩展位,现有输出(仅 ⇄ 段)字节不变。
         JSON 输出仍用原始 item.note,消费方兼容不受影响。
         """
         note = item.note
         if bucket == "mods":
             kind = self._pair_by_path.get(item.path)
-            if kind:
-                note = f"{note} ⇄{kind}"
+            parts = [f"⇄{kind}"] if kind else []
+            if item.path in self._client_only:
+                parts.append("client_only")
+            if parts:
+                note = f"{note} {' '.join(parts)}"
             if kind == "rebuilt" or item.note == "rebuilt":
                 note = f"⚠ {note}"  # F17/F20-3: 同名同版本异构建(配对或单条)统一警示
         elif bucket == "never" and note == "modpack_swap":
@@ -158,10 +167,33 @@ class PlanOptions:
 class PlanReporter:
     """把 MigrationPlan 渲染成 rich 终端表格或 JSON(= plan 文件内容)。"""
 
-    def __init__(self, plan: MigrationPlan, *, src_version: str, dst_version: str) -> None:
+    def __init__(
+        self,
+        plan: MigrationPlan,
+        *,
+        src_version: str,
+        dst_version: str,
+        mod_pairs: list[ModPair] | None = None,
+    ) -> None:
+        """初始化。
+
+        Args:
+            plan: 迁移计划。
+            src_version: 源版本名(显示用)。
+            dst_version: 目标版本名(显示用)。
+            mod_pairs: 双源配对结果(批次F);非 None 时 COPY 行路径追加 ``⇄<kind>``
+                注记(rebuilt 再加 ⚠)。None/空时渲染与旧版逐字节一致(向后兼容,
+                GUI/既有调用不传即不变)。仅影响终端渲染,不进 to_json/plan 文件。
+        """
         self.plan = plan
         self.src_version = src_version
         self.dst_version = dst_version
+        self.mod_pairs = mod_pairs or []
+        # path → 配对类型(构建方式与 DiffReporter 同源)
+        self._pair_by_path: dict[str, str] = {}
+        for p in self.mod_pairs:
+            for f in (*p.src_files, *p.dst_files):
+                self._pair_by_path[f] = p.kind
 
     def to_json(
         self, compat_warnings: list[CompatWarning] | None = None
@@ -237,7 +269,13 @@ class PlanReporter:
             if meta.show_backup:
                 tbl.add_column("备份目标")
             for r in items:
-                row = [r.path, r.confidence, r.reason]
+                # 批次F:配对 jar 行的路径追加 ⇄<kind> 注记(rebuilt 镜像 diff 语义加 ⚠);
+                # 未配对/未传 mod_pairs 时 path_cell 即 r.path,输出与旧版一致
+                kind = self._pair_by_path.get(r.path)
+                path_cell = f"{r.path} ⇄{kind}" if kind else r.path
+                if kind == "rebuilt":
+                    path_cell = f"⚠ {path_cell}"
+                row = [path_cell, r.confidence, r.reason]
                 if meta.show_backup:
                     row.append(r.backup_target or "")
                 tbl.add_row(*row)

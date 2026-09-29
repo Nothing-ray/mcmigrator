@@ -1,14 +1,17 @@
-"""编排管线下沉:scan / plan / execute 三段编排,CLI 与未来 GUI 平级消费。
+"""编排管线下沉:scan / diff / plan / execute 四段编排,CLI 与未来 GUI 平级消费。
 
-自 cli.py 原样搬移 `_run_plan_pipeline` 与 `_cmd_scan` 的扫描构建逻辑,
-逻辑不改,仅参数化 mcmig_dir / plans_dir / 快照目录:
+自 cli.py 原样搬移 `_run_plan_pipeline`、`_cmd_scan` 的扫描构建逻辑与
+`_cmd_diff` 的 diff 编排,逻辑不改,仅参数化 mcmig_dir / plans_dir / 快照目录:
 - 快照路径 = <mcmig_dir>/snapshots/<版本名>.snapshot.json(与 snapshot_path(cwd,·) 同构,
   mcmig_dir=cwd/.mcmig 时两者完全一致)
 - plan 路径 = <plans_dir>/<src>__<dst>.plan.json(与 plan_path(cwd,·) 同构)
 规则组装 build_ruleset 仍留在 cli(本模块延迟导入,避免 cli↔pipeline 模块级循环)。
 
-输出约定:供 GUI 复用的数据一律走返回值;过程中的警告走 logging(stderr),
-唯一例外是换包提示——原实现直写 stderr,且被 CLI 测试断言,保持 print 不变。
+输出约定:供 GUI 复用的数据一律走返回值;过程中的警告走 logging(stderr)。
+例外两处,均为下沉前直写、被 CLI 测试断言的输出,保持原样:
+- plan 管线的换包提示(build_plan 内 _print_err 直写);
+- run_diff 的 stderr 提示行已结构化为 DiffOutcome.notices 返回(调用方逐行转发,
+  与下沉前 CLI 输出逐字节一致);规则警告沿用下沉前 stdout print。
 """
 
 from __future__ import annotations
@@ -16,12 +19,12 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .classifier import Classifier
-from .differ import Differ
+from .differ import DiffReport, Differ, is_mod_jar
 from .executor import Executor, FileResult
 from .fsops import check_disk_space, clean_stale_tmp
 from .plan import ActionRecord, Behavior, MigrationPlan, Origin
@@ -30,7 +33,8 @@ from .scanner import Scanner
 from .snapshot import Snapshot
 
 if TYPE_CHECKING:
-    from .moddb import CompatWarning, ModRegistry
+    from . import rules
+    from .moddb import CompatWarning, ModPair, ModRegistry
 
 log = logging.getLogger(__name__)
 
@@ -156,7 +160,7 @@ def build_plan(
     exclude: Sequence[str] = (),
     include: Sequence[str] = (),
     rule_files: Sequence[Path] = (),
-) -> tuple[MigrationPlan, list["CompatWarning"]]:
+) -> tuple[MigrationPlan, list["CompatWarning"], list["ModPair"]]:
     """plan 公共管线(plan 子命令与 swap 第三步共用,GUI 亦可直调)。
 
     流程:载入 src 快照 → dst 快照(rescan_dst=True 时现场重扫并落盘,否则载入已有)
@@ -181,7 +185,8 @@ def build_plan(
         rule_files: 额外规则文件路径列表。
 
     Returns:
-        (plan, compat_warnings)。
+        (plan, compat_warnings, mod_pairs):plan 与兼容警告同前;mod_pairs 为
+        双源配对结果(批次F,渲染级 ⇄ 注记用;plan 文件持久化不含它,schema 零变化)。
 
     Raises:
         FileNotFoundError: src 快照不存在,或 rescan_dst=False 且 dst 快照不存在。
@@ -231,6 +236,9 @@ def build_plan(
 
     src_dir = _version_dir(game_root, src)
     dst_dir = _version_dir(game_root, dst)
+    # 两侧注册表各扫一次(批次F 上移 src 扫描:orphan 规则用 dst_mods,
+    # 配对用双侧,compat 检查用 src_mods——不再后段重复扫描)
+    src_mods = scan_mods(src_dir)
     dst_mods = scan_mods(dst_dir)
     override = load_mod_config_map()
     orphan_rules = generate_orphan_rules(src_snap.files, dst_mods, override)
@@ -247,10 +255,12 @@ def build_plan(
         log.warning("[规则警告] %s", e)
     clf = Classifier(rs)
     # 换包提示:src 独有 mod jar 数量大(≥20)时提醒用户(正常版本升级只有个位数)
+    # P6/P8 收口:jar 判定同源 Differ.is_mod_jar(与配对/分桶同一把尺),
+    # 目标存在性改 O(n) 集合差(原为逐条 any 线性扫描)
+    dst_paths = {d.path for d in dst_snap.files}
     src_only_mods = sum(
         1 for p in src_snap.files
-        if p.path.startswith("mods/") and p.path.endswith(".jar")
-        and not any(d.path == p.path for d in dst_snap.files)
+        if is_mod_jar(p.path) and p.path not in dst_paths
     )
     if not modpack_swap and src_only_mods >= 20:
         _print_err(
@@ -258,11 +268,15 @@ def build_plan(
             "请加 --modpack-swap 避免旧包 mod 被搬入新包。"
         )
     report = Differ(src_snap.files, dst_snap.files, clf, modpack_swap=modpack_swap).diff()
+    # 批次F:双源配对(与 run_diff 同一单点;plan 侧渲染 ⇄ 注记用,不进 plan.json)
+    mod_pairs = compute_mod_pairs(
+        src_snap, dst_snap, src_mods, dst_mods,
+        same_dir=src_dir.resolve() == dst_dir.resolve(),
+    )
     src_index = {e.path: e for e in src_snap.files}
     plan = Planner(report, src_index).plan()
     plan.src, plan.dst = src, dst
     # 版本兼容检查:对 mod_added 的 jar 检查 NeoForge 版本范围
-    src_mods = scan_mods(src_dir)
     dst_nf_version = read_neoforge_version(dst_dir)
     mod_added_paths = [
         r.path for r in plan.actions if r.behavior == Behavior.COPY and r.origin == Origin.MOD_ADDED
@@ -273,7 +287,7 @@ def build_plan(
             plan.save(plans_dir / f"{src}__{dst}.plan.json")
         except OSError as e:
             log.warning("[警告] plan 文件写入失败(已忽略,stdout 仍有效): %s", e)
-    return plan, compat_warnings
+    return plan, compat_warnings, mod_pairs
 
 
 def execute_migration(
@@ -385,4 +399,261 @@ def resolve_diff_context(src_snap: Snapshot, dst_snap: Snapshot) -> DiffContext 
         src_dir=dirs[0],
         dst_dir=dirs[1],
         same_dir=dirs[0].resolve() == dirs[1].resolve(),
+    )
+
+
+def diff_identity_notices(
+    src_path: Path, dst_path: Path,
+    src: Snapshot, dst: Snapshot, ctx: DiffContext | None,
+) -> str | None:
+    """自比对/junction 同体检测(单点,live 与复放同源)。
+
+    主判:两侧为同一快照文件(自比对错误用法);
+    回退:live 模式 ctx.same_dir + 同刻(F27 现状,旧快照无 resolved_root 也走此臂,
+      文案逐字节保留——活体证据优先于快照落盘字段,故先于佐证臂判定);
+    佐证:ctx 不可达(复放)且 resolved_root 相等且同刻 → 疑似自比对
+      (live 边缘窗——ctx 可达但 same_dir=False 而 resolved_root 同+同刻——保持静默:
+      该窗内注册表配对实际可用,发「注册表配对不可用」文案失实)。
+    同物理目录不同刻(影子根标准用法)返回 None,调用方按需 log.debug。
+
+    Args:
+        src_path: 源侧快照文件路径。
+        dst_path: 目标侧快照文件路径。
+        src: 源侧快照。
+        dst: 目标侧快照。
+        ctx: 活体扫描上下文;None 表示复放模式(目录不可达)。
+
+    Returns:
+        stderr 提示行;静默分支返回 None(由调用方 log.debug)。
+    """
+    if src_path.resolve() == dst_path.resolve():
+        return ("[提示] 两侧为同一份快照文件(自比对):注册表配对与语义复核不可用,"
+                "已使用文件名配对/字节比较")
+    same_time = src.scanned_at == dst.scanned_at
+    # 回退臂(live):junction 同体 + 同刻 → F27 现行文案
+    if ctx is not None and ctx.same_dir and same_time:
+        return ("[提示] 两侧快照同刻且版本目录指向同一路径(junction 同体):"
+                "注册表配对与语义复核不可用,已使用文件名配对/字节比较")
+    # 佐证臂(复放):ctx 不可达(复放)且快照自带的 resolved_root 相等 + 同刻 → 疑似自比对;
+    # ctx 存在(live)时此臂静默——活体边缘窗(ctx 可达但 same_dir=False,resolved_root
+    # 却同+同刻)里注册表配对实际可用,发降级文案会失实
+    if (ctx is None and same_time
+            and src.resolved_root is not None and src.resolved_root == dst.resolved_root):
+        return ("[提示] 两侧快照同刻且版本目录指向同一路径(疑似自比对):"
+                "注册表配对与语义复核不可用,已使用文件名配对/字节比较")
+    return None
+
+
+def compute_mod_pairs(
+    src: Snapshot,
+    dst: Snapshot,
+    src_mods: "ModRegistry | None",
+    dst_mods: "ModRegistry | None",
+    *,
+    same_dir: bool = False,
+) -> list["ModPair"]:
+    """双源配对单点:filename(快照差集+is_mod_jar 过滤)恒算;registry 仅当双侧注册表
+    都给出且 same_dir=False 时叠加(merge_mod_pairs registry 优先)。
+    run_diff 传 ctx.same_dir;build_plan 传 <src_dir>.resolve()==<dst_dir>.resolve()。
+
+    Args:
+        src: 源侧快照。
+        dst: 目标侧快照。
+        src_mods: 源侧 mod 注册表;None 表示不可用(复放/降级)。
+        dst_mods: 目标侧 mod 注册表;None 表示不可用(复放/降级)。
+        same_dir: 两侧版本目录同体(junction)时注册表配对不可信,只算 filename。
+
+    Returns:
+        合并后的 ModPair 列表(registry 优先,filename 兜底)。
+    """
+    from .moddb import merge_mod_pairs, pair_mods, pair_mods_by_filename
+
+    # F4 双源配对:registry(读 jar,目录真实独立时)优先
+    registry_pairs: list["ModPair"] = []
+    if src_mods is not None and dst_mods is not None and not same_dir:
+        registry_pairs = pair_mods(src_mods, dst_mods)
+    # F23/F26:配对输入从快照集合直接推导(与 Differ.is_mod_jar 同源判定)——
+    # modpack_swap 只改分桶,不再饿死配对(swap 下 target_only 保留 ⇄upgrade)
+    src_paths = {e.path for e in src.files}
+    dst_paths = {e.path for e in dst.files}
+    filename_pairs = pair_mods_by_filename(
+        sorted(p for p in src_paths - dst_paths if is_mod_jar(p)),
+        sorted(p for p in dst_paths - src_paths if is_mod_jar(p)),
+    )
+    return merge_mod_pairs(registry_pairs, filename_pairs)
+
+
+def match_client_only_paths(
+    report: DiffReport, ctx: DiffContext | None,
+    client_modids: set[str], client_families: set[str],
+) -> set[str]:
+    """mods 桶内命中客户端清单的路径集合(registry modid 反查 + 家族键,双通道)。"""
+    from .moddb import normalize_jar_family
+
+    if not client_modids and not client_families:
+        return set()
+    paths = {i.path for i in report.mods}
+    hit: set[str] = set()
+    if client_families:
+        for p in paths:
+            fam = normalize_jar_family(p)[0]
+            if fam and fam in client_families:
+                hit.add(p)
+    if client_modids and ctx is not None:
+        for mods in (ctx.src_mods, ctx.dst_mods):
+            for mid in mods.modids:
+                if mid in client_modids:
+                    hit.add(f"mods/{mods.get(mid).jar_filename}")
+    return hit & paths
+
+
+@dataclass
+class DiffOutcome:
+    """diff 管线产物:六桶报告 + 配对 + 双侧快照 + stderr 提示行。"""
+
+    report: DiffReport
+    mod_pairs: list["ModPair"]
+    src: Snapshot
+    dst: Snapshot
+    notices: list[str]
+    # F30① 客户端件标注:命中已知客户端清单的 mods 桶路径(供 reporter 标注)
+    client_only_paths: set[str] = field(default_factory=set)
+
+
+def run_diff(
+    cwd: Path,
+    *,
+    src: str,
+    dst: str,
+    modpack_swap: bool = False,
+    exclude: Sequence[str] = (),
+    include: Sequence[str] = (),
+    rule_files: Sequence[Path] = (),
+    mcmig_dir: Path | None = None,  # None → cwd/.mcmig
+    game_root: Path | None = None,  # None → 快照走 cwd/.mcmig 直取(仅定位,不管 ctx)
+) -> DiffOutcome:
+    """diff 公共管线(自 cli._cmd_diff 整体搬移,编排逻辑不改;CLI 与 GUI 平级消费)。
+
+    流程:快照定位(game_root 给出 → find_snapshot 锚定优先+旧 CWD 布局回退,
+    legacy 命中提示入 notices;game_root=None → <mcmig_dir or cwd/.mcmig>/snapshots
+    直取,无回退)→ load → resolve_diff_context(无条件,按快照内记录的 game_root
+    判定活体可达;不可达提示入 notices)→ build_ruleset → Differ(modpack_swap)
+    → compute_mod_pairs → diff_identity_notices(非 None 入 notices;
+    ctx.same_dir 且 None 时 log.debug)→ swap 排除计数提示入 notices
+    → client_only 清单匹配(非空入 client_only_paths + 警示行,仅标注)。
+
+    Args:
+        cwd: 调用方工作目录(mcmig_dir=None 时的 .mcmig 基准)。
+        src: 源版本名。
+        dst: 目标版本名。
+        modpack_swap: 换包模式(源独有 mod 视为旧包自带,归换包排除)。
+        exclude: CLI 级临时规则 glob(本次按 never)。
+        include: CLI 级临时规则 glob(本次按 must_migrate)。
+        rule_files: 额外规则文件路径列表。
+        mcmig_dir: .mcmig 目录(rules.yaml 所在);None → cwd/.mcmig。
+        game_root: 游戏根目录;仅决定快照文件定位(锚定+旧布局回退),
+            None → <mcmig_dir or cwd/.mcmig> 直取。活体 ctx 与孤儿/配对是否
+            降级由快照内记录的 game_root 是否可达决定(与下沉前 CLI 逐字节一致)。
+
+    Returns:
+        DiffOutcome(六桶报告 + 配对 + 双侧快照 + stderr 提示行,调用方逐行转发)。
+
+    Raises:
+        FileNotFoundError: 缺快照(消息「缺少 <名[, 名...]> 快照」)。
+        ValueError: 快照存在但读取失败。
+    """
+    rules_base = mcmig_dir if mcmig_dir is not None else cwd / ".mcmig"
+    notices: list[str] = []
+    # F8 锚定:game-root 可解析 → 锚定优先+旧 CWD 布局回退(命中提示整体迁移);
+    # 不可解析(夹具复放/纯快照对比)→ rules_base 直取,0.6.x 行为,零提示零扰动
+    if game_root is not None:
+        data_dir = game_root / ".mcmig"
+        src_path, src_leg = find_snapshot(data_dir, rules_base, src)
+        dst_path, dst_leg = find_snapshot(data_dir, rules_base, dst)
+        if src_leg or dst_leg:
+            notices.append(f"[提示] 使用旧布局快照({rules_base}),建议整体迁移至 {data_dir}")
+    else:
+        src_path = _snapshot_file(rules_base, src)
+        dst_path = _snapshot_file(rules_base, dst)
+    missing = [n for n, p in ((src, src_path), (dst, dst_path)) if not p.exists()]
+    if missing:
+        raise FileNotFoundError(f"缺少 {', '.join(missing)} 快照")
+    try:
+        src_snap = Snapshot.load(src_path)
+        dst_snap = Snapshot.load(dst_path)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"快照读取失败: {e}") from e
+    from .moddb import generate_orphan_rules, load_mod_config_map
+
+    # 规则组装留在 cli(见模块 docstring),延迟导入避免模块级循环
+    from .cli import build_ruleset
+
+    # 扫描上下文(F2/F4/F12 基座):无条件按快照内记录的 game_root 解析活体目录
+    # (I-1:与下沉前 CLI 逐字节一致——game_root 参数只管快照定位/旧布局回退,
+    # 不管 ctx;CLI 无 game_root 但快照指向活体根(legacy 布局用户)时配对/孤儿
+    # 照常生效);任一侧不可达(跨机复放/夹具)→ ctx=None,降级为纯快照对比
+    ctx = resolve_diff_context(src_snap, dst_snap)
+    orphan_rules: list[rules.Rule] = []
+    if ctx is not None:
+        # F2 孤儿规则:与 pipeline.build_plan 完全同源(src config × dst 注册表 × 覆盖表)
+        orphan_rules = generate_orphan_rules(src_snap.files, ctx.dst_mods, load_mod_config_map())
+    else:
+        notices.append(
+            "[提示] mods 扫描不可用(game_root 不可达):孤儿标注与注册表配对已跳过,文件名配对仍可用"
+        )
+    rs, errs = build_ruleset(
+        [src, dst],
+        exclude=list(exclude),
+        include=list(include),
+        rule_files=list(rule_files),
+        mcmig_dir=rules_base,
+        orphan_rules=orphan_rules,
+    )
+    for e in errs:
+        print(f"[规则警告] {e}")  # stdout,与下沉前 CLI 逐字节一致
+    clf = Classifier(rs)
+    # F12/F16: content_reader 注入语义复核(.properties/.json/.toml)
+    # F19: modpack_swap 透传 differ(与 plan/swap 流程同源,换装验收旧 jar 归换包排除)
+    report = Differ(
+        src_snap.files, dst_snap.files, clf,
+        content_reader=ctx.read_file if ctx is not None else None,
+        modpack_swap=modpack_swap,
+    ).diff()
+    # F27→批次F:自比对/junction 同体检测单点(同文件主判,同根同刻佐证,旧快照回退)
+    hint = diff_identity_notices(src_path, dst_path, src_snap, dst_snap, ctx)
+    if hint is not None:
+        notices.append(hint)
+    elif ctx is not None and ctx.same_dir:
+        log.debug(
+            "junction 同体双快照(不同刻,标准影子根用法):"
+            "注册表配对与语义复核不可用,已使用文件名配对/字节比较"
+        )
+    mod_pairs = compute_mod_pairs(
+        src_snap, dst_snap,
+        ctx.src_mods if ctx is not None else None,
+        ctx.dst_mods if ctx is not None else None,
+        same_dir=ctx.same_dir if ctx is not None else False,
+    )
+    # F19 换包模式提示:有排除项时入 notices(调用方逐行 stderr,不污染 --json 的 stdout)
+    if modpack_swap:
+        n_swap = sum(1 for i in report.never if i.note == "modpack_swap")
+        if n_swap:
+            notices.append(
+                f"[提示] 换包模式: {n_swap} 个源独有 mod 按旧包自带排除"
+                "(never/换包排除,--show-never 可见)"
+            )
+    # F30① 客户端件标注:已知清单(data/client_mods.yaml)命中 mods 桶时入
+    # client_only_paths(reporter 标注)+ stderr 警示行(仅标注不拦截,复放走家族键通道)
+    from .moddb import load_client_mods
+
+    client_modids, client_families = load_client_mods()
+    client = match_client_only_paths(report, ctx, client_modids, client_families)
+    if client:
+        notices.append(
+            f"[警示] {len(client)} 件已知客户端 mod(专服启动部署风险,F30): "
+            + ", ".join(sorted(client))
+        )
+    return DiffOutcome(
+        report=report, mod_pairs=mod_pairs, src=src_snap, dst=dst_snap,
+        notices=notices, client_only_paths=client,
     )

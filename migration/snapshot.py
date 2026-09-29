@@ -38,6 +38,7 @@ class Snapshot:
     hash_mode: str  # "tiered" | "strict"
     file_count: int
     files: list[FileEntry]
+    resolved_root: str | None = None  # scan 时版本目录 resolve() 结果,自比对/junction 同体判定用;旧快照缺省 None
     tool_version: str = TOOL_VERSION
     snapshot_format: int = SNAPSHOT_FORMAT
 
@@ -49,6 +50,7 @@ class Snapshot:
             "version": self.version,
             "game_root": self.game_root,
             "scanned_at": self.scanned_at,
+            "resolved_root": self.resolved_root,
             "hash_mode": self.hash_mode,
             "file_count": self.file_count,
             "files": [asdict(f) for f in self.files],
@@ -82,6 +84,7 @@ class Snapshot:
                 hash_mode=payload["hash_mode"],
                 file_count=payload["file_count"],
                 files=files,
+                resolved_root=payload.get("resolved_root"),
             )
         except (KeyError, TypeError) as e:
             raise SnapshotFormatError(f"快照内容字段缺失或类型错误: {e}") from e

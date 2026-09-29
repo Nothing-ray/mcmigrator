@@ -7,7 +7,11 @@ import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
+from rich.console import Console
+
 from migration import cli
+from migration.pipeline import build_plan
+from migration.reporter import PlanOptions, PlanReporter
 
 
 def _run(argv: list[str], buf: io.StringIO | None = None) -> int:
@@ -880,3 +884,49 @@ def test_e2e_user_rule_promotes_bak_back_to_pass2(
     # behavior 随父 config 命运(父 copy → .bak copy)
     assert promoted["config/create-1.toml.bak"]["behavior"] == \
         promoted["config/create.toml"]["behavior"]
+
+
+# ---- 批次F Task 6:plan ⇄ 配对注记(渲染级增益,不进 plan.json) ----
+
+
+def _write_versioned_jar(path: Path, modid: str, version: str) -> None:
+    """写一个带指定版本号的 mod jar(registry 配对走 upgrade 通道)。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    toml = (
+        f'modLoader="javafml"\nloaderVersion="[1,)"\n'
+        f'[[mods]]\nmodId="{modid}"\nversion="{version}"\n'
+    )
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", toml)
+
+
+def test_e2e_plan_render_pairs_annotation(tmp_path: Path, monkeypatch) -> None:
+    """plan ⇄:MOD_ADDED 行路径标 ⇄upgrade;plan.json 不持久化配对(消费方零影响)。"""
+    monkeypatch.chdir(tmp_path)
+    game_root = tmp_path / "game"
+    versions = game_root / "versions"
+    _write_versioned_jar(versions / "src" / "mods" / "x-1.0.0.jar", "x", "1.0.0")
+    _write_versioned_jar(versions / "dst" / "mods" / "x-1.1.0.jar", "x", "1.1.0")
+    assert _run(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert _run(["scan", "dst", "--game-root", str(game_root)]) == 0
+
+    data = game_root / ".mcmig"
+    plan, warns, pairs = build_plan(
+        tmp_path, game_root, "src", "dst",
+        mcmig_dir=tmp_path / ".mcmig",
+        plans_dir=data / "plans",
+        data_dir=data,
+    )
+    assert any(p.kind == "upgrade" for p in pairs)
+    reporter = PlanReporter(plan, src_version="src", dst_version="dst", mod_pairs=pairs)
+    buf = io.StringIO()
+    reporter.render(PlanOptions(), console=Console(file=buf, width=200))
+    assert "⇄upgrade" in buf.getvalue()
+    payload = json.loads(reporter.to_json(warns))
+    assert "mod_pairs" not in payload  # 持久化结构不变
+    # 未传 mod_pairs 时渲染与旧版一致(默认参数向后兼容:零异常零标记)
+    plain_buf = io.StringIO()
+    PlanReporter(plan, src_version="src", dst_version="dst").render(
+        PlanOptions(), console=Console(file=plain_buf, width=200)
+    )
+    assert "⇄" not in plain_buf.getvalue()
