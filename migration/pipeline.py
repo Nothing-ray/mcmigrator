@@ -435,6 +435,9 @@ class DiffContext:
     # same_dir and not mods_frozen;read_file 的 same_dir 短路语义不变——
     # 物理同目录读数恒等是内容层事实,嵌入名册救不了内容读取
     mods_frozen: bool = False
+    # 目录活性单点(终审递延 Minor):resolve_diff_context 判定时刻双侧版本目录
+    # 是否可达——调用方(run_diff 嵌入名册提示行等)消费此字段,不再二次探活
+    dirs_live: bool = True
 
     def read_file(self, rel_path: str, side: str) -> bytes | None:
         """按侧读取版本目录内文件字节内容;文件缺失/IO 失败返回 None。
@@ -458,14 +461,15 @@ class DiffContext:
 
 
 def resolve_diff_context(src_snap: Snapshot, dst_snap: Snapshot) -> DiffContext | None:
-    """从两份快照解析 diff 上下文:双侧 v2 嵌入走冻结通道,其余保持 0.10.0 路径。
+    """从两份快照解析 diff 上下文:双侧 v2 嵌入走冻结通道,其余走 v1 路径。
 
     冻结通道(双侧 mods 嵌入,时刻对称才走):名册取 registry_from_dicts(嵌入),
-    目录可达与否不影响 mods 来源;same_dir 在活体双侧可达时按 resolve() 比较,
+    目录可达与否不影响 mods 来源;可达性判定记入 ctx.dirs_live(单点,调用方
+    勿重复探活);same_dir 在活体双侧可达时按 resolve() 比较,
     否则按快照 resolved_root(双侧均有且相等 → True)。
     v1 组合(任一侧无嵌入,含混合 v1/v2——保时刻对称不做单侧嵌入):
     活体双侧可达 → 现扫建 ctx;任一不可达 → None(降级为纯快照对比,
-    与 0.10.0 行为逐字节一致)。版本目录 = <game_root>/versions/<version>,
+    与既有 v1 行为逐字节一致)。版本目录 = <game_root>/versions/<version>,
     服务端 NTFS Junction 影子根同样成立。
 
     Args:
@@ -491,7 +495,7 @@ def resolve_diff_context(src_snap: Snapshot, dst_snap: Snapshot) -> DiffContext 
             src_mods=registry_from_dicts(src_snap.mods),
             dst_mods=registry_from_dicts(dst_snap.mods),
             src_dir=src_vdir, dst_dir=dst_vdir,
-            same_dir=same_dir, mods_frozen=True)
+            same_dir=same_dir, mods_frozen=True, dirs_live=live)
     if not (src_vdir.is_dir() and dst_vdir.is_dir()):        # v1 路径:逐字节现状
         return None
     return DiffContext(
@@ -767,8 +771,9 @@ def run_diff(
     if ctx is not None:
         # F2 孤儿规则:与 pipeline.build_plan 完全同源(src config × dst 注册表 × 覆盖表)
         orphan_rules = generate_orphan_rules(src_snap.files, ctx.dst_mods, load_mod_config_map())
-        # 批次H:嵌入+目录不可达 → 名册照常,仅语义复核退字节比较(向用户说明缺席原因)
-        if ctx.mods_frozen and not (ctx.src_dir.is_dir() and ctx.dst_dir.is_dir()):
+        # 批次H:嵌入+目录不可达 → 名册照常,仅语义复核退字节比较(向用户说明缺席原因);
+        # 可达性取 resolve_diff_context 的单点判定 ctx.dirs_live,不二次探活
+        if ctx.mods_frozen and not ctx.dirs_live:
             notices.append("[提示] 版本目录不可达,已使用快照内嵌 mod 名册(语义复核退回字节比较)")
     else:
         notices.append(

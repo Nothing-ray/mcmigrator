@@ -1180,3 +1180,11 @@ def test_registry_entries_sorted() -> None:
     reg.add(ModInfo("b", "1", "b.jar", None))
     reg.add(ModInfo("a", "1", "a.jar", None))
     assert [m.modid for m in reg.entries()] == ["a", "b"]
+
+
+def test_lattice_is_tuple() -> None:
+    """终审递延 Minor:键格表 _LATTICE 必须保持 tuple(不可变,层级消费顺序固定)。"""
+    from migration import moddb
+
+    assert isinstance(moddb._LATTICE, tuple)
+    assert len(moddb._LATTICE) >= 1

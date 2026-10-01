@@ -449,6 +449,35 @@ def test_resolve_diff_context_distinct_dirs_same_dir_false(tmp_path):
     assert ctx is not None and ctx.same_dir is False
 
 
+def test_resolve_context_dirs_live_single_point(tmp_path):
+    """终审递延 Minor:目录活性单点化——resolve_diff_context 判一次记入
+    DiffContext.dirs_live,run_diff 嵌入名册提示行消费该字段,不再二次探活。
+
+    冻结通道(双侧嵌入)目录不可达 → ctx 存活且 dirs_live=False;
+    冻结通道活体双侧可达 → dirs_live=True;v1 活体 → True。
+    """
+    from migration.pipeline import resolve_diff_context
+
+    ra, _ = _make_game_root(tmp_path, "a", "x", "1.0")
+    rb, _ = _make_game_root(tmp_path, "b", "y", "1.0")
+    embed = [{"modid": "x", "version": "1.0", "jar_filename": "x-1.0.jar"}]
+
+    def _frozen(version: str, game_root: str) -> Snapshot:
+        s = _snap(version, game_root)
+        s.mods = list(embed)
+        return s
+
+    # 冻结 + dst 不可达(跨机复放):ctx 存活,活性记录为 False
+    ctx = resolve_diff_context(_frozen("a", str(ra)), _frozen("ghost", str(ra)))
+    assert ctx is not None and ctx.mods_frozen is True and ctx.dirs_live is False
+    # 冻结 + 活体双侧可达:dirs_live=True(嵌入名册提示行不触发)
+    ctx2 = resolve_diff_context(_frozen("a", str(ra)), _frozen("b", str(rb)))
+    assert ctx2 is not None and ctx2.dirs_live is True
+    # v1 活体(无嵌入):ctx 存活即双侧可达,dirs_live=True
+    ctx3 = resolve_diff_context(_snap("a", str(ra)), _snap("b", str(rb)))
+    assert ctx3 is not None and ctx3.dirs_live is True
+
+
 # ---- 批次F Task 4:diff 编排下沉 run_diff ----
 
 
@@ -670,3 +699,19 @@ def test_build_ruleset_importable_from_pipeline() -> None:
 
     assert pipeline.build_ruleset is cli.build_ruleset      # 同一函数对象
     assert pipeline.escape_world_glob("a[1]") == "a\\[1\\]"
+
+
+def test_escape_world_glob_backslash_and_all_specials() -> None:
+    """终审递延 Minor:`\\` 直测+七特殊字符全位置转义(pathspec gitwildmatch 语义)。"""
+    from migration import pipeline
+
+    assert pipeline.escape_world_glob("a\\b") == "a\\\\b"  # 转义字符本身也要转义
+    for ch in "\\*?[]#!":
+        assert pipeline.escape_world_glob(f"a{ch}b") == f"a\\{ch}b"
+
+
+def test_escape_world_glob_identity_without_specials() -> None:
+    """终审递延 Minor:无特殊字符的常规 mod 名/路径恒等返回(零扰动)。"""
+    from migration import pipeline
+
+    assert pipeline.escape_world_glob("mods/create-1.0.jar") == "mods/create-1.0.jar"

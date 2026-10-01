@@ -2,6 +2,8 @@
 """synth_v2 夹具生成:四对 v2 快照(全部合成脱敏,目录不可达=复放语义)。
 
 不引用任何 observations 路径;重跑本脚本幂等重写八份 JSON。
+写出统一钉 LF(newline="\\n")——否则 Windows 默认换行翻译产出 CRLF,
+跨平台再生成字节不稳定(终审递延 Minor)。
 """
 from __future__ import annotations
 
@@ -16,9 +18,9 @@ def _mod(modid: str, version: str, jar: str) -> dict:
             "neoforge_range": None, "embedded_in": None}
 
 def _snap(version: str, scanned_at: str, files: list[dict], mods: list[dict],
-          resolved_root: str | None, *, fmt: int = 2) -> dict:
+          resolved_root: str | None) -> dict:
     return {
-        "tool_version": "0.10.1", "snapshot_format": fmt, "version": version,
+        "tool_version": "0.10.1", "snapshot_format": 2, "version": version,
         "game_root": ROOT, "scanned_at": scanned_at, "resolved_root": resolved_root,
         "world_dirs": [], "hash_mode": "tiered", "file_count": len(files),
         "files": files, "mods": mods,
@@ -72,7 +74,8 @@ def main() -> None:
                    [_mod("foo", "1.0", "foo-1.0.jar")], ROOT + "\\versions\\mx_dst")
     for snap in (pre, post, ro_src, ro_dst, fs_src, fs_dst, mx_src, mx_dst):
         p = HERE / f"{snap['version']}.snapshot.json"
-        p.write_text(json.dumps(snap, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        p.write_text(json.dumps(snap, indent=2, ensure_ascii=False) + "\n",
+                     encoding="utf-8", newline="\n")
         print("wrote", p.name)
 
 if __name__ == "__main__":
