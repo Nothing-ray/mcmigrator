@@ -466,6 +466,23 @@ def test_read_neoforge_version_from_json(tmp_path):
     assert read_neoforge_version(ver_dir) == "21.1.233"
 
 
+def test_read_neoforge_version_camel_case(tmp_path):
+    """真实 NeoForge json 用驼峰 --fml.neoForgeVersion(r14 实测 233/248 均
+    此拼写),读取须大小写不敏感,否则 swap 预检误报缺 json。"""
+    import json
+
+    version_name = "1.21.1-NeoForge_21.1.248"
+    ver_dir = tmp_path / version_name
+    ver_dir.mkdir()
+    json_data = {
+        "arguments": {
+            "game": ["--fml.neoForgeVersion", "21.1.248", "--fml.fmlVersion", "4.0.42"],
+        }
+    }
+    (ver_dir / f"{version_name}.json").write_text(json.dumps(json_data), encoding="utf-8")
+    assert read_neoforge_version(ver_dir) == "21.1.248"
+
+
 def test_read_neoforge_version_missing_json(tmp_path):
     ver_dir = tmp_path / "empty"
     ver_dir.mkdir()

@@ -462,6 +462,9 @@ def check_version_range(version: str, range_str: str) -> bool:
 def read_neoforge_version(version_dir: Path) -> str | None:
     """从版本 json 读取 NeoForge 版本号(--fml.neoforgeVersion 参数)。
 
+    参数名大小写不敏感:真实 NeoForge json 为驼峰 --fml.neoForgeVersion
+    (r14 实测),合成夹具为全小写,两种拼写都须命中。
+
     Args:
         version_dir: 版本文件夹路径(含 <version_name>.json)。
 
@@ -485,7 +488,7 @@ def read_neoforge_version(version_dir: Path) -> str | None:
     if not isinstance(args, list):
         return None
     for i, arg in enumerate(args):
-        if arg == "--fml.neoforgeVersion" and i + 1 < len(args):
+        if str(arg).lower() == "--fml.neoforgeversion" and i + 1 < len(args):
             return str(args[i + 1])
     return None
 

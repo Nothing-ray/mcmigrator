@@ -42,6 +42,9 @@ ROUNDS = {
     "20261001": ("r13_pre.json", "r13_mid.json",
                  {"to_migrate": 6, "candidate": 0, "mods": 2,
                   "only_in_dst": 10, "identical": 0, "never": 1}),
+    "20261001b": ("r14_pre.json", "r14_post.json",
+                  {"to_migrate": 0, "candidate": 0, "mods": 159,
+                   "only_in_dst": 0, "identical": 486, "never": 73}),
 }
 
 
@@ -592,3 +595,51 @@ def test_corpus_20261001_region_mtime_evolution_replay(tmp_path) -> None:
     out2 = run_diff(tmp_path, src="r13-mid", dst="r13-post")
     assert not [i for i in out2.report.to_migrate if i.path.endswith("r.-1.-1.mca")]
     assert any(i.path.endswith("r.-1.-1.mca") for i in out2.report.identical)
+
+
+def test_corpus_r14_client_swap_zero_disturbance() -> None:
+    """r14(客户端侧首轮·就地换装):非 mods 路径零扰动 — candidate/only_in_dst 全空,
+    玩家数据(存档/xaero/options)整体 identical 原样。"""
+    report, _, _ = _diff_round("20261001b")
+    assert not [i for i in report.candidate]
+    idn = {i.path for i in report.identical}
+    assert "options.txt" in idn
+    assert any(p.startswith("xaero/") for p in idn)
+    assert any(p.startswith("saves/新的世界/") for p in idn)
+
+
+def test_corpus_r14_same_name_rebuilt_and_rename_pairs() -> None:
+    """r14:同版本差 6 字节的灾变 jar 落 rebuilt(F17/F34 通道真数据首证);
+    前缀剥离改名+升级对(懒惰刻 2.6.25→2.7.30)to_add/target_only 裸列;
+    玩家额外件(automobility/DistantHorizons/xaeroworldmap)shared = 换装保留语义。"""
+    report, _, _ = _diff_round("20261001b")
+    mods = {i.path: i.note for i in report.mods}
+    assert mods["mods/[灾变] L_Ender's Cataclysm 1.21.1-3.33.jar"] == "rebuilt"
+    assert mods["mods/[机械动力：懒惰刻] CreateLazyTick-2.6.25-6.0.10-neoforge-1.21.1.jar"] == "to_add"
+    assert mods["mods/CreateLazyTick-2.7.30-6.0.10-neoforge-1.21.1.jar"] == "target_only"
+    assert mods["mods/automobility-0.5.0.h+1.21.1-neoforge.jar"] == "shared"
+    assert mods["mods/DistantHorizons-3.0.2-b-1.21.1-fabric-neoforge.jar"] == "shared"
+    assert mods["mods/xaeroworldmap-neoforge-1.21.1-1.41.2.jar"] == "shared"
+    # 包方删除件以 src-only(to_add) 留痕 = 换装移除记录(tarotcards/tide/
+    # create_wrapped/fetzisdisplays 等六孤儿)
+    removed = [p for p, n in mods.items() if n == "to_add"]
+    assert "mods/tarotcards-2.3.5-neoforge-1.21.1.jar" in removed
+    assert "mods/[潮汐] tide-neoforge-1.21.1-2.1.1.jar" in removed
+    assert "mods/create_wrapped-1.0.3-neoforge-1.21.1.jar" in removed
+    assert "mods/fetzisdisplays-neoforge-1.1.0-1.21.jar" in removed
+
+
+def test_corpus_r14_hist_233_to_248_iteration() -> None:
+    """r14 历史对(233→248,9.19 迭代):waystones .36→.45 跨三代升级裸列;
+    玩家数据从无到有 — xaero/ 以 only_in_dst 首现(玩家态增长形态)。"""
+    src = Snapshot.load(FIXTURES / "20261001b" / "hist_233.json")
+    dst = Snapshot.load(FIXTURES / "20261001b" / "r14_pre.json")
+    rs, errs = build_ruleset(["h233", "h248"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    mods = {i.path: i.note for i in report.mods}
+    assert mods["mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.36.jar"] == "to_add"
+    assert mods["mods/[传送石碑／指路石] waystones-neoforge-1.21.1-21.1.45.jar"] == "target_only"
+    od = {i.path for i in report.only_in_dst}
+    assert any(p.startswith("xaero/") for p in od)

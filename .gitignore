@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 .mcmig/snapshots/
 .mcmig/config.yaml
-/game_data/
+/game_data
 /modpack_docs/
 /Reference/discussions/
 /Reference/observations/

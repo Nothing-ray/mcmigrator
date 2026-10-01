@@ -33,6 +33,9 @@
 | `20261001/r13_pre.json` | 未随包，按 r13 观察合成（裁剪） | 十二轮世界切换前（8 件：world 场景；含 world_dirs/resolved_root，.mca 条目带 mtime） |
 | `20261001/r13_mid.json` | 未随包，按 r13 观察合成（裁剪） | 十二轮世界中段（14 件：world→world_backup 改名（同路径同尺寸）+ f1-shanghai 部署） |
 | `20261001/r13_post.json` | 未随包，按 r13 观察合成（裁剪） | 十二轮世界切换后段（17 件：f1-shanghai 首启演化 — level.dat 尺变、r.-1.-1.mca 同尺寸 mtime 异 = F35） |
+| `20261001b/r14_pre.json` | r14 实测脱敏（玩家机 scan） | 十四轮客户端侧就地换装前（681 件：248@9.19 名册 + 完整玩家态） |
+| `20261001b/r14_post.json` | r14 实测脱敏（玩家机 scan） | 十四轮换装后（686 件：mods 32 移除/37 新增/1 同名 rebuilt，非 mods 零扰动） |
+| `20261001b/hist_233.json` | r14 实测脱敏（玩家机 scan） | 历史参考（347 件：233 态；与 r14_pre 构成 9.19 迭代对，waystones .36→.45） |
 
 脱敏：`game_root` 字段替换为 `C:\fixture\sanitized`（原为测试机个人路径）；
 其余内容（相对路径/尺寸/MD5）与原件逐字节一致。
@@ -40,6 +43,11 @@
 合成夹具，非逐字节脱敏快照：md5 留空（分层快照语义），仅 rebuilt 件给 size 差。
 十二轮（`20261001/`）为世界切换三段裁剪合成夹具：快照头部含 `resolved_root`/`world_dirs`，
 `.mca` 条目含 `mtime`（0.9.0 加载器忽略未知键，批次G 起被读取）。
+十四轮（`20261001b/`）起为**客户端侧**语料（玩家机就地换装，`mcmig swap` 实操产出）：
+脱敏同法仅改 `game_root`/`resolved_root`/`version` 三键，files 逐字节保真。
+两则语言层观察：①灾变 jar 同名同版本差 6 字节（rebuilt 通道真数据首证）；
+②`create-confectionery1.21.1_v1.1.3b.jar` 词与版本粘连致家族键塌缩为 `create`
+（归一化边界记录，modid 层无碍，两件本在新旧包共存）。
 
 ## 覆盖的场景价值
 
