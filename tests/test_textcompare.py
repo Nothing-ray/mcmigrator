@@ -81,3 +81,14 @@ def test_toml_semantic_not_equal_value_diff():
 
 def test_toml_semantic_not_equal_malformed():
     assert not toml_semantic_equal(b'= = =\n', b'x = 1\n')
+
+
+# ---- F34①:properties 解析器公有化(世界目录探测复用) ----
+
+
+def test_parse_properties_public_smoke() -> None:
+    """F34①:properties 解析器公有化(世界目录探测复用)。"""
+    from migration.textcompare import parse_properties
+
+    d = parse_properties(b"# c\r\nlevel-name=f1-shanghai\r\nmotd=a:b\r\n")
+    assert d == {"level-name": "f1-shanghai", "motd": "a:b"}

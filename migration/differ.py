@@ -24,7 +24,7 @@ class DiffItem:
     """单个文件的 diff 条目。
 
     note 为 Differ→Planner 的字符串契约(非枚举,各桶异质;typo 静默走默认):
-    - to_migrate / candidate: new / modified
+    - to_migrate / candidate: new / modified / mtime(F35 同尺寸重写)
     - identical:              verified / size-based / semantics
     - never:                  never / rebuild / orphan
     - mods:                   to_add / shared / rebuilt / target_only
@@ -72,12 +72,14 @@ class Differ:
         classifier: Classifier,
         modpack_swap: bool = False,
         content_reader: ContentReader | None = None,
+        mtime_evidence: bool = False,
     ) -> None:
         self.src = {e.path: e for e in src_entries}
         self.dst = {e.path: e for e in dst_entries}
         self.classifier = classifier
         self.modpack_swap = modpack_swap
         self.content_reader = content_reader
+        self.mtime_evidence = mtime_evidence
 
     @staticmethod
     def _same_content(s: FileEntry, d: FileEntry) -> tuple[bool, str]:
@@ -87,7 +89,12 @@ class Differ:
         return s.size == d.size, "size-based"
 
     def _same_content_semantic(self, path: str, s: FileEntry, d: FileEntry) -> tuple[bool, str]:
-        """内容比较:F12/F16 在 md5 异、后缀命中、读取成功时做语义复核。"""
+        """内容比较:F12/F16 在 md5 异、后缀命中、读取成功时做语义复核;
+        F35 在 md5 双 None、size 等、mtime 异且闸门开时判同尺寸重写。
+
+        返回 (same, note):same 时 note 为判等方法(verified/size-based/semantics,
+        入 identical 桶);不同时 note 为差异证据(modified/mtime,F35 起 diff()
+        透传该值入 to_migrate/candidate,不再硬编码 modified)。"""
         if s.md5 is not None and d.md5 is not None and s.md5 != d.md5:
             suffix = ("." + path.rsplit(".", 1)[-1].lower()) if "." in path else ""
             check = SEMANTIC_EQUAL_BY_SUFFIX.get(suffix)
@@ -96,8 +103,14 @@ class Differ:
                 b = self.content_reader(path, "dst")
                 if a is not None and b is not None and check(a, b):
                     return True, "semantics"
-            return False, "verified"
-        return self._same_content(s, d)
+            return False, "modified"
+        if (self.mtime_evidence and s.md5 is None and d.md5 is None
+                and s.mtime is not None and d.mtime is not None
+                and s.mtime != d.mtime and s.size == d.size
+                and not is_mod_jar(path)):
+            return False, "mtime"  # F35:同尺寸重写(懒升级/世界编辑),非字节比对
+        same, how = self._same_content(s, d)
+        return same, how if same else "modified"
 
     def _mod_item(self, path: str, s: FileEntry | None, d: FileEntry | None) -> DiffItem:
         """mods 目录条目按文件名集合分桶:shared / rebuilt / to_add / target_only。"""
@@ -159,7 +172,7 @@ class Differ:
                     if same:
                         report.identical.append(DiffItem(path, s, d, note=how))
                     else:
-                        report.to_migrate.append(DiffItem(path, s, d, note="modified"))
+                        report.to_migrate.append(DiffItem(path, s, d, note=how))
                 continue
             # UNKNOWN / ASK:v0 视同待用户决策
             if d is None:
@@ -171,5 +184,5 @@ class Differ:
                 if same:
                     report.identical.append(DiffItem(path, s, d, note=how))
                 else:
-                    report.candidate.append(DiffItem(path, s, d, note="modified"))
+                    report.candidate.append(DiffItem(path, s, d, note=how))
         return report

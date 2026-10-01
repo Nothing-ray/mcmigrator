@@ -1,0 +1,71 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r12-post",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-09-30T13:15:30+08:00",
+ "hash_mode": "tiered",
+ "file_count": 12,
+ "files": [
+  {
+   "path": "mods/create_connected-1.3.3-mc1.21.1.jar",
+   "size": 6786784,
+   "md5": null
+  },
+  {
+   "path": "mods/CreateLazyTick-2.7.30-6.0.10-neoforge-1.21.1.jar",
+   "size": 488862,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-chunks-neoforge-2101.1.22.jar",
+   "size": 655807,
+   "md5": null
+  },
+  {
+   "path": "mods/sophisticatedbackpacks-1.21.1-3.26.6.2174.jar",
+   "size": 1240000,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-library-neoforge-2101.1.37.jar",
+   "size": 1440000,
+   "md5": null
+  },
+  {
+   "path": "mods/geckolib-neoforge-1.21.1-4.9.3.jar",
+   "size": 631000,
+   "md5": null
+  },
+  {
+   "path": "mods/damage-engine-2.1.1-NeoForge-1.21.1.jar",
+   "size": 769529,
+   "md5": null
+  },
+  {
+   "path": "mods/easy_villagers_iron_spells_compat-1.0.jar",
+   "size": 50000,
+   "md5": null
+  },
+  {
+   "path": "mods/hoverboards-1.0.0.jar",
+   "size": 60000,
+   "md5": null
+  },
+  {
+   "path": "mods/lmft-1.1.1.jar",
+   "size": 70000,
+   "md5": null
+  },
+  {
+   "path": "mods/more_orn_plants-1.3.3-Zhongqiu.jar",
+   "size": 80000,
+   "md5": null
+  },
+  {
+   "path": "mods/TerraBlender-neoforge-1.21.1-4.1.0.8.jar",
+   "size": 90000,
+   "md5": null
+  }
+ ]
+}

@@ -55,3 +55,86 @@ def test_unreadable_file_skipped_with_error(tmp_path: Path, monkeypatch):
     # bad.txt 应被跳过并列入 errors
     assert all(e.path != "bad.txt" for e in entries)
     assert any("bad.txt" in e.reason for e in errors)
+
+
+# ---- 批次G Task 4:动态世界目录探测(F34①) ----
+
+
+def test_detect_world_dirs_level_name_and_level_dat() -> None:
+    """F34①:level-name 指向 + 顶层含 level.dat 双源探测,并集升序;客户端 saves/ 不误触。"""
+    from migration.scanner import detect_world_dirs
+    from migration.snapshot import FileEntry
+
+    entries = [
+        FileEntry("server.properties", 10, None),
+        FileEntry("f1-shanghai/level.dat", 100, None),
+        FileEntry("f1-shanghai/region/r.0.0.mca", 5, None),
+        FileEntry("world_backup_20261001/level.dat", 100, None),
+        FileEntry("saves/myworld/level.dat", 100, None),  # 客户端二层:非顶层,不命中
+        FileEntry("config/foo.toml", 1, None),
+    ]
+    text = b"level-name=f1-shanghai\nmotd=x\n"
+    assert detect_world_dirs(entries, text) == ["f1-shanghai", "world_backup_20261001"]
+    # properties 缺失 → 仅 level.dat 启发
+    assert detect_world_dirs(entries, None) == ["f1-shanghai", "world_backup_20261001"]
+    # level-name 指向不存在的目录 → 跳过①
+    assert detect_world_dirs(entries, b"level-name=ghost\n") == \
+        ["f1-shanghai", "world_backup_20261001"]
+
+
+def test_detect_world_dirs_rejects_unsafe_level_name() -> None:
+    """F34① 安全:level-name 含路径段/点号/空 → 不入探测结果(防 glob 注入)。"""
+    from migration.scanner import detect_world_dirs
+    from migration.snapshot import FileEntry
+
+    entries = [FileEntry("server.properties", 10, None),
+               FileEntry("world/level.dat", 1, None)]
+    for bad in (b"level-name=../evil\n", b"level-name=a/b\n", b"level-name=.\n",
+                b"level-name=\n"):
+        assert detect_world_dirs(entries, bad) == ["world"]
+
+
+def test_scanner_records_world_dirs(tmp_path) -> None:
+    """F34① 接线:Scanner 活体扫描写入 world_dirs(server.properties 实读)。"""
+    from migration.scanner import Scanner
+
+    root = tmp_path / "v"
+    (root / "f1-shanghai").mkdir(parents=True)
+    (root / "world_backup").mkdir()
+    (root / "saves" / "w").mkdir(parents=True)
+    (root / "f1-shanghai" / "level.dat").write_bytes(b"x")
+    (root / "world_backup" / "level.dat").write_bytes(b"x")
+    (root / "saves" / "w" / "level.dat").write_bytes(b"x")
+    (root / "server.properties").write_bytes(b"level-name=f1-shanghai\n")
+    (root / "config.toml").write_bytes(b"a=1\n")
+    snap, errs = Scanner(root, "v").build_snapshot(str(tmp_path))
+    assert errs == []
+    assert snap.world_dirs == ["f1-shanghai", "world_backup"]
+
+
+# ---- 批次G Task 6:未哈希文件记 mtime(F35) ----
+
+
+def test_scanner_records_mtime_only_for_unhashed(tmp_path) -> None:
+    """F35:未哈希文件(.mca/mods jar)记 mtime;哈希文件(.txt/.json)mtime=None。"""
+    import os
+
+    from migration.scanner import Scanner
+
+    root = tmp_path / "v"
+    (root / "world" / "region").mkdir(parents=True)
+    (root / "mods").mkdir()
+    mca = root / "world" / "region" / "r.0.0.mca"
+    mca.write_bytes(b"x" * 16)
+    jar = root / "mods" / "demo-1.0.jar"
+    jar.write_bytes(b"y" * 16)
+    txt = root / "options.txt"
+    txt.write_text("lang:zh_cn\n", encoding="utf-8")
+    for f in (mca, jar, txt):
+        os.utime(f, (1759300000, 1759300000))
+    snap, errs = Scanner(root, "v").build_snapshot(str(tmp_path))
+    assert errs == []
+    by = {e.path: e for e in snap.files}
+    assert by["world/region/r.0.0.mca"].mtime == 1759300000
+    assert by["mods/demo-1.0.jar"].mtime == 1759300000
+    assert by["options.txt"].mtime is None

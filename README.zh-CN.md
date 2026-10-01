@@ -143,12 +143,19 @@ feature/release/up/port/api/lib/compat`,家族键任意位置出现即剥,闭集
 上级配不上的才进下一级,registry(modid)配对始终优先。
 
 - `rebuilt`:两侧同名同版本号但内容不同(上游重新打包)——diff 标记,plan 默认保留目标侧并警告,不自动覆盖
+- `⇄renamed(rebuilt)` ⚠:同版本号的改名对但**两侧 size 异**(上游重建版证据)——kind 仍是 renamed,
+  仅追加 `content_differs` 注记(`--json` 的 `mod_pairs` 条目仅在为真时输出该键,消费方零噪声;plan COPY
+  行同样镜像 `⇄renamed(rebuilt)`),避免据 renamed 误判「字节等同、可跳过部署」
 - `mod_pairs` 条目含 `source` 字段:`registry`(读取 jar 内 mods.toml,需两侧版本目录真实独立)或 `filename`(快照文件名家族归一,复放/junction 场景可用)
 - `plan` 报告的 COPY 行同样对配对 jar 的路径追加 `⇄<kind>` 注记(`rebuilt` 镜像 diff 语义加 `⚠` 前缀);注记仅在渲染层,`plan.json` 持久化不含配对(schema 不变)
 - 两侧版本目录指向同一路径(NTFS junction)时,注册表配对自动失效并提示,文件名配对兜底
   (双快照不同时刻=标准影子根用法,不再提示,仅降 debug 日志;同刻自比对仍提醒)。
   自比对检测已单点化:同一快照文件直接主判;junction 场景回退「同目录+同刻」;
   复放(无活体目录)时以快照 `resolved_root` 相等且同刻输出「疑似自比对」佐证提示
+- mtime 演化通道:未哈希文件(bulk/mods 件,md5=null)在快照中记录 `mtime`;仅当两侧快照
+  `resolved_root` 为**同一物理根**(同一实例逐段快照/junction 形态)时启用——「同尺寸但 mtime 异」的
+  重写报 modified(note=`mtime`,终端显示为 `mtime(同尺寸重写)`);跨实例迁移(复制必变 mtime)与
+  旧快照(无该字段)恒关
 - 源侧 mod 已被目标移除时,其 config 会被标注为孤儿(`never/orphan`)——独立 `diff` 与 `plan` 语义一致
 - `*.properties`(如服务端 `server.properties`,vanilla 重写导致的转义/时间戳/编码噪声)与
   `*.json`/`*.toml`(mod 启动重写导致的键序/表序噪声)在字节不同但键值语义相同时
@@ -160,7 +167,7 @@ feature/release/up/port/api/lib/compat`,家族键任意位置出现即剥,闭集
 
 ### 已知客户端 mod 清单
 
-`migration/data/client_mods.yaml` 维护一份「已知客户端 mod」清单(专服部署时的构造期崩溃风险件,首条 `glacier_dragon`/`frost-dragon` 来自 r11 专服实证)。每条目可给 `modid`(活体注册表通道)与 `family`(文件名家族键,复放通道)双键之任一,并附 `reason` 记录依据。`diff` 时命中清单的 mods 桶行会追加 `client_only` 注记,并在 stderr 输出一行警示。**仅标注、不拦截**——工具是对比器不是部署器,是否排除由你决定。扩充清单:编辑该 yaml 增加条目,再重跑 `tools/gen_manifest.py` 刷新数据完整性清单。
+`migration/data/client_mods.yaml` 维护一份「已知客户端 mod」清单(专服部署时的构造期崩溃风险件,首条 `glacier_dragon`/`frost-dragon` 来自 r11 专服实证)。每条目可给 `modid`(活体注册表通道)与 `family`(文件名家族键,复放通道)双键之任一,并附 `reason` 记录依据。`diff` 时命中清单的 mods 桶行会追加 `client_only` 注记,并在 stderr 输出一行警示。**仅标注、不拦截**——工具是对比器不是部署器,是否排除由你决定。内嵌(JarInJar)客户端件同样可见:modid 命中内嵌件(如 damage-engine 内嵌的 anima 渲染件)时,标注的是**宿主 jar 路径**——专服真正要隔离的物理部署件;清单已收编 `damageengine`/`anima` 两条(r12 专服构造期崩溃实证)。扩充清单:编辑该 yaml 增加条目,再重跑 `tools/gen_manifest.py` 刷新数据完整性清单。
 
 ## 数据与卸载
 
@@ -247,6 +254,10 @@ mcmigrator/
 ### 服务端(dedicated server)场景
 
 专用服务器没有 `versions/` 结构——**每个服务器目录就是一个"版本"**。内置默认规则已覆盖服务端核心资产:`world/**`、`server.properties`、`whitelist.json`、`ops.json`、`banned-*.json` → 必迁;`mods_*/**`(运维回滚备份目录)→ 不迁。
+
+世界目录不必叫 `world`:scan 会动态探测(`server.properties` 的 `level-name` 指向目录 + 顶层直接含 `level.dat` 的目录,覆盖任意命名/改名留存/多世界形态),记入快照可选字段 `world_dirs`;scan 汇总/diff/plan 均按探测结果在**规则最低层**(内置默认之后)注入 must_migrate——内置 never 规则(如世界内 `.bak`)仍优先,客户端 `saves/<名>/level.dat` 二层结构天然不误触,空清单时输出与旧版逐字节一致。
+
+世界目录随改名留存(world → world_backup_日期)原本会报成「源侧必迁 + 目标侧独有」的千级假警报;当旧路径从源侧 `world_dirs` 消失、新路径在目标侧出现,且同相对子路径同尺寸占比 ≥90% 时,diff 在 stderr 输出一条 `疑似世界目录改名` 提示(内容未消失,已随目录改名迁移)——仅解释、不重分类。
 
 零拷贝接入技巧:用 NTFS Junction(`mklink /J`)把服务器目录映射为 `versions\<名称>`,即可直接 `scan`/`diff`,无需复制 2GB+ 的服务端目录。换装前后各 scan 一次即可得到完整对比。
 

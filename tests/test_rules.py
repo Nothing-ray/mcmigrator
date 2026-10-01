@@ -305,3 +305,38 @@ def test_default_rules_never_crash_dump_logs():
     clf = Classifier(rules.RuleSet.from_layers(default))
     assert clf.classify_path("hs_err_pid60956.log") == Category.NEVER
     assert clf.classify_path("replay_pid42364.log") == Category.NEVER
+
+
+# ---- 批次G Task 4:动态世界目录规则层(F34①) ----
+
+
+def test_build_ruleset_world_layer_below_default_never() -> None:
+    """F34① 位序:动态世界层在 default 之下——世界内 .bak 仍 NEVER,世界目录 MUST_MIGRATE。"""
+    from pathlib import Path
+
+    from migration.cli import build_ruleset
+    from migration.rules import Category
+
+    rs, errs = build_ruleset(
+        ["a"], exclude=(), include=(), rule_files=(),
+        mcmig_dir=Path("__nonexistent__"), world_dirs=("f1-shanghai",),
+    )
+    assert errs == []
+    assert rs.classify("f1-shanghai/region/r.0.0.mca") is Category.MUST_MIGRATE
+    assert rs.classify("f1-shanghai/backup.bak") is Category.NEVER  # default never 优先
+    assert rs.classify("world/level.dat") is Category.MUST_MIGRATE  # 静态规则照旧
+
+
+def test_build_ruleset_world_dirs_invalid_name_error() -> None:
+    """F34① 安全:非法目录名跳过并出警告,不生成规则。"""
+    from pathlib import Path
+
+    from migration.cli import build_ruleset
+    from migration.rules import Category
+
+    rs, errs = build_ruleset(
+        ["a"], exclude=(), include=(), rule_files=(),
+        mcmig_dir=Path("__nonexistent__"), world_dirs=("../evil", "a/b", ""),
+    )
+    assert errs and any("world" in e for e in errs)
+    assert rs.classify("../evil/x") is Category.UNKNOWN

@@ -250,6 +250,7 @@ def build_plan(
         mcmig_dir=mcmig_dir,
         with_whitelist=True,
         orphan_rules=orphan_rules,
+        world_dirs=sorted(set(src_snap.world_dirs) | set(dst_snap.world_dirs)),  # F34① 双侧并集
     )
     for e in errs:
         log.warning("[规则警告] %s", e)
@@ -267,7 +268,8 @@ def build_plan(
             f"[提示] 检测到 {src_only_mods} 个源独有 mod。若这是一次整合包替换,"
             "请加 --modpack-swap 避免旧包 mod 被搬入新包。"
         )
-    report = Differ(src_snap.files, dst_snap.files, clf, modpack_swap=modpack_swap).diff()
+    report = Differ(src_snap.files, dst_snap.files, clf, modpack_swap=modpack_swap,
+                    mtime_evidence=src_dir.resolve() == dst_dir.resolve()).diff()
     # 批次F:双源配对(与 run_diff 同一单点;plan 侧渲染 ⇄ 注记用,不进 plan.json)
     mod_pairs = compute_mod_pairs(
         src_snap, dst_snap, src_mods, dst_mods,
@@ -444,6 +446,43 @@ def diff_identity_notices(
     return None
 
 
+def world_rename_notices(src: Snapshot, dst: Snapshot) -> list[str]:
+    """世界目录改名探测(F34②):src 独有世界 A → dst 独有世界 B,同路径同尺寸
+    占比 ≥0.9 时发提示(仅提示不重分类——假警报降级为可见解释)。
+
+    候选:A ∈ src.world_dirs 且 ∉ dst.world_dirs(旧路径消失),B 反之(新路径出现);
+    匹配 = 相对子路径双侧存在且 size 相等;占比分母 min(双侧文件数),≥1 件才评估。
+    阈值 0.9 为 r13 语料标定(660/660;容忍 session.lock 类零星重写)。
+
+    Args:
+        src: 源侧快照(需 world_dirs,旧快照缺省为空表自然不发)。
+        dst: 目标侧快照。
+
+    Returns:
+        提示行列表(每命中改名对一条,按 "A → B" 排序)。
+    """
+    notices: list[str] = []
+    for a in sorted(set(src.world_dirs) - set(dst.world_dirs)):
+        a_files = {e.path[len(a) + 1:]: e.size for e in src.files
+                   if e.path.startswith(a + "/")}
+        if not a_files:
+            continue
+        for b in sorted(set(dst.world_dirs) - set(src.world_dirs)):
+            b_files = {e.path[len(b) + 1:]: e.size for e in dst.files
+                       if e.path.startswith(b + "/")}
+            if not b_files:
+                continue
+            denom = min(len(a_files), len(b_files))
+            matched = sum(1 for sub, sz in a_files.items()
+                          if b_files.get(sub) == sz)
+            if matched and matched / denom >= 0.9:
+                notices.append(
+                    f"[提示] 疑似世界目录改名: {a} → {b}"
+                    f"({matched} 件同路径同尺寸,内容未消失,已随目录改名迁移)"
+                )
+    return sorted(notices)
+
+
 def compute_mod_pairs(
     src: Snapshot,
     dst: Snapshot,
@@ -466,7 +505,7 @@ def compute_mod_pairs(
     Returns:
         合并后的 ModPair 列表(registry 优先,filename 兜底)。
     """
-    from .moddb import merge_mod_pairs, pair_mods, pair_mods_by_filename
+    from .moddb import annotate_content_differs, merge_mod_pairs, pair_mods, pair_mods_by_filename
 
     # F4 双源配对:registry(读 jar,目录真实独立时)优先
     registry_pairs: list["ModPair"] = []
@@ -480,7 +519,13 @@ def compute_mod_pairs(
         sorted(p for p in src_paths - dst_paths if is_mod_jar(p)),
         sorted(p for p in dst_paths - src_paths if is_mod_jar(p)),
     )
-    return merge_mod_pairs(registry_pairs, filename_pairs)
+    merged = merge_mod_pairs(registry_pairs, filename_pairs)
+    # F33:同版本改名对补 size 证据注记(通道无关,快照为唯一 size 源)
+    return annotate_content_differs(
+        merged,
+        {e.path: e.size for e in src.files},
+        {e.path: e.size for e in dst.files},
+    )
 
 
 def match_client_only_paths(
@@ -503,7 +548,10 @@ def match_client_only_paths(
         for mods in (ctx.src_mods, ctx.dst_mods):
             for mid in mods.modids:
                 if mid in client_modids:
-                    hit.add(f"mods/{mods.get(mid).jar_filename}")
+                    info = mods.get(mid)
+                    # F32:内嵌(jar-in-jar)件反查宿主物理 jar——专服要隔离的是宿主实体
+                    physical = info.embedded_in or info.jar_filename
+                    hit.add(f"mods/{physical}")
     return hit & paths
 
 
@@ -608,16 +656,22 @@ def run_diff(
         rule_files=list(rule_files),
         mcmig_dir=rules_base,
         orphan_rules=orphan_rules,
+        world_dirs=sorted(set(src_snap.world_dirs) | set(dst_snap.world_dirs)),  # F34① 双侧并集
     )
     for e in errs:
         print(f"[规则警告] {e}")  # stdout,与下沉前 CLI 逐字节一致
     clf = Classifier(rs)
     # F12/F16: content_reader 注入语义复核(.properties/.json/.toml)
     # F19: modpack_swap 透传 differ(与 plan/swap 流程同源,换装验收旧 jar 归换包排除)
+    # F35:mtime 证据闸门——两侧快照同物理根(同实例随时间演化)才开;
+    # 跨实例(复制必变 mtime)恒关,杜绝假阳性
+    mtime_ev = (src_snap.resolved_root is not None
+                and src_snap.resolved_root == dst_snap.resolved_root)
     report = Differ(
         src_snap.files, dst_snap.files, clf,
         content_reader=ctx.read_file if ctx is not None else None,
         modpack_swap=modpack_swap,
+        mtime_evidence=mtime_ev,
     ).diff()
     # F27→批次F:自比对/junction 同体检测单点(同文件主判,同根同刻佐证,旧快照回退)
     hint = diff_identity_notices(src_path, dst_path, src_snap, dst_snap, ctx)
@@ -628,6 +682,8 @@ def run_diff(
             "junction 同体双快照(不同刻,标准影子根用法):"
             "注册表配对与语义复核不可用,已使用文件名配对/字节比较"
         )
+    # F34②:世界目录改名探测(仅提示;pre→mid 切换段的千级 to_migrate 假警报降级)
+    notices.extend(world_rename_notices(src_snap, dst_snap))
     mod_pairs = compute_mod_pairs(
         src_snap, dst_snap,
         ctx.src_mods if ctx is not None else None,

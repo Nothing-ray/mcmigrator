@@ -388,3 +388,57 @@ def test_display_note_never_modpack_swap_rebuilt_gets_warning_marker() -> None:
                    source="filename")
     r = DiffReporter(report, src_version="a", dst_version="b", mod_pairs=[pair])
     assert r._display_note("never", report.never[0]) == "⚠ modpack_swap ⇄rebuilt"
+
+
+def test_diff_reporter_renamed_rebuilt_display() -> None:
+    """F33:content_differs 改名对渲染 ⇄renamed(rebuilt) + ⚠;普通改名对无标注无警示。"""
+    import io
+
+    from rich.console import Console
+
+    r = _report_with_mods()
+    r.mods = [
+        DiffItem("mods/cc-old.jar", None, None, note="to_add"),
+        DiffItem("mods/cc-new.jar", None, None, note="target_only"),
+        DiffItem("mods/plain-old.jar", None, None, note="to_add"),
+        DiffItem("mods/plain-new.jar", None, None, note="target_only"),
+    ]
+    pairs = [
+        ModPair(modid="cc", kind="renamed", src_files=["mods/cc-old.jar"],
+                dst_files=["mods/cc-new.jar"], src_version="1.0", dst_version="1.0",
+                source="filename", content_differs=True),
+        ModPair(modid="plain", kind="renamed", src_files=["mods/plain-old.jar"],
+                dst_files=["mods/plain-new.jar"], src_version="2.0", dst_version="2.0"),
+    ]
+    buf = io.StringIO()
+    DiffReporter(r, src_version="a", dst_version="b", mod_pairs=pairs).render(
+        ReportOptions(mods_only=True), console=Console(file=buf, width=200))
+    text = buf.getvalue()
+    assert "⇄renamed(rebuilt)" in text and "⚠" in text
+    assert "to_add ⇄renamed" in text  # 普通改名对:原样,无 (rebuilt)
+    row_rebuilt = [ln for ln in text.splitlines() if "cc-new.jar" in ln][0]
+    assert "(rebuilt)" in row_rebuilt and "⚠" in row_rebuilt
+
+
+def test_plan_reporter_renamed_rebuilt_mirror(capsys) -> None:
+    """F33 镜像:plan COPY 行路径 ⇄renamed(rebuilt) + ⚠(与 diff 语义同源)。"""
+    from datetime import datetime, timezone
+
+    from migration.plan import ActionRecord, Behavior, MigrationPlan, Origin
+    from migration.reporter import PlanOptions, PlanReporter
+
+    plan = MigrationPlan(
+        src="a", dst="b",
+        generated_at=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        actions=[ActionRecord(path="mods/cc-new.jar", behavior=Behavior.COPY,
+                              origin=Origin.MOD_ADDED, src_size=100, dst_size=None,
+                              md5_match=None, confidence="high", reason="mod 新增",
+                              backup_target=None)],
+    )
+    pairs = [ModPair(modid="cc", kind="renamed", src_files=["mods/cc-old.jar"],
+                     dst_files=["mods/cc-new.jar"], src_version="1.0", dst_version="1.0",
+                     source="filename", content_differs=True)]
+    PlanReporter(plan, src_version="a", dst_version="b", mod_pairs=pairs).render(
+        PlanOptions())
+    out = capsys.readouterr().out
+    assert "mods/cc-new.jar ⇄renamed(rebuilt)" in out and "⚠" in out

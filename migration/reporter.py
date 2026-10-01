@@ -52,9 +52,12 @@ class DiffReporter:
         self.mod_pairs = mod_pairs or []
         # path → 配对类型(F4 rich 标记用)
         self._pair_by_path: dict[str, str] = {}
+        self._pair_content_differs: set[str] = set()  # F33:改名对 size 异证据路径集
         for p in self.mod_pairs:
             for f in (*p.src_files, *p.dst_files):
                 self._pair_by_path[f] = p.kind
+                if p.content_differs:
+                    self._pair_content_differs.add(f)
         # client_only 标记集(F30①):run_diff 匹配出的已知客户端 mod 路径,
         # mods 桶注记追加 client_only 段;None/空集时输出与 parts 化前逐字节一致
         self._client_only: set[str] = client_only_paths or set()
@@ -67,22 +70,26 @@ class DiffReporter:
         JSON 输出仍用原始 item.note,消费方兼容不受影响。
         """
         note = item.note
+        if note == "mtime":
+            note = "mtime(同尺寸重写)"  # F35:显示层解释;JSON 仍为原始 mtime
         if bucket == "mods":
             kind = self._pair_by_path.get(item.path)
-            parts = [f"⇄{kind}"] if kind else []
+            rebuilt = item.path in self._pair_content_differs
+            parts = [f"⇄{kind}{'(rebuilt)' if rebuilt else ''}"] if kind else []
             if item.path in self._client_only:
                 parts.append("client_only")
             if parts:
                 note = f"{note} {' '.join(parts)}"
-            if kind == "rebuilt" or item.note == "rebuilt":
-                note = f"⚠ {note}"  # F17/F20-3: 同名同版本异构建(配对或单条)统一警示
+            if kind == "rebuilt" or item.note == "rebuilt" or rebuilt:
+                note = f"⚠ {note}"  # F17/F20-3/F33:同版本异构建统一警示
         elif bucket == "never" and note == "modpack_swap":
             # F23:换包排除的旧 jar 若参与配对,--show-never 视角同样可见 ⇄ 标记
             kind = self._pair_by_path.get(item.path)
             if kind:
-                note = f"{note} ⇄{kind}"
-                if kind == "rebuilt":
-                    note = f"⚠ {note}"  # F17/F20-3 镜像:同名同版本异构建,换包视角同样警示
+                suffix = "(rebuilt)" if item.path in self._pair_content_differs else ""
+                note = f"{note} ⇄{kind}{suffix}"
+                if kind == "rebuilt" or item.path in self._pair_content_differs:
+                    note = f"⚠ {note}"  # F17/F20-3/F33 镜像:换包视角同样警示
         elif bucket == "candidate" and note == "new":
             note = "new ←仅源"
         elif bucket == "only_in_dst" and note == "target_only":
@@ -191,9 +198,12 @@ class PlanReporter:
         self.mod_pairs = mod_pairs or []
         # path → 配对类型(构建方式与 DiffReporter 同源)
         self._pair_by_path: dict[str, str] = {}
+        self._pair_content_differs: set[str] = set()  # F33:改名对 size 异证据路径集
         for p in self.mod_pairs:
             for f in (*p.src_files, *p.dst_files):
                 self._pair_by_path[f] = p.kind
+                if p.content_differs:
+                    self._pair_content_differs.add(f)
 
     def to_json(
         self, compat_warnings: list[CompatWarning] | None = None
@@ -270,10 +280,15 @@ class PlanReporter:
                 tbl.add_column("备份目标")
             for r in items:
                 # 批次F:配对 jar 行的路径追加 ⇄<kind> 注记(rebuilt 镜像 diff 语义加 ⚠);
+                # F33:content_differs 的改名对追加 (rebuilt) 尾标并同样加 ⚠;
                 # 未配对/未传 mod_pairs 时 path_cell 即 r.path,输出与旧版一致
                 kind = self._pair_by_path.get(r.path)
-                path_cell = f"{r.path} ⇄{kind}" if kind else r.path
-                if kind == "rebuilt":
+                if kind:
+                    suffix = "(rebuilt)" if r.path in self._pair_content_differs else ""
+                    path_cell = f"{r.path} ⇄{kind}{suffix}"
+                else:
+                    path_cell = r.path
+                if kind == "rebuilt" or r.path in self._pair_content_differs:
                     path_cell = f"⚠ {path_cell}"
                 row = [path_cell, r.confidence, r.reason]
                 if meta.show_backup:

@@ -36,6 +36,12 @@ ROUNDS = {
     "20260919": ("r6_pre.json", "r6_post.json",
                  {"to_migrate": 11, "candidate": 14, "mods": 120,
                   "only_in_dst": 2, "identical": 1085, "never": 104}),  # T4 后 candidate 19→16;F28 后 6 件 dst 侧 .bak only_in_dst→never
+    "20260930": ("r12_pre.json", "r12_post.json",
+                 {"to_migrate": 0, "candidate": 0, "mods": 23,
+                  "only_in_dst": 0, "identical": 0, "never": 0}),
+    "20261001": ("r13_pre.json", "r13_mid.json",
+                 {"to_migrate": 6, "candidate": 0, "mods": 2,
+                  "only_in_dst": 10, "identical": 0, "never": 1}),
 }
 
 
@@ -417,3 +423,172 @@ def test_corpus_20260929_frost_dragon_client_only_annotation(tmp_path) -> None:
     # json 无 client_only 字段(结构不变)
     payload = json.loads(reporter.to_json())
     assert "client_only" not in payload and set(payload) == {"src", "dst", "summary", "buckets", "mod_pairs"}
+
+
+def test_corpus_20260930_six_pairs_kinds_and_versions() -> None:
+    """r12 黄金对(第十一轮语料):6/6 配对 — renamed×3(前缀剥离)+ upgrade×3。
+
+    create_connected 双侧版本全同(1.3.3-mc1.21.1)是 F33 的形态基础;
+    content_differs 注记在 T2 落地后由 T2 的测试在此夹具上追加。
+    """
+    from migration.moddb import pair_mods_by_filename
+    d = FIXTURES / "20260930"
+    src = Snapshot.load(d / "r12_pre.json")
+    dst = Snapshot.load(d / "r12_post.json")
+    pairs = pair_mods_by_filename(sorted(_mods_jar_paths(src) - _mods_jar_paths(dst)),
+                                  sorted(_mods_jar_paths(dst) - _mods_jar_paths(src)))
+    by = {p.modid: p for p in pairs}
+    assert {m: p.kind for m, p in by.items()} == {
+        "create-connected": "renamed",
+        "createlazytick-neoforge": "renamed",
+        "ftb-chunks-neoforge": "renamed",
+        "sophisticatedbackpacks": "upgrade",
+        "ftb-library-neoforge": "upgrade",
+        "geckolib-neoforge": "upgrade",
+    }
+    assert by["create-connected"].src_version == by["create-connected"].dst_version == "1.3.3-mc1.21.1"
+
+
+def test_corpus_20260930_bucket_notes_and_swap() -> None:
+    """r12 桶语义:5 真移除 to_add + 12 目标独有(含 damage-engine);swap 11 排除且配对不丢。"""
+    from migration.moddb import pair_mods_by_filename
+    d = FIXTURES / "20260930"
+    src = Snapshot.load(d / "r12_pre.json")
+    dst = Snapshot.load(d / "r12_post.json")
+    rs, errs = build_ruleset(["a", "b"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=())
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    notes = {i.path: i.note for i in report.mods}
+    for p in ("mods/[潮汐] tide-neoforge-1.21.1-2.1.1.jar",
+              "mods/automobility-0.5.0.h+1.21.1-neoforge.jar",
+              "mods/create_wrapped-1.0.3-neoforge-1.21.1.jar",
+              "mods/fetzisdisplays-neoforge-1.1.0-1.21.jar",
+              "mods/xaeroworldmap-neoforge-1.21.1-1.41.2.jar"):
+        assert notes[p] == "to_add"
+    assert notes["mods/damage-engine-2.1.1-NeoForge-1.21.1.jar"] == "target_only"
+    assert sum(1 for n in notes.values() if n == "target_only") == 12
+    sw = Differ(src.files, dst.files, Classifier(rs), modpack_swap=True).diff()
+    assert sum(1 for i in sw.never if i.note == "modpack_swap") == 11
+    assert len(pair_mods_by_filename(sorted(_mods_jar_paths(src) - _mods_jar_paths(dst)),
+                                     sorted(_mods_jar_paths(dst) - _mods_jar_paths(src)))) == 6
+
+
+def test_corpus_20261001_world_switch_and_mods() -> None:
+    """r13 切换段(0.9.0 语义即批次G 后不变):world/ 整体 to_migrate,两新目录 dst-only;
+    automobility 回插 target_only;无配对(纯新增)。"""
+    report, _, _ = _diff_round("20261001")
+    tm = {i.path for i in report.to_migrate}
+    assert "server.properties" in tm
+    assert {p for p in tm if p.startswith("world/")} == {
+        "world/level.dat", "world/region/r.0.0.mca", "world/session.lock",
+        "world/serverconfig/ftbessentials.snbt", "world/data/scoreboard.dat"}
+    od = {i.path for i in report.only_in_dst}
+    assert "f1-shanghai/level.dat" in od
+    assert "world_backup_20261001/level.dat" in od
+    assert len(od) == 10
+    notes = {i.path: i.note for i in report.mods}
+    assert notes["mods/automobility-0.5.0.h+1.21.1-neoforge.jar"] == "target_only"
+    assert notes["mods/create-6.0.10-neoforge+mc1.21.1.jar"] == "shared"
+
+
+def test_corpus_20260930_renamed_rebuilt_annotation() -> None:
+    """F33 语料级:create_connected(剥前缀+差1字节)注记 content_differs;
+    LazyTick/FTB 区块(纯改名同尺寸)不注记;升级对不注记;JSON 键条件出现。"""
+    from migration.pipeline import compute_mod_pairs
+
+    src = Snapshot.load(FIXTURES / "20260930" / "r12_pre.json")
+    dst = Snapshot.load(FIXTURES / "20260930" / "r12_post.json")
+    by = {p.modid: p for p in compute_mod_pairs(src, dst, None, None)}
+    assert by["create-connected"].content_differs is True
+    assert by["createlazytick-neoforge"].content_differs is False
+    assert by["ftb-chunks-neoforge"].content_differs is False
+    assert by["sophisticatedbackpacks"].content_differs is False
+    d = by["create-connected"].to_dict()
+    assert d["content_differs"] is True and d["kind"] == "renamed"
+    assert "content_differs" not in by["createlazytick-neoforge"].to_dict()
+
+
+def test_corpus_20260930_damage_engine_client_only_replay(tmp_path) -> None:
+    """F32 复放:family 通道命中 damage-engine 宿主 jar — 行标 client_only + 警示行。"""
+    from migration.pipeline import run_diff
+
+    d = FIXTURES / "20260930"
+    snaps = tmp_path / ".mcmig" / "snapshots"
+    snaps.mkdir(parents=True)
+    Snapshot.load(d / "r12_pre.json").save(snaps / "r12-pre.snapshot.json")
+    Snapshot.load(d / "r12_post.json").save(snaps / "r12-post.snapshot.json")
+    out = run_diff(tmp_path, src="r12-pre", dst="r12-post")
+    assert any("客户端" in n and "damage-engine" in n for n in out.notices)
+    assert "mods/damage-engine-2.1.1-NeoForge-1.21.1.jar" in out.client_only_paths
+
+
+def test_corpus_20261001_world_dynamic_classification() -> None:
+    """F34① 语料级:mid→post 的 f1-shanghai 演化按世界语义落 to_migrate
+    (0.9.0 时落 candidate;分叉是有意行为,spec §4)。"""
+    d = FIXTURES / "20261001"
+    src = Snapshot.load(d / "r13_mid.json")
+    dst = Snapshot.load(d / "r13_post.json")
+    rs, errs = build_ruleset(["m", "p"], mcmig_dir=Path("__nonexistent__"),
+                             exclude=(), include=(), rule_files=(),
+                             world_dirs=sorted(set(src.world_dirs) | set(dst.world_dirs)))
+    assert errs == []
+    report = Differ(src.files, dst.files, Classifier(rs)).diff()
+    tm = {i.path: i.note for i in report.to_migrate}
+    assert "f1-shanghai/level.dat" in tm and tm["f1-shanghai/level.dat"] == "modified"
+    assert "f1-shanghai/raids_overworld.dat" in tm
+    assert not [i for i in report.candidate]  # 世界演化不再落 unknown
+    # pre→mid 桶分布不变(ROUNDS 锚);dst-only 世界文件仍 only_in_dst
+
+
+def test_corpus_20261001_world_rename_notice_replay(tmp_path) -> None:
+    """F34② 语料级:pre→mid 复放恰一条改名提示(world→world_backup);
+    mid→post 无改名段不发。"""
+    from migration.pipeline import run_diff
+
+    d = FIXTURES / "20261001"
+    snaps = tmp_path / ".mcmig" / "snapshots"
+    snaps.mkdir(parents=True)
+    for name in ("r13_pre", "r13_mid", "r13_post"):
+        # 夹具文件名用下划线,run_diff 版本名按本文件惯例用连字符(r12 复放同),存盘时归一
+        Snapshot.load(d / f"{name}.json").save(
+            snaps / f"{name.replace('_', '-')}.snapshot.json")
+    out1 = run_diff(tmp_path, src="r13-pre", dst="r13-mid")
+    rename = [n for n in out1.notices if "疑似世界目录改名" in n]
+    assert len(rename) == 1
+    assert "world → world_backup_20261001" in rename[0]
+    out2 = run_diff(tmp_path, src="r13-mid", dst="r13-post")
+    assert not [n for n in out2.notices if "疑似世界目录改名" in n]
+
+
+def test_corpus_20261001_region_mtime_evolution_replay(tmp_path) -> None:
+    """F35 语料级:mid→post 同根复放 — r.-1.-1.mca(同尺寸 mtime 异)落 to_migrate
+    note=mtime;r.-1.-2.mca(未触碰)仍 identical;跨根闸门关 → 回 identical。
+    并锚 mid→post 最终桶分布(ROUNDS 补行)。"""
+    from migration.pipeline import run_diff
+
+    d = FIXTURES / "20261001"
+    snaps = tmp_path / ".mcmig" / "snapshots"
+    snaps.mkdir(parents=True)
+    for name in ("r13_mid", "r13_post"):
+        # 夹具文件名用下划线,run_diff 版本名按本文件惯例用连字符(存盘时归一,同上)
+        Snapshot.load(d / f"{name}.json").save(
+            snaps / f"{name.replace('_', '-')}.snapshot.json")
+    out = run_diff(tmp_path, src="r13-mid", dst="r13-post")
+    tm = {i.path: i.note for i in out.report.to_migrate}
+    assert tm["f1-shanghai/region/r.-1.-1.mca"] == "mtime"
+    idn = {i.path: i.note for i in out.report.identical}
+    assert idn["f1-shanghai/region/r.-1.-2.mca"] == "size-based"
+    assert {k: len(getattr(out.report, k)) for k in
+            ("to_migrate", "candidate", "mods", "only_in_dst", "identical", "never")} == {
+        "to_migrate": 5, "candidate": 0, "mods": 2,
+        "only_in_dst": 3, "identical": 6, "never": 1}
+    # 跨根闸门:改 dst 的 resolved_root → mtime 通道关,r.-1.-1 回 identical
+    from migration.snapshot import Snapshot as Snap
+
+    dst2 = Snap.load(d / "r13_post.json")
+    dst2.resolved_root = "C:\\another\\root"
+    dst2.save(snaps / "r13-post.snapshot.json")
+    out2 = run_diff(tmp_path, src="r13-mid", dst="r13-post")
+    assert not [i for i in out2.report.to_migrate if i.path.endswith("r.-1.-1.mca")]
+    assert any(i.path.endswith("r.-1.-1.mca") for i in out2.report.identical)

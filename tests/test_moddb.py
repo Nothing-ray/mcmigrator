@@ -1083,3 +1083,57 @@ def test_load_client_mods_malformed_scalar_guard() -> None:
     from migration.moddb import _parse_client_mods_yaml
     assert _parse_client_mods_yaml("client_only: 42") == (set(), set())
     assert _parse_client_mods_yaml("client_only: true") == (set(), set())
+
+
+def test_annotate_content_differs_renamed_size_differ() -> None:
+    """F33:同版本改名对 size 异 → content_differs=True;kind 不变(证据注记非新类别)。"""
+    from migration.moddb import ModPair, annotate_content_differs
+    p = ModPair(modid="cc", kind="renamed", src_files=["mods/a.jar"],
+                dst_files=["mods/b.jar"], src_version="1.0", dst_version="1.0",
+                source="filename")
+    out = annotate_content_differs([p], {"mods/a.jar": 100}, {"mods/b.jar": 101})
+    assert out[0].content_differs is True
+    assert out[0].kind == "renamed"
+
+
+def test_annotate_content_differs_same_size_no_flag() -> None:
+    """F33 size 代理边界:同尺寸改名对不注记(字节异不可见,spec §7 妥协 2)。"""
+    from migration.moddb import ModPair, annotate_content_differs
+    p = ModPair(modid="cc", kind="renamed", src_files=["mods/a.jar"],
+                dst_files=["mods/b.jar"], src_version="1.0", dst_version="1.0")
+    out = annotate_content_differs([p], {"mods/a.jar": 100}, {"mods/b.jar": 100})
+    assert out[0].content_differs is False
+
+
+def test_annotate_content_differs_upgrade_and_unknown_size_untouched() -> None:
+    """F33:upgrade 隐含内容变化不注记;任一侧 size 未知不注记(不猜)。"""
+    from migration.moddb import ModPair, annotate_content_differs
+    up = ModPair(modid="u", kind="upgrade", src_files=["mods/u1.jar"],
+                 dst_files=["mods/u2.jar"], src_version="1.0", dst_version="1.1")
+    out = annotate_content_differs([up], {"mods/u1.jar": 1}, {"mods/u2.jar": 999})
+    assert out[0].content_differs is False
+    rn = ModPair(modid="r", kind="renamed", src_files=["mods/r1.jar"],
+                 dst_files=["mods/r2.jar"], src_version="2.0", dst_version="2.0")
+    out2 = annotate_content_differs([rn], {}, {"mods/r2.jar": 5})
+    assert out2[0].content_differs is False
+
+
+def test_mod_pair_to_dict_content_differs_conditional() -> None:
+    """F33 JSON 加法式:仅 content_differs=True 时出现该键。"""
+    from migration.moddb import ModPair
+    base = dict(modid="cc", kind="renamed", src_files=["mods/a.jar"],
+                dst_files=["mods/b.jar"], src_version="1.0", dst_version="1.0")
+    assert "content_differs" not in ModPair(**base).to_dict()
+    assert ModPair(**base, content_differs=True).to_dict()["content_differs"] is True
+
+
+def test_load_client_mods_r12_entries() -> None:
+    """F32 收编:damageengine/anima 双条目可加载(宿主与内嵌 modid 双录)。"""
+    from migration.moddb import load_client_mods
+
+    modids, families = load_client_mods()
+    assert {"damageengine", "anima", "glacier_dragon"} <= modids
+    # 注:brief 原文此行为 "damage-engine",但 family 契约是 normalize_jar_family
+    # 家族键(见 yaml 头注),该宿主 jar 实际键为 "damage-engine-neoforge"
+    # (平台词入键),按契约修正——否则家族通道永不命中(复放兜底失效)
+    assert {"damage-engine-neoforge", "anima", "frost-dragon"} <= families

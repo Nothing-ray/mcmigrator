@@ -39,8 +39,11 @@ def _unescape(s: str) -> str:
     return "".join(out)
 
 
-def _parse_properties(data: bytes) -> dict[str, str]:
-    """解析 properties 字节流为 key→value 字典(忽略注释/空行/BOM;不处理续行)。"""
+def parse_properties(data: bytes) -> dict[str, str]:
+    """解析 properties 字节流为 key→value 字典(忽略注释/空行/BOM;不处理续行)。
+
+    公有:F34① 世界目录探测复用(level-name 读取)。
+    """
     text = data.decode("utf-8", errors="replace")
     if text.startswith("\ufeff"):
         text = text[1:]
@@ -72,7 +75,7 @@ def properties_semantic_equal(a: bytes, b: bytes) -> bool:
     Returns:
         True 表示语义等价(差异仅为规范化噪声)。
     """
-    return _parse_properties(a) == _parse_properties(b)
+    return parse_properties(a) == parse_properties(b)
 
 
 def json_semantic_equal(a: bytes, b: bytes) -> bool:

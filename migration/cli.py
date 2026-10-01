@@ -6,7 +6,7 @@ import argparse
 import logging
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from . import __version__, doctor, rules
@@ -176,8 +176,9 @@ def build_ruleset(
     mcmig_dir: Path,
     with_whitelist: bool = False,
     orphan_rules: list[rules.Rule] | None = None,
+    world_dirs: Sequence[str] = (),
 ) -> tuple[rules.RuleSet, list[str]]:
-    """按优先级(CLI > extra > user > ORPHAN > REBUILD > whitelist > default)组装 RuleSet。
+    """按优先级(CLI > extra > user > ORPHAN > REBUILD > whitelist > default > world)组装 RuleSet。
 
     纯参数签名(不依赖 argparse.Namespace):CLI 从 args 展开传参,
     pipeline.build_plan 直调亦可(GUI 复用)。
@@ -190,12 +191,14 @@ def build_ruleset(
         mcmig_dir: .mcmig 目录(user rules.yaml 所在)。
         with_whitelist: 是否启用 whitelist 层(仅 plan 命令)。
         orphan_rules: orphan 规则(plan 与独立 diff 共用)。
+        world_dirs: 动态探测的世界目录名(F34①,scan 时入快照);默认空=行为不变。
 
     Returns:
         (规则集, 规则加载警告列表)。
 
     rebuild 层对所有命令(scan/diff/plan)常开;whitelist 仅 plan 命令启用;
-    orphan 规则在 plan 与独立 diff 命令启用(plan 与独立 diff 共用同一生成源)。
+    orphan 规则在 plan 与独立 diff 命令启用(plan 与独立 diff 共用同一生成源);
+    world 层垫底(仅 default 未命中的路径落此层,非法名跳过并计入警告)。
     """
     from importlib import resources
 
@@ -221,7 +224,18 @@ def build_ruleset(
         errors.extend(we)
     default, de = rules.load_default_rules(versions)
     errors.extend(de)
-    rs = rules.RuleSet.from_layers(cli_rules, extra, user, orphan, rebuild, whitelist, default)
+    # F34①:动态世界目录层(default 之下最低优先级——default never 规则可压过,
+    # 用户/CLI 规则可覆盖;仅 default 未命中的路径落此层)
+    world_layer: list[rules.Rule] = []
+    for wd in world_dirs:
+        if not wd or "/" in wd or "\\" in wd or wd in (".", ".."):
+            errors.append(f"world_dirs: 非法目录名已跳过 {wd!r}")
+            continue
+        world_layer.append(
+            rules.Rule(match=f"{wd}/**", decide=rules.Category.MUST_MIGRATE,
+                       reason="世界目录探测(F34:level-name/level.dat)", source="world"))
+    rs = rules.RuleSet.from_layers(cli_rules, extra, user, orphan, rebuild, whitelist,
+                                   default, world_layer)
     return rs, errors
 
 
@@ -250,17 +264,10 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     cwd = Path.cwd()
     rules_dir = cwd / ".mcmig"       # 静态配置跟工作区(bootstrap 两分法,spec T5b)
     data_dir = game_root / ".mcmig"  # 生成物跟实例(F8)
-    rs, errs = build_ruleset(
-        args.version,
-        exclude=args.exclude,
-        include=args.include,
-        rule_files=[Path(f) for f in args.rule],
-        mcmig_dir=rules_dir,
-    )
-    for e in errs:
-        _print(f"[规则警告] {e}")
     # 扫描构建逻辑已下沉 pipeline(快照写锚定 <game_root>/.mcmig/snapshots/,F8);
     # 不可读文件经 on_error 收集,恢复 unreadable 计数(v0 spec §7 报告契约)
+    # F34①:先扫描后组规则——build_ruleset 需要快照内探测到的 world_dirs
+    # (动态世界层注入;[规则警告] 打印随之移到扫描输出后,stdout 顺序变化是有意为之)
     unreadable: list[str] = []
     snap = scan_version(
         game_root,
@@ -269,6 +276,16 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         strict=args.strict,
         on_error=unreadable.append,
     )
+    rs, errs = build_ruleset(
+        args.version,
+        exclude=args.exclude,
+        include=args.include,
+        rule_files=[Path(f) for f in args.rule],
+        mcmig_dir=rules_dir,
+        world_dirs=snap.world_dirs,
+    )
+    for e in errs:
+        _print(f"[规则警告] {e}")
     spath = snapshot_path(game_root, args.version)
     clf = Classifier(rs)
     classified = clf.classify_all(snap.files)

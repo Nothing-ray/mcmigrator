@@ -14,7 +14,7 @@ import tomllib
 import zipfile
 import zlib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import resources
 from pathlib import Path
 
@@ -647,6 +647,7 @@ class ModPair:
         src_version: 源侧版本(空串视为 None)。
         dst_version: 目标侧版本(空串视为 None)。
         source: 配对来源:"registry"(读 jar mods.toml) | "filename"(快照文件名归一)。
+        content_differs: 同版本改名对 size 异(上游重建版证据);仅注记不改 kind(F33)。
     """
 
     modid: str
@@ -656,10 +657,11 @@ class ModPair:
     src_version: str | None
     dst_version: str | None
     source: str = "registry"  # "registry"(读 jar mods.toml) | "filename"(快照文件名归一)
+    content_differs: bool = False  # F33:同版本改名对 size 异(上游重建版证据;仅注记不改 kind)
 
     def to_dict(self) -> dict:
         """转为 JSON 可序列化字典(diff --json 的 mod_pairs 元素)。"""
-        return {
+        d = {
             "modid": self.modid,
             "kind": self.kind,
             "src_files": self.src_files,
@@ -668,6 +670,9 @@ class ModPair:
             "dst_version": self.dst_version,
             "source": self.source,
         }
+        if self.content_differs:
+            d["content_differs"] = True  # F33:仅差异时出现(schema 加法式,消费方零噪声)
+        return d
 
 
 # 键格:每级 = (键函数, 前置条件, kind 函数);通用循环逐级消费上级残余,
@@ -822,3 +827,31 @@ def merge_mod_pairs(
             continue
         merged.append(p)
     return sorted(merged, key=lambda p: p.modid)
+
+
+def annotate_content_differs(
+    pairs: list[ModPair], src_sizes: dict[str, int], dst_sizes: dict[str, int],
+) -> list[ModPair]:
+    """同版本改名对 size 异时注记 content_differs(F33)。
+
+    仅 kind=="renamed" 参与:upgrade 隐含内容变化,rebuilt 已有 ⚠ 谱系;
+    任一侧 size 未知(路径不在快照)不注记(不猜)。size 相等而字节异的
+    改名对不可见——mods 桶 md5=null 的既定代理边界(spec §7 妥协 2)。
+
+    Args:
+        pairs: 待注记配对(双通道合并后,通道无关)。
+        src_sizes: 源侧快照 path→size 映射。
+        dst_sizes: 目标侧快照 path→size 映射。
+
+    Returns:
+        注记后的新列表(frozen dataclass 经 replace 重建,原列表不改)。
+    """
+    out: list[ModPair] = []
+    for p in pairs:
+        if p.kind == "renamed" and p.src_files and p.dst_files:
+            s = src_sizes.get(p.src_files[0])
+            d = dst_sizes.get(p.dst_files[0])
+            if s is not None and d is not None and s != d:
+                p = replace(p, content_differs=True)
+        out.append(p)
+    return out

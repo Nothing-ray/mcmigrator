@@ -318,3 +318,40 @@ def test_mod_same_name_same_size_null_md5_stays_shared():
     d = Differ([_e("mods/x-1.0.jar", 100, None)],
                [_e("mods/x-1.0.jar", 100, None)], clf).diff()
     assert d.mods[0].note == "shared"
+
+
+# F35:未哈希文件 mtime 同根演化通道(闸门矩阵)
+
+
+def test_differ_mtime_channel_gated() -> None:
+    """F35 闸门矩阵:同尺寸+md5 None+mtime 异 → 仅 mtime_evidence 开时检出 note=mtime。"""
+    from migration.snapshot import FileEntry
+
+    s = FileEntry("world/region/r.0.0.mca", 100, None, mtime=1759300000)
+    d = FileEntry("world/region/r.0.0.mca", 100, None, mtime=1759340000)
+    # 闸门关(默认):size 代理 → identical
+    r0 = Differ([s], [d], _clf()).diff()
+    assert r0.identical and r0.identical[0].note == "size-based"
+    # 闸门开:同根演化 → to_migrate(note=mtime)
+    r1 = Differ([s], [d], _clf(), mtime_evidence=True).diff()
+    assert [i.note for i in r1.to_migrate] == ["mtime"]
+    # size 异本就 modified,mtime 无关
+    s2 = FileEntry("world/region/r.0.0.mca", 100, None, mtime=1759300000)
+    d2 = FileEntry("world/region/r.0.0.mca", 101, None, mtime=1759300000)
+    r2 = Differ([s2], [d2], _clf(), mtime_evidence=True).diff()
+    assert [i.note for i in r2.to_migrate] == ["modified"]
+    # mods jar 即便闸门开也不走 mtime 通道(F33 域)
+    sj = FileEntry("mods/a-1.0.jar", 100, None, mtime=1)
+    dj = FileEntry("mods/a-1.0.jar", 100, None, mtime=2)
+    r3 = Differ([sj], [dj], _clf(), mtime_evidence=True).diff()
+    assert r3.mods and r3.mods[0].note == "shared"
+
+
+def test_differ_mtime_inert_on_old_snapshots() -> None:
+    """F35 兼容:双侧 mtime None(旧快照)即便闸门开也 identical(size-based)。"""
+    from migration.snapshot import FileEntry
+
+    s = FileEntry("world/region/r.0.0.mca", 100, None)
+    d = FileEntry("world/region/r.0.0.mca", 100, None)
+    r = Differ([s], [d], _clf(), mtime_evidence=True).diff()
+    assert r.identical and r.identical[0].note == "size-based"

@@ -6,3 +6,12 @@ client_only:
   - modid: glacier_dragon
     family: frost-dragon
     reason: r11 专服构造期加载 LocalPlayer 于 DEDICATED_SERVER 崩溃(F30 实证,已隔离)
+  # F32 收编:family 必须是 normalize_jar_family 家族键——damage-engine 宿主 jar
+  # 实际键为 damage-engine-neoforge(平台词入键),复放(无活体 ctx)靠此条兜底命中
+  - modid: damageengine
+    family: damage-engine-neoforge
+    reason: r12 专服构造期 MultiBufferSource 崩溃(F32 实证,已隔离;内嵌 anima)
+  - modid: anima
+    family: anima
+    reason: r12 damage-engine 内嵌 JarInJar 客户端渲染件(F32;modid 通道命中宿主,
+      family 兜底独立散装 anima jar)

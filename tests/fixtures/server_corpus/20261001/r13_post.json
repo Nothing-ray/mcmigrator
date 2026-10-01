@@ -1,0 +1,104 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r13-post",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-10-01T13:33:00+08:00",
+ "hash_mode": "tiered",
+ "file_count": 17,
+ "resolved_root": "C:\\fixture\\sanitized\\versions\\r13",
+ "world_dirs": [
+  "f1-shanghai",
+  "world_backup_20261001"
+ ],
+ "files": [
+  {
+   "path": "server.properties",
+   "size": 1206,
+   "md5": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+  },
+  {
+   "path": "mods/create-6.0.10-neoforge+mc1.21.1.jar",
+   "size": 1464759,
+   "md5": null
+  },
+  {
+   "path": "mods/automobility-0.5.0.h+1.21.1-neoforge.jar",
+   "size": 1331432,
+   "md5": null
+  },
+  {
+   "path": "world_backup_20261001/level.dat",
+   "size": 55000,
+   "md5": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  {
+   "path": "world_backup_20261001/region/r.0.0.mca",
+   "size": 4206592,
+   "md5": null,
+   "mtime": 1759303200
+  },
+  {
+   "path": "world_backup_20261001/session.lock",
+   "size": 5,
+   "md5": "cccccccccccccccccccccccccccccccc"
+  },
+  {
+   "path": "world_backup_20261001/serverconfig/ftbessentials.snbt",
+   "size": 800,
+   "md5": "dddddddddddddddddddddddddddddddd"
+  },
+  {
+   "path": "world_backup_20261001/data/scoreboard.dat",
+   "size": 300,
+   "md5": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  {
+   "path": "f1-shanghai/level.dat",
+   "size": 5519,
+   "md5": "h9h9h9h9h9h9h9h9h9h9h9h9h9h9h9h9"
+  },
+  {
+   "path": "f1-shanghai/level.dat_old",
+   "size": 5374,
+   "md5": "h8h8h8h8h8h8h8h8h8h8h8h8h8h8h8h8"
+  },
+  {
+   "path": "f1-shanghai/region/r.-1.-1.mca",
+   "size": 4206592,
+   "md5": null,
+   "mtime": 1759343400
+  },
+  {
+   "path": "f1-shanghai/region/r.-1.-2.mca",
+   "size": 0,
+   "md5": null,
+   "mtime": 1759338540
+  },
+  {
+   "path": "f1-shanghai/raids_overworld.dat",
+   "size": 110,
+   "md5": "r2r2r2r2r2r2r2r2r2r2r2r2r2r2r2r2"
+  },
+  {
+   "path": "f1-shanghai/session.lock",
+   "size": 5,
+   "md5": "s5s5s5s5s5s5s5s5s5s5s5s5s5s5s5s5"
+  },
+  {
+   "path": "f1-shanghai/data/neoforge_data_attachments.dat",
+   "size": 50,
+   "md5": "n0n0n0n0n0n0n0n0n0n0n0n0n0n0n0n0"
+  },
+  {
+   "path": "f1-shanghai/serverconfig/ftbessentials.snbt",
+   "size": 820,
+   "md5": "f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7"
+  },
+  {
+   "path": "logs/latest.log",
+   "size": 102,
+   "md5": "f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3"
+  }
+ ]
+}

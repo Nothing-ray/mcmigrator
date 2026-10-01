@@ -1,0 +1,66 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r12-pre",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-09-30T13:04:00+08:00",
+ "hash_mode": "tiered",
+ "file_count": 11,
+ "files": [
+  {
+   "path": "mods/[潮汐] tide-neoforge-1.21.1-2.1.1.jar",
+   "size": 2155309,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：创意传动] create_connected-1.3.3-mc1.21.1.jar",
+   "size": 6786783,
+   "md5": null
+  },
+  {
+   "path": "mods/[机械动力：懒惰刻] CreateLazyTick-2.7.30-6.0.10-neoforge-1.21.1.jar",
+   "size": 488862,
+   "md5": null
+  },
+  {
+   "path": "mods/[精妙背包] sophisticatedbackpacks-1.21.1-3.26.5.2171.jar",
+   "size": 1239518,
+   "md5": null
+  },
+  {
+   "path": "mods/[FTB 区块] ftb-chunks-neoforge-2101.1.22.jar",
+   "size": 655807,
+   "md5": null
+  },
+  {
+   "path": "mods/automobility-0.5.0.h+1.21.1-neoforge.jar",
+   "size": 1331432,
+   "md5": null
+  },
+  {
+   "path": "mods/create_wrapped-1.0.3-neoforge-1.21.1.jar",
+   "size": 725708,
+   "md5": null
+  },
+  {
+   "path": "mods/fetzisdisplays-neoforge-1.1.0-1.21.jar",
+   "size": 1374210,
+   "md5": null
+  },
+  {
+   "path": "mods/ftb-library-neoforge-2101.1.36.jar",
+   "size": 1439427,
+   "md5": null
+  },
+  {
+   "path": "mods/geckolib-neoforge-1.21.1-4.9.2.jar",
+   "size": 630584,
+   "md5": null
+  },
+  {
+   "path": "mods/xaeroworldmap-neoforge-1.21.1-1.41.2.jar",
+   "size": 1387921,
+   "md5": null
+  }
+ ]
+}

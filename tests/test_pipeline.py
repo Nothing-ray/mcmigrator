@@ -506,3 +506,76 @@ def test_run_diff_missing_snapshot_raises(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError, match="b"):
         run_diff(tmp_path, src="a", dst="b", game_root=tmp_path)
+
+
+def test_match_client_only_embedded_modid_hits_host_jar() -> None:
+    """F32:内嵌(jar-in-jar) modid 反查宿主物理 jar——anima 命中 damage-engine 路径。"""
+    from pathlib import Path
+
+    from migration.differ import DiffItem, DiffReport
+    from migration.moddb import ModInfo, ModRegistry
+    from migration.pipeline import DiffContext, match_client_only_paths
+
+    reg = ModRegistry()
+    reg.add(ModInfo(modid="damageengine", version="2.1.1",
+                    jar_filename="damage-engine-2.1.1-NeoForge-1.21.1.jar",
+                    neoforge_range=None))
+    reg.add(ModInfo(modid="anima", version="1.0.5", jar_filename="anima-1.0.5.jar",
+                    neoforge_range=None,
+                    embedded_in="damage-engine-2.1.1-NeoForge-1.21.1.jar"))
+    ctx = DiffContext(src_mods=reg, dst_mods=reg,
+                      src_dir=Path("x"), dst_dir=Path("y"))
+    report = DiffReport()
+    report.mods = [DiffItem("mods/damage-engine-2.1.1-NeoForge-1.21.1.jar",
+                            None, None, note="to_add")]
+    hit = match_client_only_paths(report, ctx, {"anima"}, set())
+    assert hit == {"mods/damage-engine-2.1.1-NeoForge-1.21.1.jar"}
+    # 顶层 modid 反查行为不变
+    hit2 = match_client_only_paths(report, ctx, {"damageengine"}, set())
+    assert hit2 == {"mods/damage-engine-2.1.1-NeoForge-1.21.1.jar"}
+
+
+def _wsnap(version: str, world_dirs: list[str], files: dict[str, int]) -> "Snapshot":
+    """构造只含 path→size 的迷你快射(F34② 测试用)。"""
+    from migration.snapshot import FileEntry, Snapshot
+
+    return Snapshot(version=version, game_root="C:\\fixture", scanned_at="t",
+                    hash_mode="tiered", file_count=len(files),
+                    files=[FileEntry(p, s, None) for p, s in files.items()],
+                    world_dirs=world_dirs)
+
+
+def test_world_rename_notices_full_match() -> None:
+    """F34②:world → world_backup 全量同路径同尺寸 → 一条改名提示。"""
+    from migration.pipeline import world_rename_notices
+
+    src = _wsnap("a", ["world"], {"world/level.dat": 100, "world/region/r.0.0.mca": 5})
+    dst = _wsnap("b", ["world_backup"],
+                 {"world_backup/level.dat": 100, "world_backup/region/r.0.0.mca": 5})
+    notices = world_rename_notices(src, dst)
+    assert len(notices) == 1
+    assert "疑似世界目录改名" in notices[0]
+    assert "world → world_backup" in notices[0] and "2" in notices[0]
+
+
+def test_world_rename_notices_threshold_and_mismatch() -> None:
+    """F34②:占比 <0.9 不发(跨世界重合极低);同路径但 size 异不计入匹配。"""
+    from migration.pipeline import world_rename_notices
+
+    # 10 件中 8 件匹配(80%) → 不发
+    src = _wsnap("a", ["world"], {f"world/{i}.mca": i for i in range(10)})
+    dst = _wsnap("b", ["nb"], {f"nb/{i}.mca": (i if i < 8 else 999) for i in range(10)})
+    assert world_rename_notices(src, dst) == []
+    # 10/10 匹配 → 发
+    dst2 = _wsnap("b", ["nb"], {f"nb/{i}.mca": i for i in range(10)})
+    assert len(world_rename_notices(src, dst2)) == 1
+    # 旧目录双侧都在(未消失) → 不参与
+    both = _wsnap("b", ["world"], {"world/level.dat": 1})
+    assert world_rename_notices(src, both) == []
+
+
+def test_world_rename_notices_empty_and_no_dirs() -> None:
+    """F34②:无 world_dirs(旧快照)或无候选对 → 空。"""
+    from migration.pipeline import world_rename_notices
+
+    assert world_rename_notices(_wsnap("a", [], {}), _wsnap("b", [], {})) == []

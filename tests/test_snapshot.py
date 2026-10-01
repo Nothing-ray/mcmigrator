@@ -43,7 +43,8 @@ def test_md5_none_roundtrip_preserved(tmp_path: Path):
     sp = tmp_path / "s.json"
     _sample().save(sp)
     doc = json.loads(sp.read_text(encoding="utf-8"))
-    assert doc["files"][1] == {"path": "mods/x.jar", "size": 999, "md5": None}
+    # F35:asdict 序列化补出 mtime 键(None;旧快照无键加载同样得 None)
+    assert doc["files"][1] == {"path": "mods/x.jar", "size": 999, "md5": None, "mtime": None}
 
 
 def test_load_rejects_unsupported_format(tmp_path: Path):
@@ -120,3 +121,55 @@ def test_scanner_records_resolved_root(tmp_path: Path) -> None:
     (ver / "mods").mkdir(parents=True)
     snap, _ = Scanner(ver, "v1").build_snapshot(str(tmp_path))
     assert snap.resolved_root == str(ver.resolve())
+
+
+# ---- 批次G Task 4:世界目录探测字段 world_dirs(F34①) ----
+
+
+def test_snapshot_world_dirs_roundtrip(tmp_path) -> None:
+    """F34①:world_dirs 随快照持久化往返。"""
+    from migration.snapshot import FileEntry, Snapshot
+
+    snap = Snapshot(version="v", game_root="g", scanned_at="t", hash_mode="tiered",
+                    file_count=1, files=[FileEntry("a", 1, None)],
+                    world_dirs=["f1-shanghai", "world"])
+    p = tmp_path / "s.json"
+    snap.save(p)
+    assert Snapshot.load(p).world_dirs == ["f1-shanghai", "world"]
+
+
+def test_snapshot_legacy_world_dirs_absent_and_garbage(tmp_path) -> None:
+    """F34① 兼容:旧快照无键 → [];非 list / 元素非 str → [](容错降级不抛)。"""
+    import json
+
+    from migration.snapshot import FileEntry, Snapshot
+
+    snap = Snapshot(version="v", game_root="g", scanned_at="t", hash_mode="tiered",
+                    file_count=1, files=[FileEntry("a", 1, None)])
+    p = tmp_path / "s.json"
+    snap.save(p)
+    assert Snapshot.load(p).world_dirs == []
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    raw["world_dirs"] = ["ok", 3, None]
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    assert Snapshot.load(p).world_dirs == ["ok"]
+    raw["world_dirs"] = "oops"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    assert Snapshot.load(p).world_dirs == []
+
+
+# ---- 批次G Task 6:未哈希文件 mtime 字段(F35) ----
+
+
+def test_file_entry_mtime_optional_and_load_guard(tmp_path) -> None:
+    """F35:FileEntry.mtime 可选往返;旧条目无键 → None;非 int → None。"""
+    from migration.snapshot import FileEntry, Snapshot
+
+    snap = Snapshot(version="v", game_root="g", scanned_at="t", hash_mode="tiered",
+                    file_count=2,
+                    files=[FileEntry("a.mca", 5, None, mtime=1759343400),
+                           FileEntry("b.txt", 5, "x" * 32)])
+    p = tmp_path / "s.json"
+    snap.save(p)
+    loaded = Snapshot.load(p)
+    assert [f.mtime for f in loaded.files] == [1759343400, None]

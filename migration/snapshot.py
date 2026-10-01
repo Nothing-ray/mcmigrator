@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .fsops import write_json_atomic
@@ -21,11 +21,13 @@ class SnapshotFormatError(Exception):
 
 @dataclass(frozen=True)
 class FileEntry:
-    """相对版本根的一个文件条目。md5 为 None 表示分层策略未哈希。"""
+    """相对版本根的一个文件条目。md5 为 None 表示分层策略未哈希;
+    mtime 为未哈希文件的修改时刻(epoch 秒,F35 演化检出用),哈希文件为 None。"""
 
     path: str
     size: int
     md5: str | None
+    mtime: int | None = None
 
 
 @dataclass
@@ -39,6 +41,7 @@ class Snapshot:
     file_count: int
     files: list[FileEntry]
     resolved_root: str | None = None  # scan 时版本目录 resolve() 结果,自比对/junction 同体判定用;旧快照缺省 None
+    world_dirs: list[str] = field(default_factory=list)  # F34①:scan 探测的世界目录(level-name/level.dat)
     tool_version: str = TOOL_VERSION
     snapshot_format: int = SNAPSHOT_FORMAT
 
@@ -51,6 +54,7 @@ class Snapshot:
             "game_root": self.game_root,
             "scanned_at": self.scanned_at,
             "resolved_root": self.resolved_root,
+            "world_dirs": self.world_dirs,
             "hash_mode": self.hash_mode,
             "file_count": self.file_count,
             "files": [asdict(f) for f in self.files],
@@ -74,7 +78,10 @@ class Snapshot:
             )
         try:
             files = [
-                FileEntry(path=d["path"], size=d["size"], md5=d.get("md5"))
+                FileEntry(
+                    path=d["path"], size=d["size"], md5=d.get("md5"),
+                    mtime=m if isinstance(m := d.get("mtime"), int) else None,
+                )
                 for d in payload["files"]
             ]
             return cls(
@@ -85,6 +92,10 @@ class Snapshot:
                 file_count=payload["file_count"],
                 files=files,
                 resolved_root=payload.get("resolved_root"),
+                world_dirs=(
+                    [w for w in payload.get("world_dirs") if isinstance(w, str)]
+                    if isinstance(payload.get("world_dirs"), list) else []
+                ),
             )
         except (KeyError, TypeError) as e:
             raise SnapshotFormatError(f"快照内容字段缺失或类型错误: {e}") from e

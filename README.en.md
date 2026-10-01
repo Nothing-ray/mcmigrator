@@ -3,7 +3,7 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.9.0 / 2026-09-29
+> Last synced: v0.10.0 / 2026-10-01
 
 > A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
 
@@ -148,9 +148,11 @@ stripped as well (the author changed naming style); ⑤ finally a **closed set o
 the previous one failed to pair it, and registry (modid) pairing always takes priority.
 
 - `rebuilt`: same name and version on both sides but different content (upstream repack) — flagged in diff; plan keeps the target side by default with a warning, never auto-overwrites
+- `⇄renamed(rebuilt)` ⚠: a rename pair with the **same version number but differing size on the two sides** (upstream-repack evidence) — the kind stays `renamed`, with a `content_differs` annotation added (`--json` `mod_pairs` entries emit that key only when true, zero noise for consumers; plan COPY rows mirror `⇄renamed(rebuilt)`), so a renamed pair is never mistaken for "byte-identical, safe to skip deploying"
 - `mod_pairs` entries carry a `source` field: `registry` (reads mods.toml inside the jar; requires the two version dirs to be truly independent) or `filename` (snapshot filename-family normalization; works for replay/junction setups)
 - The `plan` report likewise decorates paired jars' COPY-row paths with `⇄<kind>` (a `rebuilt` pair gets the `⚠` prefix, mirroring diff semantics); the decoration is render-level only — the persisted `plan.json` carries no pairing (schema unchanged)
 - When both version dirs resolve to the same path (NTFS junction), registry pairing is automatically voided with a hint and filename pairing takes over (two snapshots of the same directory taken at different times — the standard shadow-root usage — are no longer hinted, logged at debug level only; same-timestamp self-comparison still warns). Self-comparison detection is now single-point: the same snapshot file is the primary verdict; junction setups fall back to "same dir + same timestamp"; replays (no live directory) emit a "suspected self-comparison" corroboration hint when the snapshots' `resolved_root` values are equal and timestamps match
+- mtime evolution channel: un-hashed files (bulk/mods entries, md5=null) record `mtime` in the snapshot; the channel activates only when both snapshots' `resolved_root` is the **same physical root** (segmented snapshots of one instance / junction setups) — a same-size rewrite with a different mtime is then reported as modified (note=`mtime`, displayed in the terminal as `mtime(同尺寸重写)`, "same-size rewrite"); cross-instance migration (copying always changes mtime) and older snapshots (no such field) keep it off
 - When a mod was removed on the target side, its config is flagged as orphan (`never/orphan`) — standalone `diff` now matches `plan`
 - `*.properties` (e.g. server `server.properties`; vanilla rewrite noise — escaping/timestamp/encoding) and `*.json`/`*.toml` (key/table-order noise from mod startup rewrites) that differ in bytes but not in key/value semantics are reported as `identical/semantics` instead of modified
 - JVM crash remnants (`hs_err_pid*.log` / `replay_pid*.log`) go to the never bucket, never migrated
@@ -161,7 +163,7 @@ the previous one failed to pair it, and registry (modid) pairing always takes pr
 
 ### Known client-only mod list
 
-`migration/data/client_mods.yaml` keeps a list of known client-only mods (constructor-crash risks when deploying to a dedicated server; the first entry, `glacier_dragon`/`frost-dragon`, comes from a real r11 dedicated-server crash). Each entry may provide either or both matching keys — `modid` (live registry channel) and `family` (filename-family key, works in replay mode) — plus a `reason` documenting the evidence. During `diff`, mods-bucket rows that hit the list get a `client_only` annotation plus a one-line stderr warning. **Annotation only, never a block** — the tool is a differ, not a deployer; whether to exclude is your call. To extend the list: add an entry to that yaml, then re-run `tools/gen_manifest.py` to refresh the data-integrity manifest.
+`migration/data/client_mods.yaml` keeps a list of known client-only mods (constructor-crash risks when deploying to a dedicated server; the first entry, `glacier_dragon`/`frost-dragon`, comes from a real r11 dedicated-server crash). Each entry may provide either or both matching keys — `modid` (live registry channel) and `family` (filename-family key, works in replay mode) — plus a `reason` documenting the evidence. During `diff`, mods-bucket rows that hit the list get a `client_only` annotation plus a one-line stderr warning. **Annotation only, never a block** — the tool is a differ, not a deployer; whether to exclude is your call. Embedded (JarInJar) client-only components are visible too: when a modid hit is an embedded module (e.g. the anima renderer embedded inside damage-engine), the annotation lands on the **host jar's path** — the physical artifact a dedicated server actually needs to isolate; the list has taken in `damageengine`/`anima` (evidence: a real r12 dedicated-server constructor crash). To extend the list: add an entry to that yaml, then re-run `tools/gen_manifest.py` to refresh the data-integrity manifest.
 
 ## Data & Uninstall
 
@@ -249,6 +251,10 @@ Two Windows environment notes (from real dedicated-server testing, 2026-09):
 ### Dedicated server scenario
 
 A dedicated server has no `versions/` layout — **each server directory is one "version"**. Built-in default rules already cover server-core assets: `world/**`, `server.properties`, `whitelist.json`, `ops.json`, `banned-*.json` → must-migrate; `mods_*/**` (ops rollback backup dirs) → never.
+
+World directories don't have to be named `world`: `scan` detects them dynamically (the directory named by `server.properties`'s `level-name`, plus any top-level directory containing `level.dat` — covering arbitrary names, renamed leftovers, and multi-world layouts), recording them in the snapshot's optional `world_dirs` field; scan summaries / `diff` / `plan` all inject must-migrate rules from the detection at the **lowest rule layer** (after the built-in defaults) — built-in never rules (e.g. a `.bak` inside the world) still take priority, client-side `saves/<name>/level.dat` (two levels deep) never triggers a false hit, and an empty detection leaves output byte-identical to previous versions.
+
+A world directory kept around under a new name (world → world_backup_<date>) used to surface as a thousand-row "must-migrate on the source + target-only" false alarm; when an old path disappears from the source's `world_dirs` while a new one appears on the target's, and same-relative-subpath same-size overlap is ≥ 90%, `diff` prints a one-line suspected-world-rename hint to stderr (content didn't vanish — it moved with the renamed directory). Explanation only, no reclassification.
 
 Zero-copy integration trick: map the server directory to `versions\<name>` with an NTFS junction (`mklink /J`), then `scan`/`diff` directly — no need to copy the 2GB+ server tree. One scan before and one after a modpack swap gives the full comparison.
 

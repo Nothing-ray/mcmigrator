@@ -1,0 +1,89 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r13-mid",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-10-01T13:28:10+08:00",
+ "hash_mode": "tiered",
+ "file_count": 14,
+ "resolved_root": "C:\\fixture\\sanitized\\versions\\r13",
+ "world_dirs": [
+  "f1-shanghai",
+  "world_backup_20261001"
+ ],
+ "files": [
+  {
+   "path": "server.properties",
+   "size": 1205,
+   "md5": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2"
+  },
+  {
+   "path": "mods/create-6.0.10-neoforge+mc1.21.1.jar",
+   "size": 1464759,
+   "md5": null
+  },
+  {
+   "path": "mods/automobility-0.5.0.h+1.21.1-neoforge.jar",
+   "size": 1331432,
+   "md5": null
+  },
+  {
+   "path": "world_backup_20261001/level.dat",
+   "size": 55000,
+   "md5": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  {
+   "path": "world_backup_20261001/region/r.0.0.mca",
+   "size": 4206592,
+   "md5": null,
+   "mtime": 1759303200
+  },
+  {
+   "path": "world_backup_20261001/session.lock",
+   "size": 5,
+   "md5": "cccccccccccccccccccccccccccccccc"
+  },
+  {
+   "path": "world_backup_20261001/serverconfig/ftbessentials.snbt",
+   "size": 800,
+   "md5": "dddddddddddddddddddddddddddddddd"
+  },
+  {
+   "path": "world_backup_20261001/data/scoreboard.dat",
+   "size": 300,
+   "md5": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  {
+   "path": "f1-shanghai/level.dat",
+   "size": 66492,
+   "md5": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+  },
+  {
+   "path": "f1-shanghai/level.dat_old",
+   "size": 66491,
+   "md5": "h2h2h2h2h2h2h2h2h2h2h2h2h2h2h2h2"
+  },
+  {
+   "path": "f1-shanghai/region/r.-1.-1.mca",
+   "size": 4206592,
+   "md5": null,
+   "mtime": 1759338540
+  },
+  {
+   "path": "f1-shanghai/region/r.-1.-2.mca",
+   "size": 0,
+   "md5": null,
+   "mtime": 1759338540
+  },
+  {
+   "path": "f1-shanghai/raids_overworld.dat",
+   "size": 100,
+   "md5": "r1r1r1r1r1r1r1r1r1r1r1r1r1r1r1r1"
+  },
+  {
+   "path": "logs/latest.log",
+   "size": 100,
+   "md5": "ffffffffffffffffffffffffffffffff"
+  }
+ ]
+}

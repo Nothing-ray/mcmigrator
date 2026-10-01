@@ -1,0 +1,56 @@
+{
+ "tool_version": "0.6.0",
+ "snapshot_format": 1,
+ "version": "r13-pre",
+ "game_root": "C:\\fixture\\sanitized",
+ "scanned_at": "2026-10-01T13:26:00+08:00",
+ "hash_mode": "tiered",
+ "file_count": 8,
+ "resolved_root": "C:\\fixture\\sanitized\\versions\\r13",
+ "world_dirs": [
+  "world"
+ ],
+ "files": [
+  {
+   "path": "server.properties",
+   "size": 1200,
+   "md5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "path": "mods/create-6.0.10-neoforge+mc1.21.1.jar",
+   "size": 1464759,
+   "md5": null
+  },
+  {
+   "path": "world/level.dat",
+   "size": 55000,
+   "md5": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  {
+   "path": "world/region/r.0.0.mca",
+   "size": 4206592,
+   "md5": null,
+   "mtime": 1759303200
+  },
+  {
+   "path": "world/session.lock",
+   "size": 5,
+   "md5": "cccccccccccccccccccccccccccccccc"
+  },
+  {
+   "path": "world/serverconfig/ftbessentials.snbt",
+   "size": 800,
+   "md5": "dddddddddddddddddddddddddddddddd"
+  },
+  {
+   "path": "world/data/scoreboard.dat",
+   "size": 300,
+   "md5": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  {
+   "path": "logs/latest.log",
+   "size": 100,
+   "md5": "ffffffffffffffffffffffffffffffff"
+  }
+ ]
+}
