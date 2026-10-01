@@ -478,6 +478,24 @@ def test_resolve_context_dirs_live_single_point(tmp_path):
     assert ctx3 is not None and ctx3.dirs_live is True
 
 
+def test_diff_context_pairing_trusted() -> None:
+    """终审建议收敛:配对可信性单点——same_dir 且非冻结→不可信;冻结或异体→可信。"""
+    from pathlib import Path as _P
+
+    from migration.moddb import ModRegistry
+    from migration.pipeline import DiffContext
+
+    def _ctx(same_dir: bool, frozen: bool) -> DiffContext:
+        reg = ModRegistry()
+        return DiffContext(src_mods=reg, dst_mods=reg, src_dir=_P("a"), dst_dir=_P("b"),
+                           same_dir=same_dir, mods_frozen=frozen)
+
+    assert _ctx(True, False).pairing_trusted() is False   # junction 同体+现扫:不可信
+    assert _ctx(True, True).pairing_trusted() is True     # 冻结通道:嵌入名册各自时刻
+    assert _ctx(False, False).pairing_trusted() is True   # 异体:可信
+    assert _ctx(False, True).pairing_trusted() is True
+
+
 # ---- 批次F Task 4:diff 编排下沉 run_diff ----
 
 

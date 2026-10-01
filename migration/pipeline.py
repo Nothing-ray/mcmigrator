@@ -439,6 +439,14 @@ class DiffContext:
     # 是否可达——调用方(run_diff 嵌入名册提示行等)消费此字段,不再二次探活
     dirs_live: bool = True
 
+    def pairing_trusted(self) -> bool:
+        """注册表配对是否可信(批次H 终审建议:分散布尔闸门收敛为单点)。
+
+        物理同目录(same_dir)且名册非冻结(两侧现扫)时配对不可信;
+        冻结通道嵌入名册来自各自 scan 时刻,同体不同刻配对仍有意义。
+        """
+        return not (self.same_dir and not self.mods_frozen)
+
     def read_file(self, rel_path: str, side: str) -> bytes | None:
         """按侧读取版本目录内文件字节内容;文件缺失/IO 失败返回 None。
 
@@ -538,7 +546,7 @@ def diff_identity_notices(
     # (mods_frozen)下 run_diff 的配对闸门已收敛为 same_dir and not mods_frozen,
     # 注册表配对实际存活,此臂同步收敛(文案一字不改,仅触发条件随闸门)——
     # v1 路径 mods_frozen 恒 False,行为恒等
-    if ctx is not None and ctx.same_dir and not ctx.mods_frozen and same_time:
+    if ctx is not None and not ctx.pairing_trusted() and same_time:
         return ("[提示] 两侧快照同刻且版本目录指向同一路径(junction 同体):"
                 "注册表配对与语义复核不可用,已使用文件名配对/字节比较")
     # 佐证臂(复放):ctx 不可达(复放)且快照自带的 resolved_root 相等 + 同刻 → 疑似自比对;
@@ -606,7 +614,7 @@ def compute_mod_pairs(
 ) -> list["ModPair"]:
     """双源配对单点:filename(快照差集+is_mod_jar 过滤)恒算;registry 仅当双侧注册表
     都给出且 same_dir=False 时叠加(merge_mod_pairs registry 优先)。
-    run_diff 传 same_dir and not mods_frozen(批次H:冻结通道嵌入名册来自各自 scan
+    run_diff 传 not ctx.pairing_trusted()(批次H:冻结通道嵌入名册来自各自 scan
     时刻,物理同目录不同刻也不恒等,配对有意义);build_plan 传
     <src_dir>.resolve()==<dst_dir>.resolve()。
 
@@ -809,7 +817,7 @@ def run_diff(
         notices.append(hint)
     # 同步收敛:冻结通道 same_dir 不同刻也不 debug 降级语义(注册表配对实际存活,
     # debug 文案与真实行为同样矛盾;v1 路径 mods_frozen 恒 False,行为恒等)
-    elif ctx is not None and ctx.same_dir and not ctx.mods_frozen:
+    elif ctx is not None and not ctx.pairing_trusted():
         log.debug(
             "junction 同体双快照(不同刻,标准影子根用法):"
             "注册表配对与语义复核不可用,已使用文件名配对/字节比较"
@@ -821,7 +829,7 @@ def run_diff(
         ctx.src_mods if ctx is not None else None,
         ctx.dst_mods if ctx is not None else None,
         # 批次H:闸门收敛——嵌入名册来自各自 scan 时刻,物理同目录不同刻也不恒等,配对有意义
-        same_dir=(ctx.same_dir and not ctx.mods_frozen) if ctx is not None else False,
+        same_dir=(not ctx.pairing_trusted()) if ctx is not None else False,
     )
     # F19 换包模式提示:有排除项时入 notices(调用方逐行 stderr,不污染 --json 的 stdout)
     if modpack_swap:
