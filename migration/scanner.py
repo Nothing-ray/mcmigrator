@@ -98,6 +98,11 @@ class Scanner:
         except OSError:
             properties_text = None
         world_dirs = detect_world_dirs(entries, properties_text)
+        # 批次H:mod 名册随快照落盘(v2)——名册与 files 同刻同源;scan_mods 对 mods/
+        # 缺失与 jar 损坏已有容错(warning+跳过);119 jar 量级预期 +1~3 秒(spec §7.1)
+        from .moddb import registry_to_dicts, scan_mods
+
+        mods = registry_to_dicts(scan_mods(self.version_dir))
         snap = Snapshot(
             version=self.version_name,
             game_root=game_root,
@@ -107,5 +112,6 @@ class Scanner:
             files=entries,
             resolved_root=str(self.version_dir.resolve()),
             world_dirs=world_dirs,
+            mods=mods,
         )
         return snap, errors

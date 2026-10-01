@@ -3,7 +3,7 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.10.0 / 2026-10-01
+> Last synced: v0.11.0 / 2026-10-02
 
 > A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
 
@@ -66,7 +66,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 
 ## How It Works
 
-1. `scan` traverses the version folder, hashes by the tiered strategy, and produces a **raw manifest snapshot** (`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`, **no classification**). The snapshot carries an optional identity field `resolved_root` (the version directory `resolve()`d at scan time — the real path behind any NTFS junction); older snapshots default it to `None`, fully compatible.
+1. `scan` traverses the version folder, hashes by the tiered strategy, and produces a **raw manifest snapshot** (`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`, **no classification**). The snapshot carries an optional identity field `resolved_root` (the version directory `resolve()`d at scan time — the real path behind any NTFS junction); older snapshots default it to `None`, fully compatible. As of v2, the snapshot also embeds a list of your mods — `scan` reads mod info out of the jars in `mods/` along the way (adds roughly 1–3 seconds); old v1 snapshots remain fully compatible, just rescan once to upgrade.
 2. `diff` reads two snapshots, **classifies by current rules on the fly**, and assigns each file to one of 6 buckets.
 3. After changing rules (user `.mcmig/rules.yaml` or CLI `--exclude`/`--include`), **re-run `diff` without rescanning** — classification is computed at snapshot-read time.
 
@@ -106,11 +106,13 @@ Rules match first-match-wins, from highest to lowest priority:
 
 ```
 CLI (--include/--exclude) > Extra rule files > User rules.yaml > Orphan detection > Version-sensitive > Whitelist > Built-in default
+> World dirs (dynamic detection)
 ```
 
 - **User explicit rules > Orphan detection**: Writing `config/jade/** → must_migrate` in `.mcmig/rules.yaml` forces migration of orphan configs.
 - **Orphan detection > Whitelist**: Whitelist entries whose corresponding mod has been removed are automatically voided.
 - **Orphan detection = factual judgment**: Mod physically absent from target's `mods/` directory → config has no owner → migrating is pointless.
+- **The world-dir layer sits at the bottom**: world directories detected dynamically on the server side are injected as must-migrate after every other layer — built-in default never rules (e.g. a `.bak` inside the world) still override it, so nothing slips in by mistake.
 
 ### Modpack Swap
 

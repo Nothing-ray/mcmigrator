@@ -1,0 +1,28 @@
+{
+  "tool_version": "0.10.1",
+  "snapshot_format": 2,
+  "version": "mx_dst",
+  "game_root": "C:\\fixture\\sanitized",
+  "scanned_at": "2026-10-01T12:00:00+08:00",
+  "resolved_root": "C:\\fixture\\sanitized\\versions\\mx_dst",
+  "world_dirs": [],
+  "hash_mode": "tiered",
+  "file_count": 1,
+  "files": [
+    {
+      "path": "options.txt",
+      "size": 12,
+      "md5": "abcd5050505050505050505050505050",
+      "mtime": null
+    }
+  ],
+  "mods": [
+    {
+      "modid": "foo",
+      "version": "1.0",
+      "jar_filename": "foo-1.0.jar",
+      "neoforge_range": null,
+      "embedded_in": null
+    }
+  ]
+}

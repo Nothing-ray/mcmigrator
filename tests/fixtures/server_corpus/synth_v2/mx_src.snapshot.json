@@ -1,0 +1,19 @@
+{
+  "tool_version": "0.10.1",
+  "snapshot_format": 1,
+  "version": "mx_src",
+  "game_root": "C:\\fixture\\sanitized",
+  "scanned_at": "2026-10-01T10:00:00+08:00",
+  "resolved_root": "C:\\fixture\\sanitized\\versions\\mx_src",
+  "world_dirs": [],
+  "hash_mode": "tiered",
+  "file_count": 1,
+  "files": [
+    {
+      "path": "options.txt",
+      "size": 10,
+      "md5": "ffff5050505050505050505050505050",
+      "mtime": null
+    }
+  ]
+}

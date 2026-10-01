@@ -12,7 +12,7 @@ from pathlib import Path
 from .fsops import write_json_atomic
 
 TOOL_VERSION = "0.6.0"
-SNAPSHOT_FORMAT = 1
+SNAPSHOT_FORMAT = 2
 
 
 class SnapshotFormatError(Exception):
@@ -42,6 +42,9 @@ class Snapshot:
     files: list[FileEntry]
     resolved_root: str | None = None  # scan 时版本目录 resolve() 结果,自比对/junction 同体判定用;旧快照缺省 None
     world_dirs: list[str] = field(default_factory=list)  # F34①:scan 探测的世界目录(level-name/level.dat)
+    # 批次H(v2):内嵌 mod 名册;键=modid/version/jar_filename/neoforge_range/embedded_in;
+    # load 容错见 Snapshot.load docstring(v1 快照无此键 → [])
+    mods: list[dict] = field(default_factory=list)
     tool_version: str = TOOL_VERSION
     snapshot_format: int = SNAPSHOT_FORMAT
 
@@ -58,12 +61,18 @@ class Snapshot:
             "hash_mode": self.hash_mode,
             "file_count": self.file_count,
             "files": [asdict(f) for f in self.files],
+            "mods": self.mods,
         }
         write_json_atomic(path, payload)
 
     @classmethod
     def load(cls, path: Path) -> "Snapshot":
-        """从 JSON 读快照;格式版本不支持或字段缺失/损坏时抛 SnapshotFormatError。"""
+        """从 JSON 读快照;格式版本不支持或字段缺失/损坏时抛 SnapshotFormatError。
+
+        版本闸门接受 v1(历史快照)与当前 v2;mods 容错与 world_dirs 同哲学:
+        键缺失(v1)→ [];整体非 list → [](结构级降级);元素非 dict 或缺
+        modid/jar_filename → 跳过该条(数据级宽松,不因单条损坏弃整个快照)。
+        """
         with path.open("r", encoding="utf-8") as f:
             try:
                 payload = json.load(f)
@@ -72,7 +81,7 @@ class Snapshot:
         if not isinstance(payload, dict):
             raise SnapshotFormatError(f"快照顶层非对象: {type(payload).__name__}")
         fmt = payload.get("snapshot_format")
-        if fmt != SNAPSHOT_FORMAT:
+        if fmt not in (1, SNAPSHOT_FORMAT):
             raise SnapshotFormatError(
                 f"快照格式版本 {fmt} 不支持(当前 {SNAPSHOT_FORMAT}),请重新 scan"
             )
@@ -95,6 +104,11 @@ class Snapshot:
                 world_dirs=(
                     [w for w in payload.get("world_dirs") if isinstance(w, str)]
                     if isinstance(payload.get("world_dirs"), list) else []
+                ),
+                mods=(
+                    [m for m in payload.get("mods", [])
+                     if isinstance(m, dict) and m.get("modid") and m.get("jar_filename")]
+                    if isinstance(payload.get("mods", []), list) else []
                 ),
             )
         except (KeyError, TypeError) as e:

@@ -173,3 +173,60 @@ def test_file_entry_mtime_optional_and_load_guard(tmp_path) -> None:
     snap.save(p)
     loaded = Snapshot.load(p)
     assert [f.mtime for f in loaded.files] == [1759343400, None]
+
+
+# ---- 批次H Task 2:快照 schema v2 内嵌 mod 名册 ----
+
+
+def test_save_load_v2_roundtrip_mods(tmp_path) -> None:
+    """v2 快照 save/load 往返:mods 五字段保真;SNAPSHOT_FORMAT==2(spec §5.1)。"""
+    from migration.snapshot import SNAPSHOT_FORMAT, Snapshot, FileEntry
+
+    snap = Snapshot(version="v", game_root="g", scanned_at="t", hash_mode="tiered",
+                    file_count=1, files=[FileEntry("a", 1, "x" * 32)],
+                    mods=[{"modid": "foo", "version": "1.0", "jar_filename": "foo.jar",
+                           "neoforge_range": None, "embedded_in": None}])
+    snap.save(tmp_path / "s.json")
+    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["snapshot_format"] == 2
+    loaded = Snapshot.load(tmp_path / "s.json")
+    assert loaded.mods == snap.mods and SNAPSHOT_FORMAT == 2
+
+
+def test_load_v1_snapshot_mods_empty(tmp_path) -> None:
+    """v1 快照(无 mods 键)load 正常且 mods==[](spec §5.1)。"""
+    payload = json.loads((Path(__file__).parent / "fixtures" / "server_corpus" /
+                          "synth_v2" / "mx_src.snapshot.json").read_text(encoding="utf-8"))
+    (tmp_path / "v1.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert Snapshot.load(tmp_path / "v1.json").mods == []
+
+
+def test_load_mods_structural_damage_degrades(tmp_path) -> None:
+    """mods 非 list → 降级 [] 不抛;元素非 dict/缺 modid → 跳过该条(spec §3.1 容错)。"""
+    from migration.snapshot import FileEntry, Snapshot
+
+    snap = Snapshot(version="v", game_root="g", scanned_at="t", hash_mode="tiered",
+                    file_count=1, files=[FileEntry("a", 1, None)])
+    p = tmp_path / "s.json"
+    snap.save(p)
+    full = {"modid": "ok", "version": "1.0", "jar_filename": "ok.jar",
+            "neoforge_range": None, "embedded_in": None}
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    # mods 整体非 list → 结构级降级 []
+    raw["mods"] = "garbage"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    assert Snapshot.load(p).mods == []
+    # 元素级:缺 jar_filename / 非 dict / 缺 modid 均跳过,仅完整条存活
+    raw["mods"] = [{"modid": "a"}, "notadict", {"junk": 1}, full]
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    assert Snapshot.load(p).mods == [full]
+
+
+def test_load_format3_rejected(tmp_path) -> None:
+    """fmt=3 拒绝,文案含「请重新 scan」(spec §3.1)。"""
+    payload = {"snapshot_format": 3, "version": "v", "game_root": "g", "scanned_at": "t",
+               "hash_mode": "tiered", "file_count": 0, "files": []}
+    p = tmp_path / "v3.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(SnapshotFormatError) as ei:
+        Snapshot.load(p)
+    assert "请重新 scan" in str(ei.value)

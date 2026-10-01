@@ -5,7 +5,7 @@
 - 快照路径 = <mcmig_dir>/snapshots/<版本名>.snapshot.json(与 snapshot_path(cwd,·) 同构,
   mcmig_dir=cwd/.mcmig 时两者完全一致)
 - plan 路径 = <plans_dir>/<src>__<dst>.plan.json(与 plan_path(cwd,·) 同构)
-规则组装 build_ruleset 仍留在 cli(本模块延迟导入,避免 cli↔pipeline 模块级循环)。
+规则组装 build_ruleset 已由 cli 搬入本模块(批次H,消模块级循环;cli 原位置 re-export 保兼容)。
 
 输出约定:供 GUI 复用的数据一律走返回值;过程中的警告走 logging(stderr)。
 例外两处,均为下沉前直写、被 CLI 测试断言的输出,保持原样:
@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from . import rules
 from .classifier import Classifier
 from .differ import DiffReport, Differ, is_mod_jar
 from .executor import Executor, FileResult
@@ -33,7 +34,6 @@ from .scanner import Scanner
 from .snapshot import Snapshot
 
 if TYPE_CHECKING:
-    from . import rules
     from .moddb import CompatWarning, ModPair, ModRegistry
 
 log = logging.getLogger(__name__)
@@ -145,6 +145,86 @@ def scan_version(
     return snap
 
 
+_WORLD_GLOB_SPECIALS = frozenset("\\*?[]#!")
+
+
+def escape_world_glob(name: str) -> str:
+    """转义世界目录名中的 gitignore 元字符(spec §3.5;全位置转义最简,pathspec 容忍)。"""
+    return "".join(f"\\{ch}" if ch in _WORLD_GLOB_SPECIALS else ch for ch in name)
+
+
+def build_ruleset(
+    versions: str | list[str],
+    *,
+    exclude: list[str],
+    include: list[str],
+    rule_files: list[Path],
+    mcmig_dir: Path,
+    with_whitelist: bool = False,
+    orphan_rules: list[rules.Rule] | None = None,
+    world_dirs: Sequence[str] = (),
+) -> tuple[rules.RuleSet, list[str]]:
+    """按优先级(CLI > extra > user > ORPHAN > REBUILD > whitelist > default > world)组装 RuleSet。
+
+    纯参数签名(不依赖 argparse.Namespace):CLI 从 args 展开传参,
+    pipeline.build_plan 直调亦可(GUI 复用)。
+
+    Args:
+        versions: 参与判定的版本名(展开 default 规则中的版本占位)。
+        exclude: CLI 级临时规则 glob(本次按 never,对应 --exclude)。
+        include: CLI 级临时规则 glob(本次按 must_migrate,对应 --include)。
+        rule_files: 额外规则文件路径列表(对应 --rule)。
+        mcmig_dir: .mcmig 目录(user rules.yaml 所在)。
+        with_whitelist: 是否启用 whitelist 层(仅 plan 命令)。
+        orphan_rules: orphan 规则(plan 与独立 diff 共用)。
+        world_dirs: 动态探测的世界目录名(F34①,scan 时入快照);默认空=行为不变。
+
+    Returns:
+        (规则集, 规则加载警告列表)。
+
+    rebuild 层对所有命令(scan/diff/plan)常开;whitelist 仅 plan 命令启用;
+    orphan 规则在 plan 与独立 diff 命令启用(plan 与独立 diff 共用同一生成源);
+    world 层垫底(仅 default 未命中的路径落此层,非法名跳过并计入警告)。
+    """
+    from importlib import resources
+
+    cli_rules = rules.load_cli_rules(exclude, include)
+    extra: list[rules.Rule] = []
+    errors: list[str] = []
+    for f in rule_files:
+        r, e = rules.load_user_rules(f)
+        extra.extend(r)
+        errors.extend(e)
+    user_path = mcmig_dir / "rules.yaml"
+    user, ue = rules.load_user_rules(user_path)
+    errors.extend(ue)
+    orphan = orphan_rules or []
+    # rebuild 层:常开(scan/diff/plan 都需正确识别版本敏感文件)
+    rb_text = resources.files("migration").joinpath("data/rebuild.yaml").read_text(encoding="utf-8")
+    rebuild, rbe = rules.load_rebuild_rules_from_text(rb_text, "rebuild.yaml")
+    errors.extend(rbe)
+    whitelist: list[rules.Rule] = []
+    if with_whitelist:
+        wl_text = resources.files("migration").joinpath("data/whitelist.yaml").read_text(encoding="utf-8")
+        whitelist, we = rules.load_whitelist_rules_from_text(wl_text, "whitelist.yaml")
+        errors.extend(we)
+    default, de = rules.load_default_rules(versions)
+    errors.extend(de)
+    # F34①:动态世界目录层(default 之下最低优先级——default never 规则可压过,
+    # 用户/CLI 规则可覆盖;仅 default 未命中的路径落此层)
+    world_layer: list[rules.Rule] = []
+    for wd in world_dirs:
+        if not wd or "/" in wd or "\\" in wd or wd in (".", ".."):
+            errors.append(f"world_dirs: 非法目录名已跳过 {wd!r}")
+            continue
+        world_layer.append(
+            rules.Rule(match=f"{escape_world_glob(wd)}/**", decide=rules.Category.MUST_MIGRATE,
+                       reason="世界目录探测(F34:level-name/level.dat)", source="world"))
+    rs = rules.RuleSet.from_layers(cli_rules, extra, user, orphan, rebuild, whitelist,
+                                   default, world_layer)
+    return rs, errors
+
+
 def build_plan(
     cwd: Path,
     game_root: Path,
@@ -228,18 +308,18 @@ def build_plan(
         generate_orphan_rules,
         load_mod_config_map,
         read_neoforge_version,
+        registry_from_dicts,
         scan_mods,
     )
 
-    # 规则组装留在 cli(见模块 docstring),延迟导入避免模块级循环
-    from .cli import build_ruleset
-
     src_dir = _version_dir(game_root, src)
     dst_dir = _version_dir(game_root, dst)
-    # 两侧注册表各扫一次(批次F 上移 src 扫描:orphan 规则用 dst_mods,
-    # 配对用双侧,compat 检查用 src_mods——不再后段重复扫描)
-    src_mods = scan_mods(src_dir)
-    dst_mods = scan_mods(dst_dir)
+    # 两侧注册表各取一次(批次F 上移 src 扫描:orphan 规则用 dst_mods,配对用双侧,
+    # compat 检查用 src_mods——不再后段重复扫描);批次H(消费策略 B):嵌入优先——
+    # v2 快照自带名册(与 files 同刻同源)即取,v1 快照回退现扫;
+    # rescan_dst=True 时 dst 快照刚经 scan_version 重扫为 v2 含嵌入,自然一致
+    src_mods = registry_from_dicts(src_snap.mods) if src_snap.mods else scan_mods(src_dir)
+    dst_mods = registry_from_dicts(dst_snap.mods) if dst_snap.mods else scan_mods(dst_dir)
     override = load_mod_config_map()
     orphan_rules = generate_orphan_rules(src_snap.files, dst_mods, override)
     rs, errs = build_ruleset(
@@ -270,10 +350,12 @@ def build_plan(
         )
     report = Differ(src_snap.files, dst_snap.files, clf, modpack_swap=modpack_swap,
                     mtime_evidence=src_dir.resolve() == dst_dir.resolve()).diff()
-    # 批次F:双源配对(与 run_diff 同一单点;plan 侧渲染 ⇄ 注记用,不进 plan.json)
+    # 批次F:双源配对(与 run_diff 同一单点;plan 侧渲染 ⇄ 注记用,不进 plan.json);
+    # 批次H:闸门收敛——双侧嵌入名册来自各自 scan 时刻,物理同目录不同刻也不恒等,配对有意义
     mod_pairs = compute_mod_pairs(
         src_snap, dst_snap, src_mods, dst_mods,
-        same_dir=src_dir.resolve() == dst_dir.resolve(),
+        same_dir=src_dir.resolve() == dst_dir.resolve()
+        and not (bool(src_snap.mods) and bool(dst_snap.mods)),
     )
     src_index = {e.path: e for e in src_snap.files}
     plan = Planner(report, src_index).plan()
@@ -349,6 +431,10 @@ class DiffContext:
     src_dir: Path
     dst_dir: Path
     same_dir: bool = False  # 两侧版本目录 resolve 后同路径(junction 同体)→ 注册表配对不可信
+    # 批次H(消费策略 B):双侧名册来自快照嵌入(v2)→ 配对闸门收敛为
+    # same_dir and not mods_frozen;read_file 的 same_dir 短路语义不变——
+    # 物理同目录读数恒等是内容层事实,嵌入名册救不了内容读取
+    mods_frozen: bool = False
 
     def read_file(self, rel_path: str, side: str) -> bytes | None:
         """按侧读取版本目录内文件字节内容;文件缺失/IO 失败返回 None。
@@ -372,10 +458,14 @@ class DiffContext:
 
 
 def resolve_diff_context(src_snap: Snapshot, dst_snap: Snapshot) -> DiffContext | None:
-    """从两份快照的 game_root+version 解析各自版本目录并扫描 mods。
+    """从两份快照解析 diff 上下文:双侧 v2 嵌入走冻结通道,其余保持 0.10.0 路径。
 
-    任一侧目录不可达(跨机复放/夹具/手动删除)→ 返回 None,调用方降级为
-    纯快照对比(与 0.6.1 行为逐字节一致)。版本目录 = <game_root>/versions/<version>,
+    冻结通道(双侧 mods 嵌入,时刻对称才走):名册取 registry_from_dicts(嵌入),
+    目录可达与否不影响 mods 来源;same_dir 在活体双侧可达时按 resolve() 比较,
+    否则按快照 resolved_root(双侧均有且相等 → True)。
+    v1 组合(任一侧无嵌入,含混合 v1/v2——保时刻对称不做单侧嵌入):
+    活体双侧可达 → 现扫建 ctx;任一不可达 → None(降级为纯快照对比,
+    与 0.10.0 行为逐字节一致)。版本目录 = <game_root>/versions/<version>,
     服务端 NTFS Junction 影子根同样成立。
 
     Args:
@@ -383,25 +473,31 @@ def resolve_diff_context(src_snap: Snapshot, dst_snap: Snapshot) -> DiffContext 
         dst_snap: 目标侧快照。
 
     Returns:
-        DiffContext,或 None(无法解析/不可达)。
+        DiffContext,或 None(字段缺失且无嵌入/活体不可达)。
     """
-    dirs: list[Path] = []
     for snap in (src_snap, dst_snap):
         # version 空串同样守卫:"" 参与 Path 拼接会折叠成 versions/ 目录本身
         if not snap.game_root or not snap.version:
             return None
-        vdir = Path(snap.game_root) / "versions" / snap.version
-        if not vdir.is_dir():
-            return None
-        dirs.append(vdir)
-    from .moddb import scan_mods  # 延迟导入避免循环
+    src_vdir = Path(src_snap.game_root) / "versions" / src_snap.version
+    dst_vdir = Path(dst_snap.game_root) / "versions" / dst_snap.version
+    from .moddb import registry_from_dicts, scan_mods  # 延迟导入避免循环
+    if src_snap.mods and dst_snap.mods:                      # 冻结通道(双侧 v2)
+        live = src_vdir.is_dir() and dst_vdir.is_dir()
+        same_dir = (src_vdir.resolve() == dst_vdir.resolve() if live else
+                    src_snap.resolved_root is not None
+                    and src_snap.resolved_root == dst_snap.resolved_root)
+        return DiffContext(
+            src_mods=registry_from_dicts(src_snap.mods),
+            dst_mods=registry_from_dicts(dst_snap.mods),
+            src_dir=src_vdir, dst_dir=dst_vdir,
+            same_dir=same_dir, mods_frozen=True)
+    if not (src_vdir.is_dir() and dst_vdir.is_dir()):        # v1 路径:逐字节现状
+        return None
     return DiffContext(
-        src_mods=scan_mods(dirs[0]),
-        dst_mods=scan_mods(dirs[1]),
-        src_dir=dirs[0],
-        dst_dir=dirs[1],
-        same_dir=dirs[0].resolve() == dirs[1].resolve(),
-    )
+        src_mods=scan_mods(src_vdir), dst_mods=scan_mods(dst_vdir),
+        src_dir=src_vdir, dst_dir=dst_vdir,
+        same_dir=src_vdir.resolve() == dst_vdir.resolve())
 
 
 def diff_identity_notices(
@@ -411,8 +507,10 @@ def diff_identity_notices(
     """自比对/junction 同体检测(单点,live 与复放同源)。
 
     主判:两侧为同一快照文件(自比对错误用法);
-    回退:live 模式 ctx.same_dir + 同刻(F27 现状,旧快照无 resolved_root 也走此臂,
-      文案逐字节保留——活体证据优先于快照落盘字段,故先于佐证臂判定);
+    回退:live 模式 ctx.same_dir + 同刻且非冻结通道(终审:mods_frozen 下嵌入名册
+      仍可用,注册表配对实际已恢复,发降级文案自相矛盾;F27 现状,旧快照无
+      resolved_root 也走此臂,文案逐字节保留——活体证据优先于快照落盘字段,
+      故先于佐证臂判定);
     佐证:ctx 不可达(复放)且 resolved_root 相等且同刻 → 疑似自比对
       (live 边缘窗——ctx 可达但 same_dir=False 而 resolved_root 同+同刻——保持静默:
       该窗内注册表配对实际可用,发「注册表配对不可用」文案失实)。
@@ -432,8 +530,11 @@ def diff_identity_notices(
         return ("[提示] 两侧为同一份快照文件(自比对):注册表配对与语义复核不可用,"
                 "已使用文件名配对/字节比较")
     same_time = src.scanned_at == dst.scanned_at
-    # 回退臂(live):junction 同体 + 同刻 → F27 现行文案
-    if ctx is not None and ctx.same_dir and same_time:
+    # 回退臂(live):junction 同体 + 同刻 → F27 现行文案;批次H 终审:冻结通道
+    # (mods_frozen)下 run_diff 的配对闸门已收敛为 same_dir and not mods_frozen,
+    # 注册表配对实际存活,此臂同步收敛(文案一字不改,仅触发条件随闸门)——
+    # v1 路径 mods_frozen 恒 False,行为恒等
+    if ctx is not None and ctx.same_dir and not ctx.mods_frozen and same_time:
         return ("[提示] 两侧快照同刻且版本目录指向同一路径(junction 同体):"
                 "注册表配对与语义复核不可用,已使用文件名配对/字节比较")
     # 佐证臂(复放):ctx 不可达(复放)且快照自带的 resolved_root 相等 + 同刻 → 疑似自比对;
@@ -446,12 +547,18 @@ def diff_identity_notices(
     return None
 
 
+# 微小世界不评估改名:文件过少时 min(双侧文件数) 分母占比失真,易假警报
+_MIN_WORLD_FILES = 5   # 拍脑袋下限,r14 语料可再标定(spec §7 妥协 6)
+
+
 def world_rename_notices(src: Snapshot, dst: Snapshot) -> list[str]:
     """世界目录改名探测(F34②):src 独有世界 A → dst 独有世界 B,同路径同尺寸
     占比 ≥0.9 时发提示(仅提示不重分类——假警报降级为可见解释)。
 
     候选:A ∈ src.world_dirs 且 ∉ dst.world_dirs(旧路径消失),B 反之(新路径出现);
-    匹配 = 相对子路径双侧存在且 size 相等;占比分母 min(双侧文件数),≥1 件才评估。
+    匹配 = 相对子路径双侧存在且 size 相等;占比分母 min(双侧文件数),
+    ≥_MIN_WORLD_FILES(5)件才评估——阈值来源=拍脑袋下限,r14 语料可再标定
+    (spec §7 妥协 6),微小世界占比失真故不发。
     阈值 0.9 为 r13 语料标定(660/660;容忍 session.lock 类零星重写)。
 
     Args:
@@ -473,6 +580,8 @@ def world_rename_notices(src: Snapshot, dst: Snapshot) -> list[str]:
             if not b_files:
                 continue
             denom = min(len(a_files), len(b_files))
+            if denom < _MIN_WORLD_FILES:
+                continue
             matched = sum(1 for sub, sz in a_files.items()
                           if b_files.get(sub) == sz)
             if matched and matched / denom >= 0.9:
@@ -493,7 +602,9 @@ def compute_mod_pairs(
 ) -> list["ModPair"]:
     """双源配对单点:filename(快照差集+is_mod_jar 过滤)恒算;registry 仅当双侧注册表
     都给出且 same_dir=False 时叠加(merge_mod_pairs registry 优先)。
-    run_diff 传 ctx.same_dir;build_plan 传 <src_dir>.resolve()==<dst_dir>.resolve()。
+    run_diff 传 same_dir and not mods_frozen(批次H:冻结通道嵌入名册来自各自 scan
+    时刻,物理同目录不同刻也不恒等,配对有意义);build_plan 传
+    <src_dir>.resolve()==<dst_dir>.resolve()。
 
     Args:
         src: 源侧快照。
@@ -555,6 +666,18 @@ def match_client_only_paths(
     return hit & paths
 
 
+# client_only 警示行最多列示件数(超出截断为「…等 N 件」,仅影响 stderr 行)
+_CO_MAX_SHOWN = 5
+
+
+def _format_client_warning(client: set[str]) -> str:
+    """client_only 警示行文案:≤5 全列,>5 截断+计数(仅 stderr,JSON 与集合不变)。"""
+    shown = sorted(client)
+    parts = ", ".join(shown[:_CO_MAX_SHOWN]) + (
+        f" …等 {len(shown)} 件" if len(shown) > _CO_MAX_SHOWN else "")
+    return (f"[警示] {len(client)} 件已知客户端 mod(专服启动部署风险,F30): " + parts)
+
+
 @dataclass
 class DiffOutcome:
     """diff 管线产物:六桶报告 + 配对 + 双侧快照 + stderr 提示行。"""
@@ -585,7 +708,8 @@ def run_diff(
     流程:快照定位(game_root 给出 → find_snapshot 锚定优先+旧 CWD 布局回退,
     legacy 命中提示入 notices;game_root=None → <mcmig_dir or cwd/.mcmig>/snapshots
     直取,无回退)→ load → resolve_diff_context(无条件,按快照内记录的 game_root
-    判定活体可达;不可达提示入 notices)→ build_ruleset → Differ(modpack_swap)
+    判定活体可达;v1 不可达提示入 notices,双侧 v2 嵌入走冻结通道——不可达时
+    换发嵌入提示行)→ build_ruleset → Differ(modpack_swap)
     → compute_mod_pairs → diff_identity_notices(非 None 入 notices;
     ctx.same_dir 且 None 时 log.debug)→ swap 排除计数提示入 notices
     → client_only 清单匹配(非空入 client_only_paths + 警示行,仅标注)。
@@ -633,18 +757,19 @@ def run_diff(
         raise ValueError(f"快照读取失败: {e}") from e
     from .moddb import generate_orphan_rules, load_mod_config_map
 
-    # 规则组装留在 cli(见模块 docstring),延迟导入避免模块级循环
-    from .cli import build_ruleset
-
     # 扫描上下文(F2/F4/F12 基座):无条件按快照内记录的 game_root 解析活体目录
     # (I-1:与下沉前 CLI 逐字节一致——game_root 参数只管快照定位/旧布局回退,
     # 不管 ctx;CLI 无 game_root 但快照指向活体根(legacy 布局用户)时配对/孤儿
-    # 照常生效);任一侧不可达(跨机复放/夹具)→ ctx=None,降级为纯快照对比
+    # 照常生效);任一侧不可达(跨机复放/夹具)且无双侧嵌入 → ctx=None,降级为
+    # 纯快照对比;双侧 v2 嵌入 → 冻结通道(ctx 存活,名册即嵌入,见 resolve_diff_context)
     ctx = resolve_diff_context(src_snap, dst_snap)
     orphan_rules: list[rules.Rule] = []
     if ctx is not None:
         # F2 孤儿规则:与 pipeline.build_plan 完全同源(src config × dst 注册表 × 覆盖表)
         orphan_rules = generate_orphan_rules(src_snap.files, ctx.dst_mods, load_mod_config_map())
+        # 批次H:嵌入+目录不可达 → 名册照常,仅语义复核退字节比较(向用户说明缺席原因)
+        if ctx.mods_frozen and not (ctx.src_dir.is_dir() and ctx.dst_dir.is_dir()):
+            notices.append("[提示] 版本目录不可达,已使用快照内嵌 mod 名册(语义复核退回字节比较)")
     else:
         notices.append(
             "[提示] mods 扫描不可用(game_root 不可达):孤儿标注与注册表配对已跳过,文件名配对仍可用"
@@ -677,7 +802,9 @@ def run_diff(
     hint = diff_identity_notices(src_path, dst_path, src_snap, dst_snap, ctx)
     if hint is not None:
         notices.append(hint)
-    elif ctx is not None and ctx.same_dir:
+    # 同步收敛:冻结通道 same_dir 不同刻也不 debug 降级语义(注册表配对实际存活,
+    # debug 文案与真实行为同样矛盾;v1 路径 mods_frozen 恒 False,行为恒等)
+    elif ctx is not None and ctx.same_dir and not ctx.mods_frozen:
         log.debug(
             "junction 同体双快照(不同刻,标准影子根用法):"
             "注册表配对与语义复核不可用,已使用文件名配对/字节比较"
@@ -688,7 +815,8 @@ def run_diff(
         src_snap, dst_snap,
         ctx.src_mods if ctx is not None else None,
         ctx.dst_mods if ctx is not None else None,
-        same_dir=ctx.same_dir if ctx is not None else False,
+        # 批次H:闸门收敛——嵌入名册来自各自 scan 时刻,物理同目录不同刻也不恒等,配对有意义
+        same_dir=(ctx.same_dir and not ctx.mods_frozen) if ctx is not None else False,
     )
     # F19 换包模式提示:有排除项时入 notices(调用方逐行 stderr,不污染 --json 的 stdout)
     if modpack_swap:
@@ -705,10 +833,7 @@ def run_diff(
     client_modids, client_families = load_client_mods()
     client = match_client_only_paths(report, ctx, client_modids, client_families)
     if client:
-        notices.append(
-            f"[警示] {len(client)} 件已知客户端 mod(专服启动部署风险,F30): "
-            + ", ".join(sorted(client))
-        )
+        notices.append(_format_client_warning(client))
     return DiffOutcome(
         report=report, mod_pairs=mod_pairs, src=src_snap, dst=dst_snap,
         notices=notices, client_only_paths=client,

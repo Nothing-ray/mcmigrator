@@ -1154,3 +1154,29 @@ def test_load_client_mods_r12_entries() -> None:
     # 家族键(见 yaml 头注),该宿主 jar 实际键为 "damage-engine-neoforge"
     # (平台词入键),按契约修正——否则家族通道永不命中(复放兜底失效)
     assert {"damage-engine-neoforge", "anima", "frost-dragon"} <= families
+
+
+# ---- 批次H Task 2:注册表 ↔ dict 转换对(快照 v2 内嵌名册) ----
+
+
+def test_registry_dicts_roundtrip() -> None:
+    """registry_to_dicts/from_dicts 往返;升序;缺键条目跳过(spec §3.1)。"""
+    from migration.moddb import registry_from_dicts, registry_to_dicts
+
+    reg = ModRegistry()
+    reg.add(ModInfo("b", "1.0", "b.jar", None))
+    reg.add(ModInfo("a", "2.0", "a.jar", "[21.1.219,)"))
+    dicts = registry_to_dicts(reg)
+    assert [d["modid"] for d in dicts] == ["a", "b"]           # 升序
+    assert dicts[0]["neoforge_range"] == "[21.1.219,)"
+    back = registry_from_dicts(dicts + [{"modid": "x"}])       # 缺 jar_filename → 跳过
+    assert set(back.modids) == {"a", "b"}
+    assert back.get("a").version == "2.0"
+
+
+def test_registry_entries_sorted() -> None:
+    """entries():按 modid 升序返回全部条目(嵌入序列化与测试用)。"""
+    reg = ModRegistry()
+    reg.add(ModInfo("b", "1", "b.jar", None))
+    reg.add(ModInfo("a", "1", "a.jar", None))
+    assert [m.modid for m in reg.entries()] == ["a", "b"]

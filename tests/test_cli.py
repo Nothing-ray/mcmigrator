@@ -612,6 +612,11 @@ def test_diff_degraded_when_game_root_unreachable(tmp_path, monkeypatch, capsys)
         p = root / ".mcmig" / "snapshots" / f"{name}.snapshot.json"
         doc = json.loads(p.read_text(encoding="utf-8"))
         doc["game_root"] = r"C:\\definitely\\missing"
+        # 批次H:v2 快照内嵌名册在不可达时走冻结通道(复放保真,spec §3.2)——
+        # 本测试锚定 v1 快照(无名册)的降级路径,故同步剔除 mods 键降 v1;
+        # v2 不可达保真由 tests/test_synth_v2_anchors.py 锚定
+        doc.pop("mods", None)
+        doc["snapshot_format"] = 1
         p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
     from migration.cli import main
 
@@ -663,6 +668,16 @@ def test_diff_junction_same_dir_orphan_ok_registry_pairs_skipped(
     # F27:钉死同刻(两次 scan 可能同秒也可能异秒,显式改写消除抖动)
     _force_scanned_at(snapshot_path(root, "b"),
                       json.loads(snapshot_path(root, "a").read_text(encoding="utf-8"))["scanned_at"])
+    # 批次H:v2 快照内嵌名册来自各自 scan 时刻,会让 junction 配对走冻结通道(修 F14,
+    # spec §3.2 行为矩阵)——本测试锚定 v1 快照(无名册)的 junction 现扫路径:
+    # 双侧注册表恒等(都拍当前状态)→ 配对作废,文件名兜底。剔除 mods 键降 v1;
+    # v2 junction 配对修复由 tests/test_synth_v2_anchors.py 黄金锚①承担
+    for name in ("a", "b"):
+        p = snapshot_path(root, name)
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc.pop("mods", None)
+        doc["snapshot_format"] = 1
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
 
     assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
     captured = capsys.readouterr()
@@ -725,8 +740,11 @@ def test_diff_junction_same_dir_semantic_recheck_falls_back_to_bytes(
     assert len(cand) == 1 and cand[0]["note"] == "modified"
     ident = [i for i in doc["buckets"]["identical"] if i["path"] == "config/create.json"]
     assert ident == []
-    # 提示行须同时声明语义复核降级(与注册表配对降级一并告知)
-    assert "语义复核" in captured.err
+    # 终审收敛(批次H):双侧 scan 产 v2 嵌入名册 → 冻结通道下 junction 同刻不再发
+    # 「注册表配对与语义复核不可用」降级通告(registry 配对实际存活,文案与行为
+    # 矛盾);内容层字节判定不受影响(上方 candidate/modified 断言即证)
+    assert "junction" not in captured.err
+    assert "注册表配对" not in captured.err
 
 
 def _force_scanned_at(snapshot_file: Path, value: str) -> None:
@@ -739,7 +757,8 @@ def _force_scanned_at(snapshot_file: Path, value: str) -> None:
 
 def test_diff_junction_same_dir_different_scan_times_hint_silent(
         tmp_path, monkeypatch, capsys) -> None:
-    """F27:不同刻双快照(标准影子根用法)降级提示静默;同刻保留提示。"""
+    """F27:不同刻双快照(标准影子根用法)降级提示静默;同刻亦静默——双侧 v2 走
+    冻结通道,registry 配对存活,降级文案与行为矛盾(批次H 终审收敛)。"""
     import subprocess
     import os
     from tests.conftest import write_mod_jar
@@ -773,11 +792,16 @@ def test_diff_junction_same_dir_different_scan_times_hint_silent(
     assert "junction" not in captured.err   # 提示静默(F27)
     assert "语义复核" not in captured.err
 
-    # 同刻(疑似自比对错误)→ 提示保留
+    # 同刻 + 冻结通道(双侧 v2 嵌入名册)→ 终审收敛(批次H):junction 同体降级
+    # 通告不再发出——registry 配对实际存活(source=registry 即证),旧文案与
+    # 真实行为矛盾;v1 快照(无名册,mods_frozen 恒 False)的回退臂仍由
+    # test_diff_identity_notices_paths_and_replay ④ 直接钉住
     _force_scanned_at(snapshot_path(root, "b"), "2026-09-23T11:00:00+08:00")
     assert main(["diff", "a", "b", "--json", "--game-root", str(root)]) == 0
     captured = capsys.readouterr()
-    assert "junction" in captured.err
+    assert "junction" not in captured.err
+    pairs = json.loads(captured.out)["mod_pairs"]
+    assert len(pairs) == 1 and pairs[0]["source"] == "registry"
 
 
 def test_diff_modpack_swap_routes_src_only_mods_to_never(tmp_path, monkeypatch, capsys):

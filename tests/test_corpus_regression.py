@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 
 from migration.classifier import Classifier
-from migration.cli import build_ruleset
 from migration.differ import Differ, DiffReport
+from migration.pipeline import build_ruleset
 from migration.snapshot import Snapshot
 
 FIXTURES = Path(__file__).parent / "fixtures" / "server_corpus"

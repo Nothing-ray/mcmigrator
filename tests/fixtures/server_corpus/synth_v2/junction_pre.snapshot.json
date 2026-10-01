@@ -1,0 +1,34 @@
+{
+  "tool_version": "0.10.1",
+  "snapshot_format": 2,
+  "version": "junction_pre",
+  "game_root": "C:\\fixture\\sanitized",
+  "scanned_at": "2026-10-01T10:00:00+08:00",
+  "resolved_root": "C:\\fixture\\sanitized\\versions\\shadow",
+  "world_dirs": [],
+  "hash_mode": "tiered",
+  "file_count": 2,
+  "files": [
+    {
+      "path": "mods/alpha-mod.jar",
+      "size": 100,
+      "md5": null,
+      "mtime": 1000
+    },
+    {
+      "path": "options.txt",
+      "size": 10,
+      "md5": "aaaa5055555050505050505050505050",
+      "mtime": null
+    }
+  ],
+  "mods": [
+    {
+      "modid": "foo",
+      "version": "1.0",
+      "jar_filename": "alpha-mod.jar",
+      "neoforge_range": null,
+      "embedded_in": null
+    }
+  ]
+}

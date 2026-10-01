@@ -6,10 +6,10 @@ import argparse
 import logging
 import os
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from pathlib import Path
 
-from . import __version__, doctor, rules
+from . import __version__, doctor
 from .classifier import Classifier
 from .fsops import FsOpsError, copy_atomic
 from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
@@ -167,76 +167,7 @@ def _resolve_game_root(args: argparse.Namespace) -> Path:
     raise SystemExit(2)
 
 
-def build_ruleset(
-    versions: str | list[str],
-    *,
-    exclude: list[str],
-    include: list[str],
-    rule_files: list[Path],
-    mcmig_dir: Path,
-    with_whitelist: bool = False,
-    orphan_rules: list[rules.Rule] | None = None,
-    world_dirs: Sequence[str] = (),
-) -> tuple[rules.RuleSet, list[str]]:
-    """按优先级(CLI > extra > user > ORPHAN > REBUILD > whitelist > default > world)组装 RuleSet。
-
-    纯参数签名(不依赖 argparse.Namespace):CLI 从 args 展开传参,
-    pipeline.build_plan 直调亦可(GUI 复用)。
-
-    Args:
-        versions: 参与判定的版本名(展开 default 规则中的版本占位)。
-        exclude: CLI 级临时规则 glob(本次按 never,对应 --exclude)。
-        include: CLI 级临时规则 glob(本次按 must_migrate,对应 --include)。
-        rule_files: 额外规则文件路径列表(对应 --rule)。
-        mcmig_dir: .mcmig 目录(user rules.yaml 所在)。
-        with_whitelist: 是否启用 whitelist 层(仅 plan 命令)。
-        orphan_rules: orphan 规则(plan 与独立 diff 共用)。
-        world_dirs: 动态探测的世界目录名(F34①,scan 时入快照);默认空=行为不变。
-
-    Returns:
-        (规则集, 规则加载警告列表)。
-
-    rebuild 层对所有命令(scan/diff/plan)常开;whitelist 仅 plan 命令启用;
-    orphan 规则在 plan 与独立 diff 命令启用(plan 与独立 diff 共用同一生成源);
-    world 层垫底(仅 default 未命中的路径落此层,非法名跳过并计入警告)。
-    """
-    from importlib import resources
-
-    cli_rules = rules.load_cli_rules(exclude, include)
-    extra: list[rules.Rule] = []
-    errors: list[str] = []
-    for f in rule_files:
-        r, e = rules.load_user_rules(f)
-        extra.extend(r)
-        errors.extend(e)
-    user_path = mcmig_dir / "rules.yaml"
-    user, ue = rules.load_user_rules(user_path)
-    errors.extend(ue)
-    orphan = orphan_rules or []
-    # rebuild 层:常开(scan/diff/plan 都需正确识别版本敏感文件)
-    rb_text = resources.files("migration").joinpath("data/rebuild.yaml").read_text(encoding="utf-8")
-    rebuild, rbe = rules.load_rebuild_rules_from_text(rb_text, "rebuild.yaml")
-    errors.extend(rbe)
-    whitelist: list[rules.Rule] = []
-    if with_whitelist:
-        wl_text = resources.files("migration").joinpath("data/whitelist.yaml").read_text(encoding="utf-8")
-        whitelist, we = rules.load_whitelist_rules_from_text(wl_text, "whitelist.yaml")
-        errors.extend(we)
-    default, de = rules.load_default_rules(versions)
-    errors.extend(de)
-    # F34①:动态世界目录层(default 之下最低优先级——default never 规则可压过,
-    # 用户/CLI 规则可覆盖;仅 default 未命中的路径落此层)
-    world_layer: list[rules.Rule] = []
-    for wd in world_dirs:
-        if not wd or "/" in wd or "\\" in wd or wd in (".", ".."):
-            errors.append(f"world_dirs: 非法目录名已跳过 {wd!r}")
-            continue
-        world_layer.append(
-            rules.Rule(match=f"{wd}/**", decide=rules.Category.MUST_MIGRATE,
-                       reason="世界目录探测(F34:level-name/level.dat)", source="world"))
-    rs = rules.RuleSet.from_layers(cli_rules, extra, user, orphan, rebuild, whitelist,
-                                   default, world_layer)
-    return rs, errors
+from .pipeline import build_ruleset, escape_world_glob  # 批次H 搬迁,历史位置保兼容  # noqa: E402, F401
 
 
 def _version_dir(game_root: Path, version: str) -> Path:

@@ -138,3 +138,23 @@ def test_scanner_records_mtime_only_for_unhashed(tmp_path) -> None:
     assert by["world/region/r.0.0.mca"].mtime == 1759300000
     assert by["mods/demo-1.0.jar"].mtime == 1759300000
     assert by["options.txt"].mtime is None
+
+
+# ---- 批次H Task 2:快照 v2 接线(build_snapshot 内嵌 mod 名册) ----
+
+
+def test_build_snapshot_embeds_mods(tmp_path) -> None:
+    """scan 真目录:快照内嵌名册,五字段齐(spec §5.2)。"""
+    # 注:brief 签名以 write_mod_jar 为参数,但 conftest 中它是普通助手函数而非
+    # pytest fixture,按既有风格(test_cli/test_pipeline)函数内导入使用
+    from tests.conftest import write_mod_jar
+
+    vd = tmp_path / "versions" / "v"
+    (vd / "mods").mkdir(parents=True)
+    write_mod_jar(vd / "mods" / "foo-1.0.jar", "foo", "1.0")
+    snap, errs = Scanner(vd, "v").build_snapshot(str(tmp_path))
+    assert not errs
+    assert snap.mods and snap.mods[0]["modid"] == "foo"
+    assert snap.mods[0]["jar_filename"] == "foo-1.0.jar"
+    assert set(snap.mods[0]) == {"modid", "version", "jar_filename",
+                                 "neoforge_range", "embedded_in"}

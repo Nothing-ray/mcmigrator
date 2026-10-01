@@ -546,16 +546,19 @@ def _wsnap(version: str, world_dirs: list[str], files: dict[str, int]) -> "Snaps
 
 
 def test_world_rename_notices_full_match() -> None:
-    """F34②:world → world_backup 全量同路径同尺寸 → 一条改名提示。"""
+    """F34②:world → world_backup 全量同路径同尺寸 → 一条改名提示。
+
+    批次H-T4 起分母须 ≥_MIN_WORLD_FILES=5 才评估,夹具由 2 件扩至 5 件
+    (微小世界抑制由 test_world_rename_tiny_world_suppressed 专测)。
+    """
     from migration.pipeline import world_rename_notices
 
-    src = _wsnap("a", ["world"], {"world/level.dat": 100, "world/region/r.0.0.mca": 5})
-    dst = _wsnap("b", ["world_backup"],
-                 {"world_backup/level.dat": 100, "world_backup/region/r.0.0.mca": 5})
+    src = _wsnap("a", ["world"], {f"world/{i}.mca": i for i in range(5)})
+    dst = _wsnap("b", ["world_backup"], {f"world_backup/{i}.mca": i for i in range(5)})
     notices = world_rename_notices(src, dst)
     assert len(notices) == 1
     assert "疑似世界目录改名" in notices[0]
-    assert "world → world_backup" in notices[0] and "2" in notices[0]
+    assert "world → world_backup" in notices[0] and "5" in notices[0]
 
 
 def test_world_rename_notices_threshold_and_mismatch() -> None:
@@ -579,3 +582,91 @@ def test_world_rename_notices_empty_and_no_dirs() -> None:
     from migration.pipeline import world_rename_notices
 
     assert world_rename_notices(_wsnap("a", [], {}), _wsnap("b", [], {})) == []
+
+
+# ---- 批次H Task 3:消费策略 B——冻结通道(resolve_diff_context 双侧嵌入) ----
+
+
+def test_resolve_diff_context_frozen_branch() -> None:
+    """双侧嵌入 → mods_frozen=True 且 mods 来自嵌入(不触盘);单侧 v1 → 活体/None 老路径。"""
+    from migration.pipeline import resolve_diff_context
+
+    # FIX 同 synth_v2 锚定测试(synth_v2 夹具:game_root 不可达,复放语义)
+    fix = Path(__file__).parent / "fixtures" / "server_corpus" / "synth_v2"
+    src = Snapshot.load(fix / "junction_pre.snapshot.json")
+    dst = Snapshot.load(fix / "junction_post.snapshot.json")
+    ctx = resolve_diff_context(src, dst)
+    assert ctx is not None and ctx.mods_frozen is True
+    assert set(ctx.src_mods.modids) == {"foo"} and ctx.src_mods.get("foo").version == "1.0"
+    assert ctx.same_dir is True          # resolved_root 双侧相等
+
+
+# ---- 批次H Task 4:F32 守卫直测 + world_rename 最小分母门槛 + client_only 截断 ----
+
+
+def test_client_only_embedded_host_guard_negative() -> None:
+    """F32 守卫直测·负例:嵌入件命中清单但宿主 jar 不在 mods 桶 → 交集守卫挡住,不误报。"""
+    from migration.differ import DiffReport, DiffItem
+    from migration.moddb import ModInfo, ModRegistry
+    from migration.pipeline import DiffContext, match_client_only_paths
+    reg = ModRegistry()
+    reg.add(ModInfo("damage-engine-neoforge", "1.0", "phys-embedded.jar",
+                    None, embedded_in="host.jar"))
+    report = DiffReport()  # mods 桶仅含无关 jar(宿主 host.jar 不在——双侧共有不进桶)
+    report.mods.append(DiffItem(path="mods/other.jar", src=None, dst=None))
+    ctx = DiffContext(src_mods=reg, dst_mods=ModRegistry(),
+                      src_dir=Path("x"), dst_dir=Path("y"))
+    assert match_client_only_paths(report, ctx, {"damage-engine-neoforge"}, set()) == set()
+
+
+def test_client_only_embedded_host_guard_positive() -> None:
+    """F32 守卫直测·正例(对照):宿主在 mods 桶 → 命中 mods/host.jar。"""
+    from migration.differ import DiffReport, DiffItem
+    from migration.moddb import ModInfo, ModRegistry
+    from migration.pipeline import DiffContext, match_client_only_paths
+    reg = ModRegistry()
+    reg.add(ModInfo("damage-engine-neoforge", "1.0", "phys-embedded.jar",
+                    None, embedded_in="host.jar"))
+    report = DiffReport()  # mods 桶含宿主 jar(源独有/目标独有 → 进桶)
+    report.mods.append(DiffItem(path="mods/host.jar", src=None, dst=None))
+    ctx = DiffContext(src_mods=reg, dst_mods=ModRegistry(),
+                      src_dir=Path("x"), dst_dir=Path("y"))
+    assert match_client_only_paths(report, ctx, {"damage-engine-neoforge"}, set()) == {"mods/host.jar"}
+
+
+def test_world_rename_tiny_world_suppressed() -> None:
+    """1 文件世界 100% 命中 → 无提示(_MIN_WORLD_FILES=5,spec §3.4)。"""
+    from migration.pipeline import world_rename_notices
+
+    src = _wsnap("a", ["a"], {"a/level.dat": 1})
+    dst = _wsnap("b", ["b"], {"b/level.dat": 1})
+    assert world_rename_notices(src, dst) == []
+
+
+def test_world_rename_five_files_still_detects() -> None:
+    """≥5 文件 90% 命中 → 照常提示(r13 夹具 660 文件回归由既有测试守护)。"""
+    from migration.pipeline import world_rename_notices
+
+    src = _wsnap("a", ["a"], {f"a/{i}.mca": i for i in range(5)})
+    dst = _wsnap("b", ["b"], {f"b/{i}.mca": i for i in range(5)})
+    notices = world_rename_notices(src, dst)
+    assert len(notices) == 1
+    assert "a → b" in notices[0]
+
+
+def test_client_warning_truncated_over_five() -> None:
+    """警示行 >5 件截断 +「…等 N 件」;≤5 全列(spec §3.6)。"""
+    from migration.pipeline import _format_client_warning
+    five = {f"mods/m{i}.jar" for i in range(5)}
+    assert _format_client_warning(five).endswith("mods/m4.jar") or "等" not in _format_client_warning(five)
+    seven = {f"mods/m{i}.jar" for i in range(7)}
+    line = _format_client_warning(seven)
+    assert "…等 7 件" in line and "m6" not in line.split("…")[0]
+
+
+def test_build_ruleset_importable_from_pipeline() -> None:
+    """主位置迁至 pipeline;cli re-export 不断裂(spec §5.8)。"""
+    from migration import cli, pipeline
+
+    assert pipeline.build_ruleset is cli.build_ruleset      # 同一函数对象
+    assert pipeline.escape_world_glob("a[1]") == "a\\[1\\]"

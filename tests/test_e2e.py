@@ -256,10 +256,11 @@ def test_e2e_acceptance_plan_format_and_origins(tmp_path: Path, monkeypatch, cap
 
 
 def test_e2e_scan_zero_regression_snapshot_format_unchanged(tmp_path: Path, monkeypatch):
-    """验收 3:SNAPSHOT_FORMAT 不动,scan 产物可读。"""
+    """验收 3:scan 产物可读(格式钉当前版)。"""
     from migration.snapshot import SNAPSHOT_FORMAT, Snapshot, snapshot_path
 
-    assert SNAPSHOT_FORMAT == 1  # 未改动
+    # 前批零回归哨兵钉 ==1;批次H 起 schema v1→2(内嵌 mod 名册,load 兼容 v1),按计划重钉
+    assert SNAPSHOT_FORMAT == 2
     game_root = tmp_path / "game"
     (game_root / "versions" / "mini").mkdir(parents=True)
     (game_root / "versions" / "mini" / "options.txt").write_text("v\n", encoding="utf-8")

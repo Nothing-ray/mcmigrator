@@ -14,7 +14,7 @@ import tomllib
 import zipfile
 import zlib
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from importlib import resources
 from pathlib import Path
 
@@ -73,6 +73,28 @@ class ModRegistry:
 
     def __len__(self) -> int:
         return len(self._mods)
+
+    def entries(self) -> list[ModInfo]:
+        """按 modid 升序返回全部条目(嵌入序列化与测试用)。"""
+        return [self._mods[k] for k in sorted(self._mods)]
+
+
+def registry_to_dicts(registry: ModRegistry) -> list[dict]:
+    """注册表 → v2 快照可序列化的 dict 列表(按 modid 升序;五字段与 ModInfo 一一对应)。"""
+    return [asdict(m) for m in registry.entries()]
+
+
+def registry_from_dicts(items: list[dict]) -> ModRegistry:
+    """dict 列表 → 注册表;缺 modid/jar_filename 条目跳过(数据级宽松,snapshot.load 同哲学)。"""
+    reg = ModRegistry()
+    for m in items:
+        if not isinstance(m, dict) or not m.get("modid") or not m.get("jar_filename"):
+            continue
+        reg.add(ModInfo(modid=m["modid"], version=m.get("version", ""),
+                        jar_filename=m["jar_filename"],
+                        neoforge_range=m.get("neoforge_range"),
+                        embedded_in=m.get("embedded_in")))
+    return reg
 
 
 def _parse_mods_toml(content: str, jar_filename: str, embedded_in: str | None = None) -> list[ModInfo]:
@@ -696,7 +718,7 @@ class _Level:
     kind: Callable[[tuple[str, str, str], tuple[str, str, str]], str]
 
 
-_LATTICE: list[_Level] = [
+_LATTICE: tuple[_Level, ...] = (
     _Level(key=lambda fam, tail: fam, pred=None,
            kind=lambda s, d: _kind_by_sig(s[1], d[1])),                        # 一级(0.6.3)
     _Level(key=_reduced_family,
@@ -709,7 +731,7 @@ _LATTICE: list[_Level] = [
            kind=lambda s, d: _kind_by_sig(s[1], d[1])),                        # 四级(批次E)
     _Level(key=_decoration_stripped, pred=None,
            kind=lambda s, d: _kind_by_sig(s[1], d[1])),                        # 五级(批次F)
-]
+)
 
 
 def pair_mods(src_mods: ModRegistry, dst_mods: ModRegistry) -> list[ModPair]:

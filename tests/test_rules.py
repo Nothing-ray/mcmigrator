@@ -314,7 +314,7 @@ def test_build_ruleset_world_layer_below_default_never() -> None:
     """F34① 位序:动态世界层在 default 之下——世界内 .bak 仍 NEVER,世界目录 MUST_MIGRATE。"""
     from pathlib import Path
 
-    from migration.cli import build_ruleset
+    from migration.pipeline import build_ruleset
     from migration.rules import Category
 
     rs, errs = build_ruleset(
@@ -331,7 +331,7 @@ def test_build_ruleset_world_dirs_invalid_name_error() -> None:
     """F34① 安全:非法目录名跳过并出警告,不生成规则。"""
     from pathlib import Path
 
-    from migration.cli import build_ruleset
+    from migration.pipeline import build_ruleset
     from migration.rules import Category
 
     rs, errs = build_ruleset(
@@ -340,3 +340,26 @@ def test_build_ruleset_world_dirs_invalid_name_error() -> None:
     )
     assert errs and any("world" in e for e in errs)
     assert rs.classify("../evil/x") is Category.UNKNOWN
+
+
+# ---- 批次H Task 5:world_dirs glob 元字符转义 ----
+
+
+def test_escape_world_glob_units() -> None:
+    """转义单元:字符类/通配/行首注释与否定全位置转义(spec §3.5)。"""
+    from migration.pipeline import escape_world_glob
+
+    assert escape_world_glob("world[1]") == "world\\[1\\]"
+    assert escape_world_glob("a*b?c") == "a\\*b\\?c"
+    assert escape_world_glob("#w") == "\\#w" and escape_world_glob("!w") == "\\!w"
+    assert escape_world_glob("普通世界") == "普通世界"
+
+
+def test_world_glob_escape_scoped() -> None:
+    """world[1] 注入规则后仅匹配 world[1]/ 下文件,world1/ 不受影响(spec §5.6)。"""
+    from migration.pipeline import build_ruleset
+
+    rs, _ = build_ruleset(["s", "d"], exclude=[], include=[], rule_files=[],
+                          mcmig_dir=Path("nowhere"), world_dirs=["world[1]"])
+    assert rs.classify("world[1]/level.dat") == Category.MUST_MIGRATE
+    assert rs.classify("world1/level.dat") != Category.MUST_MIGRATE   # 不被字符类连带

@@ -61,7 +61,7 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 
 ## 工作方式
 
-1. `scan` 遍历版本文件夹,按分层策略哈希,生成**原始清单快照**(`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`,**不含分类**)。快照含可选身份字段 `resolved_root`(scan 时对版本目录 `resolve()` 的结果,NTFS junction 展开后的真实路径);旧快照缺省 `None`,完全兼容。
+1. `scan` 遍历版本文件夹,按分层策略哈希,生成**原始清单快照**(`<game_root>/.mcmig/snapshots/<ver>.snapshot.json`,**不含分类**)。快照含可选身份字段 `resolved_root`(scan 时对版本目录 `resolve()` 的结果,NTFS junction 展开后的真实路径);旧快照缺省 `None`,完全兼容。v2 起快照还会内嵌一份 mod 清单——scan 时顺带读取 `mods/` 里各 jar 的 mod 信息(耗时约 +1~3 秒);旧 v1 快照完全兼容,重扫一次即可升级。
 2. `diff` 读两份快照,**按当前规则现算分类**,再把每个文件归入 6 桶。
 3. 改规则(用户 `.mcmig/rules.yaml` 或 CLI `--exclude`/`--include`)后**直接重 diff,无需重扫**——分类在读快照时现算。
 
@@ -101,11 +101,13 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 
 ```
 CLI(--include/--exclude) > 额外规则文件 > 用户 rules.yaml > 孤儿检测 > 版本敏感 > 白名单 > 内置默认
+> 世界目录(动态探测)
 ```
 
 - **用户显式规则 > 孤儿检测**:在 `.mcmig/rules.yaml` 中写 `config/jade/** → must_migrate` 可强制迁移孤儿 config
 - **孤儿检测 > 白名单**:白名单中对应 mod 已删除的条目自动失效
 - **孤儿检测 = 事实判断**:mod 物理上不在目标 `mods/` 目录 → config 无人认领 → 迁移无意义
+- **世界目录层垫底**:服务端动态探测出的世界目录虽按「必迁」注入,但排在所有层之后——内置默认的 never 规则(如世界内的 `.bak` 备份)仍压得过它,不会被误迁
 
 ### 整合包替换
 

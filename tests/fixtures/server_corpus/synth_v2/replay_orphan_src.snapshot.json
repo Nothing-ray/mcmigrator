@@ -1,0 +1,53 @@
+{
+  "tool_version": "0.10.1",
+  "snapshot_format": 2,
+  "version": "replay_orphan_src",
+  "game_root": "C:\\fixture\\sanitized",
+  "scanned_at": "2026-10-01T10:00:00+08:00",
+  "resolved_root": "C:\\fixture\\sanitized\\versions\\ro_src",
+  "world_dirs": [],
+  "hash_mode": "tiered",
+  "file_count": 4,
+  "files": [
+    {
+      "path": "config/bar.toml",
+      "size": 5,
+      "md5": "bbbb5050505050505050505050505050",
+      "mtime": null
+    },
+    {
+      "path": "config/foo.toml",
+      "size": 6,
+      "md5": "cccc5050505050505050505050505050",
+      "mtime": null
+    },
+    {
+      "path": "mods/bar-1.0.jar",
+      "size": 80,
+      "md5": null,
+      "mtime": 900
+    },
+    {
+      "path": "mods/foo-1.0.jar",
+      "size": 90,
+      "md5": null,
+      "mtime": 900
+    }
+  ],
+  "mods": [
+    {
+      "modid": "bar",
+      "version": "1.0",
+      "jar_filename": "bar-1.0.jar",
+      "neoforge_range": null,
+      "embedded_in": null
+    },
+    {
+      "modid": "foo",
+      "version": "1.0",
+      "jar_filename": "foo-1.0.jar",
+      "neoforge_range": null,
+      "embedded_in": null
+    }
+  ]
+}
