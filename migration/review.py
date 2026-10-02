@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from .fsops import md5_of
@@ -35,6 +35,10 @@ MSG_SNAPSHOT_CHANGED = (
     "快照 {version} 在计划签发后已变化(重扫或被改写),计划可能过期,请重跑 plan 重新审阅。"
 )
 MSG_RULES_CHANGED = "规则文件在计划签发后已变化,请重跑 plan 重新审阅。"
+MSG_REVIEW_SNAPSHOT_MISSING = (
+    "审阅状态校验所需的快照不可得(缺失或损坏)。计划带审阅守卫时不可在"
+    "无校验材料下执行:请先 mcmig scan 补齐快照,或重跑 plan 重新审阅。"
+)
 MSG_SOURCE_STATE_CHANGED = (
     "源文件状态与审阅时不一致: {detail} 请重跑 plan 重新审阅后再执行。"
 )
@@ -102,22 +106,56 @@ def rules_fingerprint(paths: Sequence[Path]) -> str:
     只哈希内容不哈希路径(W2.5 复审 B2):同一份规则在相对/绝对路径、Windows
     大小写不同拼写、cwd 不同的等价位置下指纹一致——路径拼写差异不得触发假阳性
     rules_changed(「规则没变」的错误陈述+误导性重跑摩擦);内容变即变,
-    缺失来源跳过(缺失→出现的变化由内容贡献自然体现)。来源路径集合由
-    issue_review 的 ``rule_sources`` 键另行记录供失配诊断,不参与指纹。
+    缺失来源跳过(缺失→出现的变化由内容贡献自然体现)。
 
     Args:
-        paths: 规则来源路径列表(通常为 [chosen_rules_dir / "rules.yaml"])。
+        paths: 规则来源路径列表(用户态来源;内嵌数据层经 _rule_guard_fingerprint
+            另行并入守卫指纹)。
 
     Returns:
         64 位 16 进制摘要字符串。
     """
+    return _fingerprint_of_digests(file_sha256(p) for p in paths if p.is_file())
+
+
+def _fingerprint_of_digests(digests: Iterable[str]) -> str:
+    """内容摘要级联哈希(指纹基元:顺序敏感,`\0` 分隔)。"""
     h = hashlib.sha256()
-    for p in paths:
-        if not p.is_file():
-            continue
-        h.update(file_sha256(p).encode("ascii"))
+    for d in digests:
+        h.update(d.encode("ascii"))
         h.update(b"\0")
     return h.hexdigest()
+
+
+def _bundled_rule_digests() -> list[str]:
+    """内嵌数据规则层(rebuild/whitelist/default)的内容摘要(守卫指纹固定组成)。
+
+    W2.6 复审 P2-3:计划签发与重验两侧经同一单点取值——工具升级改动
+    data/*.yaml 后,旧计划按 rules_changed 阻断重审(保守默认:规则语义
+    漂移的计划不可无提示执行)。whitelist 层仅 plan 消费,而守卫只在
+    build_plan 签发,故三层恒为签发时的实际消费集。经 importlib.resources
+    读取(与 build_ruleset 同一加载通道),只取内容摘要不含安装路径
+    (打包形态/安装位置差异不触发假阳性)。
+    """
+    from importlib import resources
+
+    digests: list[str] = []
+    for name in ("rebuild.yaml", "whitelist.yaml", "default_rules.yaml"):
+        data = resources.files("migration").joinpath("data", name).read_bytes()
+        digests.append(hashlib.sha256(data).hexdigest())
+    return digests
+
+
+def _rule_guard_fingerprint(rule_sources: Sequence[Path]) -> str:
+    """守卫用规则指纹(W2.6 复审 P2-3):用户态来源 + 内嵌数据规则层。
+
+    覆盖口径 = 计划签发时实际消费的全部文件态规则输入:chosen rules.yaml、
+    --rule 额外规则文件、内嵌 rebuild/whitelist/default 三层。CLI 级
+    --exclude/--include 为一次性调用参数非文件态,不属本层;ORPHAN/world
+    层派生自双侧快照,已由快照指纹 transitively 覆盖。
+    """
+    user_digests = [file_sha256(p) for p in rule_sources if p.is_file()]
+    return _fingerprint_of_digests(user_digests + _bundled_rule_digests())
 
 
 def issue_review(
@@ -132,19 +170,21 @@ def issue_review(
     Args:
         game_root: 游戏根目录(实例身份,resolve 消 junction/别名后记录)。
         snapshot_paths: 双侧快照文件路径(键=版本名;须存在,内容指纹随签发定格)。
-        rule_sources: 规则来源路径列表(与 build_plan 选定的规则目录一致)。
+        rule_sources: 规则来源路径列表(**签发时实际消费的全部用户态来源**:
+            chosen rules.yaml + --rule 额外文件,W2.6 复审 P2-3)。
         modpack_swap: 迁移模式(换包开关;作为守卫之一记录,本次不参与重验)。
 
     Returns:
         守卫字典:{"instance": str, "snapshots": {版本名: 文件SHA256},
         "rules": str, "rule_sources": [str, ...], "mode": bool};写入 plan.review
-        随计划持久化。rule_sources 仅作失配诊断记录(签名时哈希了哪些文件),
-        不参与指纹(validate_review 不读取)。
+        随计划持久化。rules = _rule_guard_fingerprint(用户态来源+内嵌数据层);
+        rule_sources 记录签发来源清单,重验时作为权威输入读取(W2.6 起参与
+        重验:额外规则文件对守卫可见),兼作失配诊断。
     """
     return {
         "instance": str(game_root.resolve()),
         "snapshots": {ver: file_sha256(p) for ver, p in snapshot_paths.items()},
-        "rules": rules_fingerprint(rule_sources),
+        "rules": _rule_guard_fingerprint(rule_sources),
         "rule_sources": [str(p) for p in rule_sources],
         "mode": bool(modpack_swap),
     }
@@ -191,7 +231,15 @@ def validate_review(
             blockers.append(
                 PreflightBlocker("snapshot_changed", MSG_SNAPSHOT_CHANGED.format(version=ver))
             )
-    if rules_fingerprint(rule_sources) != review.get("rules"):
+    # W2.6 复审 P2-3:重验以签发记录的 rule_sources 清单为准(--rule 额外文件
+    # 等签发时实际消费的来源对守卫可见);调用方列表仅作无记录键旧计划的回退。
+    rec_sources = review.get("rule_sources")
+    if (isinstance(rec_sources, list) and rec_sources
+            and all(isinstance(s, str) for s in rec_sources)):
+        eff_sources: Sequence[Path] = [Path(s) for s in rec_sources]
+    else:
+        eff_sources = rule_sources
+    if _rule_guard_fingerprint(eff_sources) != review.get("rules"):
         blockers.append(PreflightBlocker("rules_changed", MSG_RULES_CHANGED))
     return blockers
 

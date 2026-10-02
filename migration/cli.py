@@ -606,15 +606,16 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         # 旧布局回退)——build_plan 签发时锚定快照缺失会记录实际载入的旧布局快照哈希
         # (pipeline.issue_review),重验必须取同一命中位,否则旧布局快照用户假阳性
         # snapshot_changed 且「重跑 plan」仍读旧布局,死循环(复审修复);规则=
-        # build_plan 当时经 select_rules_dir 选定的目录。legacy 归一化只此一处变量
+        # build_plan 当时经 select_rules_dir 选定的目录。legacy 归一化单一变量
         # (`cwd/.mcmig ≠ data_dir 才有回退`),与 build_plan 的
-        # `legacy = mcmig_dir if data != mcmig_dir else None` 同构,不引入第三种。
+        # `legacy = mcmig_dir if data != mcmig_dir else None` 同构,不引入第三种;
+        # 该变量同时下传 execute_migration(执行侧状态校验的快照回退位)。
         # 旧计划(review=None)跳过,沿用上方「缺少审阅守卫」提示路径(渐进采用)。
         # --force 对齐 accept_stale 决策:快照内容漂移(snapshot_changed)与预检
         # 「快照过期」同源,可随 --force 放行(既有 --force 重跑语义不变);
         # 实例漂移/规则变化无决策通道,恒阻断(重新 plan 即可,保守默认)
+        legacy_dir = cwd / ".mcmig" if (cwd / ".mcmig") != data_dir else None
         if plan.review is not None:
-            legacy_dir = cwd / ".mcmig" if (cwd / ".mcmig") != data_dir else None
             chosen_rules_dir, _rule_notices = select_rules_dir(data_dir, legacy_dir)
             review_blockers = [
                 b for b in validate_review(
@@ -686,6 +687,9 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
                 # 重跑豁免(白名单⑤):--force 即 rerun_executed 决策 → 跳过目标状态校验,
                 # 依赖 identical 短路;首跑必须校验(spec §3.3 v4 补注)
                 validate_states=not args.force,
+                # 审阅状态校验的快照回退位(W2.6 复审 P1-1):与上方守卫的
+                # find_snapshot 同一命中位,旧布局快照下状态校验照常进行
+                legacy_dir=legacy_dir,
                 before_action=_journal_before if journal is not None else None,
                 after_action=_journal_after if journal is not None else None,
             )

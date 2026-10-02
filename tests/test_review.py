@@ -53,7 +53,7 @@ def test_rules_fingerprint_path_independent(tmp_path):
 
 
 def test_issue_review_records_rule_sources(tmp_path):
-    """W2.5 复审 B2:rule_sources 只作失配诊断记录,不参与指纹。"""
+    """W2.5 复审 B2:rule_sources 记录签发时哈希的来源清单(诊断;W2.6 起兼作重验输入)。"""
     game = tmp_path / "game"
     game.mkdir()
     snap = tmp_path / "s.json"
@@ -73,6 +73,76 @@ def test_issue_review_records_rule_sources(tmp_path):
         rule_sources=[r2], modpack_swap=False,
     )
     assert guard2["rules"] == guard["rules"]
+
+
+def _mk_review_plan(review: dict) -> MigrationPlan:
+    """构造仅带审阅守卫的最小计划(validate_review 直测用)。"""
+    return MigrationPlan(src="s", dst="d", generated_at="t", actions=[], review=review)
+
+
+def test_validate_review_uses_recorded_rule_sources(tmp_path):
+    """W2.6 复审 P2-3:重验读 review["rule_sources"] 记录的签发来源(含 --rule 额外文件)。
+
+    修复前指纹只覆盖调用方现选的 rules.yaml,签发时消费的额外规则文件
+    (--rule)对守卫不可见——额外规则改成禁止后,旧复制计划仍照常执行
+    (reviewer 复现)。修复后重验以记录清单为准(调用方列表仅作无记录键的
+    旧计划回退),额外文件改动 → rules_changed;无记录键的旧守卫回退如旧。
+    """
+    game = tmp_path / "game"
+    game.mkdir()
+    snap = tmp_path / "s.json"
+    snap.write_text("{}", encoding="utf-8")
+    user = tmp_path / "rules.yaml"
+    user.write_text("rules: []\n", encoding="utf-8")
+    extra = tmp_path / "extra.yaml"
+    extra.write_text("rules: []\n", encoding="utf-8")
+    guard = issue_review(
+        game_root=game, snapshot_paths={"s": snap, "d": snap},
+        rule_sources=[user, extra], modpack_swap=False,
+    )
+    plan = _mk_review_plan(guard)
+    kw = {"game_root": game, "snapshot_paths": {"s": snap, "d": snap},
+          "rule_sources": [user]}  # 调用方只传现选 rules.yaml(CLI/GUI 现状)
+    assert validate_review(plan, **kw) == []  # 无变化:记录清单为准,两侧同构
+    extra.write_text("rules: [禁]\n", encoding="utf-8")
+    blockers = validate_review(plan, **kw)
+    assert [b.code for b in blockers] == ["rules_changed"]
+    # 无记录键的旧守卫(W2.5 前计划):按旧口径(仅 user)签发后删键,
+    # 回退调用方列表重验,行为如旧
+    old_style = issue_review(
+        game_root=game, snapshot_paths={"s": snap, "d": snap},
+        rule_sources=[user], modpack_swap=False,
+    )
+    old_guard = {k: v for k, v in old_style.items() if k != "rule_sources"}
+    assert validate_review(_mk_review_plan(old_guard), **kw) == []
+
+
+def test_review_guard_covers_bundled_data_rules(tmp_path, monkeypatch):
+    """W2.6 复审 P2-3:内嵌数据规则层(rebuild/whitelist/default)进指纹——工具升级
+    改动 data/*.yaml 后,旧计划按 rules_changed 阻断重审(保守默认)。
+
+    用 monkeypatch 模拟「校验侧内嵌层内容不同(= 工具升级后)」;签发侧与
+    校验侧经同一 _bundled_rule_digests 单点取值,正常情况下恒一致。
+    """
+    from migration import review
+
+    game = tmp_path / "game"
+    game.mkdir()
+    snap = tmp_path / "s.json"
+    snap.write_text("{}", encoding="utf-8")
+    user = tmp_path / "rules.yaml"
+    user.write_text("rules: []\n", encoding="utf-8")
+    guard = issue_review(
+        game_root=game, snapshot_paths={"s": snap, "d": snap},
+        rule_sources=[user], modpack_swap=False,
+    )
+    plan = _mk_review_plan(guard)
+    kw = {"game_root": game, "snapshot_paths": {"s": snap, "d": snap},
+          "rule_sources": [user]}
+    assert validate_review(plan, **kw) == []
+    monkeypatch.setattr(review, "_bundled_rule_digests", lambda: ["0" * 64])
+    blockers = validate_review(plan, **kw)
+    assert [b.code for b in blockers] == ["rules_changed"]
 
 
 def test_fingerprint_excludes_runtime_fields(built_plan_layout):

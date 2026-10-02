@@ -150,6 +150,10 @@ v2 的推导不成立(重扫只写快照不写计划、根目录复制、磁盘�
 - 执行状态校验的适用边界: 重跑(`rerun_executed` 明确决策)跳过目标状态校验——此时依赖 identical 短路与 job journal;状态校验保护的是「首次执行前的静默漂移」(spec §3.3 v4 补注)
 - CLI migrate 自批次I 起执行与 GUI 同源的 validate_review 守卫(规则/实例/快照指纹失配阻断)——行为变更白名单增补条目(终审修复 I1;`--force` 仅对 snapshot_changed 按 accept_stale 语义放行,实例/规则漂移恒阻断)
 - 部分执行(取消/journal 停发/中途失败)后的重试路径=重新生成计划(状态校验按新计划重算);「直接重跑+identical 跳过」仅适用于已执行计划的显式重跑(--force/rerun_executed)——CLI/GUI 引导文案按此口径统一(行为变更白名单增补条目,终审修复 I3)
+- **(W2.6 复审补记 2026-10-02,二轮复审 P1-1/P2-3)** 守卫材料三处取位同构 + 全来源规则指纹:
+  - ① 审阅状态校验的快照取位与签发/哈希重验同构:锚定优先+旧布局回退(`execute_migration(legacy_dir=…)`,CLI 下传守卫同款归一化变量)——修复前 `_load_guard_snapshots` 只认锚定布局,缺失即静默跳过状态校验,旧布局下「签发后改目标文件」漏检(reviewer 已复现无 force 覆盖)
+  - ② **有审阅守卫却取不到校验材料(快照缺失/损坏)→ 阻断**(code=`review_snapshot_missing`;不可校验≠可执行),仅 review=None 的合成/旧版计划保留降级跳过(直调兼容语义)
+  - ③ 规则指纹覆盖签发时实际消费的**全部文件态来源**:chosen rules.yaml + `--rule` 额外文件(经 `review.rule_sources` 记录,重验以其为权威输入;无记录键的旧守卫回退调用方列表)+ 内嵌 rebuild/whitelist/default 三层(`_rule_guard_fingerprint` 固定并入,工具升级改动 data/*.yaml → 旧计划按 rules_changed 重审)。CLI `--exclude/--include` 为一次性调用参数非文件态,不属本层;ORPHAN/world 层派生自双侧快照,由快照指纹 transitively 覆盖。存量计划升级后首次执行会按 rules_changed 阻断一次(口径变化方向=多阻断,重跑 plan 即消)
 
 ## 4. W2:任务模型可靠性
 

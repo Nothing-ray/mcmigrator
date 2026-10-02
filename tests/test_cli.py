@@ -715,6 +715,47 @@ def test_migrate_review_guard_legacy_snapshots_no_false_positive(
     assert (dst_dir / "options.txt").read_text(encoding="utf-8") == "fps:120\n"  # 真实执行
 
 
+def test_migrate_legacy_snapshot_state_change_blocked(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """W2.6 复审 P1-1(reviewer 复现):旧布局快照下签发后改目标文件 → 无 --force 必须阻断。
+
+    修复前:守卫哈希重验经 find_snapshot 回退取旧布局(比对通过),而执行侧
+    _load_guard_snapshots 只认锚定布局 → 缺失即静默跳过审阅状态校验 → 目标
+    options.txt 的 fps:999 漂移不被发现,被无 force 覆盖回 fps:120。修复后
+    CLI 把同一 legacy_dir 传入执行管线,状态校验在旧布局快照上照常拦截,
+    零写盘退出 2。
+    """
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "options.txt").write_text("fps:60\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert cli.main(["scan", "dst", "--game-root", str(game_root)]) == 0
+    # 快照仅留旧布局(与上一测试同法:rename 保 mtime,不触发快照过期预检)
+    legacy_snaps = tmp_path / ".mcmig" / "snapshots"
+    legacy_snaps.mkdir(parents=True)
+    anchored = game_root / ".mcmig" / "snapshots"
+    for ver in ("src", "dst"):
+        (anchored / f"{ver}.snapshot.json").rename(legacy_snaps / f"{ver}.snapshot.json")
+    anchored.rmdir()
+    assert cli.main(["plan", "src", "dst", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    # 签发后外部改动目标:状态校验必须在旧布局快照上拦截
+    (dst_dir / "options.txt").write_text("fps:999\n", encoding="utf-8")
+    rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "与审阅时不一致" in out
+    assert (dst_dir / "options.txt").read_text(encoding="utf-8") == "fps:999\n"  # 零执行
+
+
 def test_plan_user_rule_overrides_orphan(tmp_path: Path, monkeypatch, capsys):
     """user rules.yaml 写 config/jade/**→must_migrate 时压过 orphan(P2 用户主权)。
 

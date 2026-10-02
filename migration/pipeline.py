@@ -38,6 +38,7 @@ from .preflight import (  # noqa: F401 — 重导出:spec 命名 pipeline.prefli
     probe_maybe_running,
 )
 from .review import (  # noqa: F401 — 重导出:审阅有效性符号经 pipeline.* 可达,供 T5/GUI/W3 消费
+    MSG_REVIEW_SNAPSHOT_MISSING,
     ReviewStateError,
     check_action_states,
     file_sha256,
@@ -423,7 +424,9 @@ def build_plan(
     # 规划完成后、save 前:签发审阅守卫(spec §3.3)——计划生成时定格执行前置条件
     # (实例身份/双侧快照内容指纹/规则指纹/迁移模式),执行前由 validate_review 重验。
     # 快照取位:锚定位存在取锚定位(与执行侧校验同构);仅旧布局存在时取实际载入位
-    # (守卫记录的是计划实际消费的快照);规则来源取本函数选定的规则目录
+    # (守卫记录的是计划实际消费的快照);规则来源取**签发时实际消费的全部用户态
+    # 来源**(本函数选定的规则目录 + --rule 额外文件,W2.6 复审 P2-3;内嵌数据层
+    # 由 review._rule_guard_fingerprint 固定并入)
     guard_src = data / "snapshots" / f"{src}.snapshot.json"
     guard_dst = data / "snapshots" / f"{dst}.snapshot.json"
     plan.review = issue_review(
@@ -432,7 +435,7 @@ def build_plan(
             src: guard_src if guard_src.is_file() else src_path,
             dst: guard_dst if guard_dst.is_file() else dst_path,
         },
-        rule_sources=[chosen_rules_dir / "rules.yaml"],
+        rule_sources=[chosen_rules_dir / "rules.yaml", *rule_files],
         modpack_swap=modpack_swap,
     )
     if save:
@@ -444,27 +447,35 @@ def build_plan(
     return plan, compat_warnings, mod_pairs
 
 
-def _load_guard_snapshots(plan: MigrationPlan, src_root: Path) -> tuple[Snapshot, Snapshot] | None:
-    """按锚定布局加载双侧快照(<src_root 上两级>/.mcmig/snapshots),供审阅状态校验。
+def _load_guard_snapshots(
+    plan: MigrationPlan, src_root: Path, legacy_dir: Path | None = None
+) -> tuple[Snapshot, Snapshot] | None:
+    """按「锚定优先+旧布局回退」加载双侧快照,供审阅状态校验(W2.6 复审 P1-1)。
+
+    取位与签发(build_plan 的 find_snapshot)及哈希重验(CLI/GUI 的
+    validate_review)同构:锚定位存在取锚定位,否则回退 legacy_dir(旧 CWD
+    布局)——修复前只认锚定布局,缺失即静默跳过状态校验,守卫材料三处取位
+    不同构(reviewer 复现:旧布局下签发后改目标文件,无 --force 仍被覆盖)。
 
     Args:
         plan: 迁移计划(src/dst 字段定位快照文件)。
         src_root: 源版本根目录(game_root/versions/<src>;上两级即 game_root)。
+        legacy_dir: 旧布局 .mcmig 目录(通常 CWD 侧);None 表示无回退。
 
     Returns:
-        (src_snap, dst_snap);任一快照缺失或损坏返回 None——调用方降级跳过状态
-        校验(不可校验≠阻断;真实 plan 管线用法恒有锚定快照,合成计划/非锚定
-        布局的直调用法不应因此拒绝执行)。
+        (src_snap, dst_snap);任一快照缺失或损坏返回 None——调用方按
+        ``plan.review`` 是否存在裁定:有守卫缺材料须阻断(fail-closed),
+        合成/旧版计划(review=None)降级跳过。
     """
-    snap_dir = src_root.parent.parent / ".mcmig" / "snapshots"
-    src_p = snap_dir / f"{plan.src}.snapshot.json"
-    dst_p = snap_dir / f"{plan.dst}.snapshot.json"
+    anchored = src_root.parent.parent / ".mcmig"
+    src_p = find_snapshot(anchored, legacy_dir, plan.src)[0]
+    dst_p = find_snapshot(anchored, legacy_dir, plan.dst)[0]
     if not (src_p.is_file() and dst_p.is_file()):
         return None
     try:
         return Snapshot.load(src_p), Snapshot.load(dst_p)
-    except Exception as e:  # noqa: BLE001 — 快照损坏时降级跳过并留日志,不阻断执行流程
-        log.warning("[提示] 审阅状态校验所需快照不可读,已跳过(%s / %s): %s", src_p, dst_p, e)
+    except Exception as e:  # noqa: BLE001 — 快照损坏同缺失:材料不可用,交调用方按 review 裁定
+        log.warning("[提示] 审阅状态校验所需快照不可读(%s / %s): %s", src_p, dst_p, e)
         return None
 
 
@@ -480,6 +491,7 @@ def execute_migration(
     should_cancel: Callable[[], bool] | None = None,
     before_action: Callable[[ActionRecord], None] | None = None,
     after_action: Callable[[ActionRecord, FileResult], None] | None = None,
+    legacy_dir: Path | None = None,
 ) -> list[FileResult]:
     """执行迁移计划(三道预检 + 审阅状态校验 + Executor 封装,CLI 与 GUI 平级消费)。
 
@@ -492,7 +504,9 @@ def execute_migration(
     3. check_action_states(批次I-T3,spec §3.3):待执行动作的源/目标当前状态 vs
        快照记录状态,失配抛 ReviewStateError(零写盘);重跑(rerun_executed 明确
        决策)由调用方传 validate_states=False 跳过,依赖 identical 短路与 job
-       journal——行为集中一处,CLI/GUI 平级;快照不可得时降级跳过
+       journal——行为集中一处,CLI/GUI 平级;快照取位锚定优先+旧布局回退
+       (legacy_dir,W2.6 复审 P1-1),**有审阅守卫却取不到校验材料时阻断**
+       (review_snapshot_missing;review=None 的合成/旧版计划仍降级跳过)
 
     Args:
         plan: 已审阅的迁移计划。
@@ -508,6 +522,8 @@ def execute_migration(
             批次I-T6);None 时行为不变。
         before_action: 动手动作前置回调(①意图 write-ahead),透传 Executor.execute。
         after_action: 动作完成回调(③完成持久化),透传 Executor.execute。
+        legacy_dir: 旧布局 .mcmig 目录(审阅状态校验的快照回退位;与 CLI
+            守卫的 find_snapshot 同构,W2.6 复审 P1-1);None 表示仅查锚定布局。
 
     Returns:
         逐文件执行结果(按 plan.actions 顺序)。
@@ -528,14 +544,21 @@ def execute_migration(
     )
     check_disk_space(dst_root, needed)
     # 审阅状态校验(只读,零写盘):快照可得才校验;GUI 侧已在 job 内先行校验过
-    # 的场景也经 validate_states=False 显式跳过,避免双侧快照重复全量哈希
+    # 的场景也经 validate_states=False 显式跳过,避免双侧快照重复全量哈希。
+    # W2.6 复审 P1-1:快照取位锚定优先+旧布局回退(legacy_dir,与签发/重验同构);
+    # **有审阅守卫却取不到校验材料 → 阻断**(不可校验≠可执行),仅 review=None
+    # 的合成/旧版计划保留降级跳过(直调兼容语义)。
     if validate_states:
-        snaps = _load_guard_snapshots(plan, src_root)
+        snaps = _load_guard_snapshots(plan, src_root, legacy_dir=legacy_dir)
         if snaps is not None:
             src_snap, dst_snap = snaps
             blockers = check_action_states(plan.actions, src_snap, dst_snap, src_root, dst_root)
             if blockers:
                 raise ReviewStateError(blockers)
+        elif plan.review is not None:
+            raise ReviewStateError([
+                PreflightBlocker("review_snapshot_missing", MSG_REVIEW_SNAPSHOT_MISSING)
+            ])
 
     def ask(a: ActionRecord) -> bool:
         """ASK 动作决策:路径在预确认集合内即迁移。"""

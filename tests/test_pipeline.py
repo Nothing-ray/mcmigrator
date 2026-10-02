@@ -898,3 +898,120 @@ def test_execute_migration_without_snapshots_skips_state_check(tmp_path) -> None
     results = execute_migration(plan, src_root, dst_root, ask_yes=set())
     assert {r.status for r in results} == {"copied"}
     assert (dst_root / "a.txt").read_text(encoding="utf-8") == "A"
+
+
+# ---- W2.6 复审 P1-1:守卫快照取位与签发/重验同构 + 有守卫缺材料须阻断 ----
+
+
+def test_execute_guard_snapshots_fallback_to_legacy_dir(built_plan_layout) -> None:
+    """W2.6 复审 P1-1:快照仅存旧布局时,状态校验经 legacy_dir 回退照常进行。
+
+    修复前 _load_guard_snapshots 只认锚定布局(<game_root>/.mcmig/snapshots),
+    缺失即返回 None 静默跳过审阅状态校验——而签发(build_plan)与哈希重验
+    (validate_review)都允许旧布局回退,守卫材料三处取位不同构:reviewer 复现
+    「计划签发后改目标 options.txt,无 --force 仍被静默覆盖」。修复后执行侧
+    与 find_snapshot 同一命中位(锚定优先+旧布局回退),漂移照常拦截。
+    """
+    import pytest
+
+    from migration.review import ReviewStateError
+
+    lay = built_plan_layout
+    legacy = lay.cwd / ".mcmig"
+    legacy_snaps = legacy / "snapshots"
+    legacy_snaps.mkdir(parents=True)
+    anchored = lay.data / "snapshots"
+    for ver in ("src", "dst"):
+        (anchored / f"{ver}.snapshot.json").rename(legacy_snaps / f"{ver}.snapshot.json")
+    anchored.rmdir()
+    # 签发后外部改动目标(options.txt 为已哈希条目 → md5 全检):必须在旧布局
+    # 快照上拦截,而非因锚定位缺失而放行
+    dst_opts = lay.dst_dir / "options.txt"
+    orig = dst_opts.read_text(encoding="utf-8")
+    dst_opts.write_text(orig + "extra_drift:1\n", encoding="utf-8")
+    with pytest.raises(ReviewStateError):
+        execute_migration(
+            lay.plan, lay.src_dir, lay.dst_dir, ask_yes=set(), legacy_dir=legacy
+        )
+    # 复原后同一调用放行——证明回退是真加载了旧布局快照(不是换一种跳过)
+    dst_opts.write_text(orig, encoding="utf-8")
+    results = execute_migration(
+        lay.plan, lay.src_dir, lay.dst_dir, ask_yes=set(), legacy_dir=legacy
+    )
+    assert not any(r.failed for r in results)
+
+
+def test_execute_guard_snapshots_missing_fails_closed(built_plan_layout) -> None:
+    """W2.6 复审 P1-1:有审阅守卫却缺校验材料 → 阻断(fail-closed),不再静默跳过。
+
+    锚定与旧布局回退都不命中时,带 review 的计划不得在无状态校验下执行
+    (不可校验≠可执行);review=None 的合成计划保留降级跳过语义
+    (test_execute_migration_without_snapshots_skips_state_check 继续覆盖)。
+    """
+    import pytest
+
+    from migration.review import ReviewStateError
+
+    lay = built_plan_layout
+    for p in (lay.data / "snapshots").glob("*.snapshot.json"):
+        p.unlink()
+    with pytest.raises(ReviewStateError) as ei:
+        execute_migration(lay.plan, lay.src_dir, lay.dst_dir, ask_yes=set())
+    assert any(b.code == "review_snapshot_missing" for b in ei.value.blockers)
+    # 零写盘:目标未被触碰
+    assert (lay.dst_dir / "options.txt").exists()
+
+
+def test_execute_guard_snapshot_corrupt_fails_closed(built_plan_layout) -> None:
+    """W2.6 复审 P1-1:守卫快照损坏(不可读)与缺失同型——有守卫即阻断,不降级跳过。"""
+    import pytest
+
+    from migration.review import ReviewStateError
+
+    lay = built_plan_layout
+    (lay.data / "snapshots" / "src.snapshot.json").write_bytes(b"not-json{")
+    with pytest.raises(ReviewStateError) as ei:
+        execute_migration(lay.plan, lay.src_dir, lay.dst_dir, ask_yes=set())
+    assert any(b.code == "review_snapshot_missing" for b in ei.value.blockers)
+
+
+def test_build_plan_review_includes_extra_rule_files(tmp_path) -> None:
+    """W2.6 复审 P2-3:--rule 额外规则文件进守卫指纹与 rule_sources 记录。
+
+    修复前 issue_review 只记录 chosen_rules_dir/rules.yaml,额外规则文件
+    (--rule)的内容漂移对守卫不可见(reviewer 复现:复制计划在额外规则改成
+    禁止后仍照常执行)。修复后额外文件随签发记录,改动 → rules_changed。
+    """
+    from migration.review import validate_review
+
+    game = tmp_path / "game"
+    _mk_version(game, "src", "fps:120\n")
+    _mk_version(game, "dst", "fps:60\n")
+    data = game / ".mcmig"
+    scan_version(game, "src", data / "snapshots")
+    scan_version(game, "dst", data / "snapshots")
+    extra = tmp_path / "extra.yaml"
+    extra.write_text("version: 1\nrules: []\n", encoding="utf-8")
+    plan, _compat, _pairs = build_plan(
+        tmp_path, game, "src", "dst",
+        mcmig_dir=data, plans_dir=data / "plans", data_dir=data,
+        rule_files=[extra],
+    )
+    assert plan.review is not None
+    assert str(extra) in plan.review["rule_sources"]
+    # 调用方按 CLI/GUI 现状只传现选 rules.yaml:重验以记录清单为准
+    kw = {
+        "game_root": game,
+        "snapshot_paths": {
+            "src": data / "snapshots" / "src.snapshot.json",
+            "dst": data / "snapshots" / "dst.snapshot.json",
+        },
+        "rule_sources": [data / "rules.yaml"],
+    }
+    assert validate_review(plan, **kw) == []
+    extra.write_text(
+        "version: 1\nrules:\n  - match: options.txt\n    decide: never\n    reason: 改主意\n",
+        encoding="utf-8",
+    )
+    blockers = validate_review(plan, **kw)
+    assert [b.code for b in blockers] == ["rules_changed"]

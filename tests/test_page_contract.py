@@ -77,3 +77,15 @@ def test_shutdown_copy_does_not_claim_exit() -> None:
     body = branch.group(0)
     assert "已请求退出" in body            # 陈述请求而非完成
     assert "服务已退出" not in body        # 假承诺清除
+
+
+def test_hidden_attribute_beats_display_rules() -> None:
+    """W2.6 复审附带(预存缺陷):`[hidden]{display:none!important}` 必须存在。
+
+    .warn{display:inline-block} 等类样式会压制 UA 对 hidden 属性的默认
+    display:none(MDN hidden 属性说明)——源与目标不同时「不能是同一个版本」
+    警告仍显示(reviewer 实测)。全局 [hidden] 提升 + !important 一处收口。
+    """
+    assert re.search(r"\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}", _PAGE), (
+        "CSS 须含 [hidden]{display:none!important} 压制类样式对 hidden 属性的覆盖"
+    )
