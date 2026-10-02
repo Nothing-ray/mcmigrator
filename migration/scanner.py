@@ -24,10 +24,13 @@ class ScanError:
 def detect_world_dirs(entries: list[FileEntry], properties_text: bytes | None) -> list[str]:
     """探测世界目录(F34①):server.properties level-name + 顶层含 level.dat 的目录。
 
-    ① level-name 指向目录(单段安全名且在文件清单中存在)——活跃世界;
+    ① level-name 指向目录(单段安全名且清单中存在 <名>/level.dat 佐证)——活跃世界;
     ② 顶层直接包含 level.dat 的目录——覆盖任意命名/改名留存/多世界形态;
     并集去重升序。properties_text=None(缺文件/不可读)仅走②。
     客户端版本文件夹世界在 saves/<名>/ 二层,①②均不误触。
+    ①的 level.dat 佐证(W2.5 复审 A1):异常 level-name(如误写 config)不得把
+    非世界目录注入世界层——世界目录创建即写 level.dat,无 level.dat 的「前缀
+    存在」不构成世界证据;①因此与②成互为佐证的双通道而非增量来源。
 
     Args:
         entries: 扫描所得文件条目(相对路径,正斜杠)。
@@ -41,10 +44,11 @@ def detect_world_dirs(entries: list[FileEntry], properties_text: bytes | None) -
         from .textcompare import parse_properties
 
         name = (parse_properties(properties_text) or {}).get("level-name", "")
-        # 单段安全名:非空、无路径分隔、非点号段,且目录确实在清单中
+        # 单段安全名:非空、无路径分隔、非点号段,且有 <名>/level.dat 佐证
+        # (W2.5 复审 A1:前缀存在≠世界目录,异常 level-name 不得注入 must_migrate)
         if (name and "/" not in name and "\\" not in name
                 and name not in (".", "..")
-                and any(e.path.startswith(name + "/") for e in entries)):
+                and any(e.path == f"{name}/level.dat" for e in entries)):
             dirs.add(name)
     for e in entries:
         top, sep, rest = e.path.partition("/")

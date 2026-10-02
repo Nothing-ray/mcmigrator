@@ -94,6 +94,30 @@ def test_detect_world_dirs_rejects_unsafe_level_name() -> None:
         assert detect_world_dirs(entries, bad) == ["world"]
 
 
+def test_detect_world_dirs_level_name_requires_level_dat() -> None:
+    """W2.5 复审 A1:①通道须有 <名>/level.dat 佐证,异常 level-name 不得注入非世界目录。
+
+    level-name=config(管理员误写/模板异常值)时,config/ 下确有文件可满足
+    「前缀存在」检查,但无 config/level.dat → 不得把 config 当世界目录
+    (否则 config/** 从 UNKNOWN(ASK 人工确认)静默翻 must_migrate 自动拷贝,
+    「问用户」变成「替用户决策」,违背保守默认)。
+    """
+    from migration.scanner import detect_world_dirs
+    from migration.snapshot import FileEntry
+
+    entries = [FileEntry("server.properties", 10, None),
+               FileEntry("config/foo.toml", 1, None),
+               FileEntry("config/sub/x.dat", 2, None),
+               FileEntry("world/level.dat", 1, None)]
+    # level-name 指向有文件但无 level.dat 的保留目录 → ①不触发,仅②的 world 生效
+    assert detect_world_dirs(entries, b"level-name=config\n") == ["world"]
+    # 同名目录有 level.dat → ①照常命中(①②互为佐证的双通道)
+    assert detect_world_dirs(
+        entries + [FileEntry("config/level.dat", 4, None)],
+        b"level-name=config\n",
+    ) == ["config", "world"]
+
+
 def test_scanner_records_world_dirs(tmp_path) -> None:
     """F34① 接线:Scanner 活体扫描写入 world_dirs(server.properties 实读)。"""
     from migration.scanner import Scanner

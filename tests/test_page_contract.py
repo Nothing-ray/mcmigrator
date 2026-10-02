@@ -64,3 +64,16 @@ def test_retry_guidance_keeps_identical_skip_explanation() -> None:
     assert _PAGE.count("按「内容一致」跳过") >= 3  # 失败清单/取消注记/中断横幅三处
     for m in re.finditer(r"[^\n]*按「内容一致」跳过[^\n]*", _PAGE):
         assert "重新生成" in m.group(0), f"identical 跳过说明须以重新 plan 为前提: {m.group(0)}"
+
+
+def test_shutdown_copy_does_not_claim_exit() -> None:
+    """W2.5 复审 B6:退出按钮成功文案不得声称「服务已退出」。
+
+    停机标志已置但进程退出由启动方轮询执行(T10 接线前仍在运行)——假承诺
+    会让玩家关页后留下存活的控制台进程。
+    """
+    branch = re.search(r"function\s+shutdownServer[\s\S]*?\}\)\.catch", _PAGE)
+    assert branch, "页面必须有 shutdownServer 函数"
+    body = branch.group(0)
+    assert "已请求退出" in body            # 陈述请求而非完成
+    assert "服务已退出" not in body        # 假承诺清除

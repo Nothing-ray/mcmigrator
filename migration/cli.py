@@ -7,21 +7,24 @@ import logging
 import os
 import sys
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__, doctor
 from .classifier import Classifier
+from .executor import FileResult
 from .fsops import FsOpsError, copy_atomic
 from .instlock import InstanceLockError, instance_locks
-from .plan import Behavior, MigrationPlan, PlanFormatError, PlanPersistError, plan_path
+from .journal import JournalError, JobJournal
+from .plan import ActionRecord, Behavior, MigrationPlan, PlanFormatError, PlanPersistError, plan_path
 from .pipeline import (
-    _rules_dir,
     build_plan,
     execute_migration,
     find_snapshot,
     list_versions,
     run_diff,
     scan_version,
+    select_rules_dir,
 )
 from .preflight import ExecutionDecisions, preflight_execute
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
@@ -193,7 +196,8 @@ def _print_err(text: str) -> None:
 def _warn_abandoned_lock(game_root: Path, lockinfo: dict[str, list[str]]) -> None:
     """abandoned 实例锁提示:前持有者异常退出,须核对 journal 中断记录(批次I-T5)。
 
-    journal 归 T6;jobs/ 目录路径为前向引用占位(T6 落地后即为真实指引)。
+    W2.5 复审 B7:CLI migrate 与 GUI 均已接 write-ahead journal(批次I-T6+
+    本批),jobs/ 中断记录对两条路径皆为真实指引,不再是前向引用占位。
     """
     if lockinfo["abandoned"]:
         _print_err(
@@ -216,8 +220,14 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     with instance_locks(game_root, args.version) as lockinfo:
         _warn_abandoned_lock(game_root, lockinfo)
         cwd = Path.cwd()
-        rules_dir = cwd / ".mcmig"       # 静态配置跟工作区(bootstrap 两分法,spec T5b)
         data_dir = game_root / ".mcmig"  # 生成物跟实例(F8)
+        # W2.5 复审 B3(spec §3.1 T1 全入口):规则目录与 plan/diff 同经
+        # select_rules_dir 单点(新位置优先+旧布局只读回退),分类口径不分裂
+        legacy = cwd / ".mcmig"
+        rules_dir, rule_notices = select_rules_dir(
+            data_dir, legacy if legacy != data_dir else None)
+        for n in rule_notices:
+            _print_err(n)
         # 扫描构建逻辑已下沉 pipeline(快照写锚定 <game_root>/.mcmig/snapshots/,F8);
         # 不可读文件经 on_error 收集,恢复 unreadable 计数(v0 spec §7 报告契约)
         # F34①:先扫描后组规则——build_ruleset 需要快照内探测到的 world_dirs
@@ -350,7 +360,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         _warn_abandoned_lock(game_root, lockinfo)
         try:
             # 批次I-T1:rules_dir 缺省=data_dir → 用户规则优先读 <game_root>/.mcmig/rules.yaml;
-            # mcmig_dir=cwd/.mcmig 仅作旧布局回退(仅旧侧存在时回退读+提示,build_plan._rules_dir)
+            # mcmig_dir=cwd/.mcmig 仅作旧布局回退(仅旧侧存在时回退读+提示,select_rules_dir)
             plan, compat_warnings, pairs = build_plan(
                 cwd,
                 game_root,
@@ -596,7 +606,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         # 旧布局回退)——build_plan 签发时锚定快照缺失会记录实际载入的旧布局快照哈希
         # (pipeline.issue_review),重验必须取同一命中位,否则旧布局快照用户假阳性
         # snapshot_changed 且「重跑 plan」仍读旧布局,死循环(复审修复);规则=
-        # build_plan 当时经 _rules_dir 选定的目录。legacy 归一化只此一处变量
+        # build_plan 当时经 select_rules_dir 选定的目录。legacy 归一化只此一处变量
         # (`cwd/.mcmig ≠ data_dir 才有回退`),与 build_plan 的
         # `legacy = mcmig_dir if data != mcmig_dir else None` 同构,不引入第三种。
         # 旧计划(review=None)跳过,沿用上方「缺少审阅守卫」提示路径(渐进采用)。
@@ -605,7 +615,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         # 实例漂移/规则变化无决策通道,恒阻断(重新 plan 即可,保守默认)
         if plan.review is not None:
             legacy_dir = cwd / ".mcmig" if (cwd / ".mcmig") != data_dir else None
-            chosen_rules_dir, _rule_notices = _rules_dir(data_dir, legacy_dir)
+            chosen_rules_dir, _rule_notices = select_rules_dir(data_dir, legacy_dir)
             review_blockers = [
                 b for b in validate_review(
                     plan,
@@ -649,12 +659,35 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
                     console.print(f"  ❓ {a.path} — {a.reason}")
                     if Confirm.ask("  迁移此文件?", default=False):
                         ask_yes.add(a.path)
+        # write-ahead journal(W2.5 复审 B7,spec §4.3):CLI 与 GUI 同构的崩溃恢复
+        # 黑匣子——三段序 intent→操作→completion,崩溃后经 scan_interrupted 呈现
+        # 「待核对」;dry-run 零写盘不建(意图会让待核对清单失真)。job_id 带
+        # UTC 时间戳与 pid(文件名升序即时间序;实例锁保证同实例无并发迁移)
+        journal: JobJournal | None = None
+        if not args.dry_run:
+            job_id = (datetime.now(timezone.utc).strftime("cli-%Y%m%dT%H%M%SZ-")
+                      + str(os.getpid()))
+            journal = JobJournal(data_dir / "jobs", job_id, "migrate")
+
+        def _journal_before(action: ActionRecord) -> None:
+            """①意图(write-ahead):动作动手前持久化(恢复期核对依据)。"""
+            assert journal is not None  # 仅 journal 存在时才作为回调注入
+            journal.record_intent(
+                action.path, {"op": action.behavior.value, "backup": action.backup_target})
+
+        def _journal_after(action: ActionRecord, _result: FileResult) -> None:
+            """③完成:动作落盘后持久化(含失败动作——结局已知即收口)。"""
+            assert journal is not None
+            journal.record_completion(action.path)
+
         try:
             results = execute_migration(
                 plan, src_root, dst_root, ask_yes, dry_run=args.dry_run,
                 # 重跑豁免(白名单⑤):--force 即 rerun_executed 决策 → 跳过目标状态校验,
                 # 依赖 identical 短路;首跑必须校验(spec §3.3 v4 补注)
                 validate_states=not args.force,
+                before_action=_journal_before if journal is not None else None,
+                after_action=_journal_after if journal is not None else None,
             )
         except ReviewStateError as e:
             # 审阅状态校验失配(源/目标与审阅时不一致,零写盘):逐条展示后退出
@@ -673,6 +706,14 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
                 "重新生成的计划中已完成文件会按「内容一致」跳过,不会重复复制。"
             )
             return 2
+        except JournalError as e:
+            # journal ③完成段写失败(W2.5 复审 B7):executor 只吞 before_action 的
+            # JournalError,completion 段失败从此处出口——与写失败停发同型:
+            # 中止呈现、journal 不收尾(意图已落盘,留给 interrupted 通道「待核对」)、
+            # 不回写 executed_at
+            _print_err(f"[错误] journal 写入失败,迁移中止({e})")
+            _print_err("请核对 journal 中的意图清单后,重新运行 mcmig plan 再执行")
+            return 2
         from collections import Counter
 
         stat = Counter(r.status for r in results)
@@ -680,6 +721,17 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         _print(f"结果: {dict(stat)};失败 {len(failed)}")
         for r in failed:
             _print(f"  [失败] {r.path}: {r.error}")
+        if journal is not None and journal.write_failed:
+            # journal 写失败停发(与 GUI 同型安全停止):部分完成不是成功——错误
+            # 呈现、journal 不收尾(写已失败)、不回写 executed_at(计划不锁,
+            # 修复后可重新 plan 再执行)
+            _print_err(f"[错误] journal 写入失败({journal.path}),已停止分发后续动作")
+            _print_err("已分发动作的结局以该文件为准;请核对后重新运行 mcmig plan 再执行")
+            return 2
+        if journal is not None:
+            # 收尾标记:完成/部分失败都在安全边界内结束(已分发动作结局已知),
+            # 退出中断清单;异常中断(FsOpsError 上抛)不收尾 → interrupted 待核对
+            journal.finish()
         if not args.dry_run and not failed:
             # --force 重跑统计修正:保留首次 executed_at(执行状态的时间锚点),
             # execution_summary 取最新一次(反映当前实例状态;重跑多为全 identical)

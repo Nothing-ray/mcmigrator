@@ -97,21 +97,24 @@ def plan_fingerprint(plan: MigrationPlan) -> str:
 
 
 def rules_fingerprint(paths: Sequence[Path]) -> str:
-    """规则来源指纹:各存在路径的「路径+内容」级联哈希。
+    """规则来源指纹:各存在路径的内容级联哈希。
+
+    只哈希内容不哈希路径(W2.5 复审 B2):同一份规则在相对/绝对路径、Windows
+    大小写不同拼写、cwd 不同的等价位置下指纹一致——路径拼写差异不得触发假阳性
+    rules_changed(「规则没变」的错误陈述+误导性重跑摩擦);内容变即变,
+    缺失来源跳过(缺失→出现的变化由内容贡献自然体现)。来源路径集合由
+    issue_review 的 ``rule_sources`` 键另行记录供失配诊断,不参与指纹。
 
     Args:
-        paths: 规则来源路径列表(通常为 [chosen_rules_dir / "rules.yaml"]);
-            不存在的来源跳过(缺失→出现的变化由内容贡献自然体现)。
+        paths: 规则来源路径列表(通常为 [chosen_rules_dir / "rules.yaml"])。
 
     Returns:
-        64 位 16 进制摘要字符串;路径字符串参与哈希,调用方两次签名须传同构路径。
+        64 位 16 进制摘要字符串。
     """
     h = hashlib.sha256()
     for p in paths:
         if not p.is_file():
             continue
-        h.update(str(p).encode("utf-8"))
-        h.update(b"\0")
         h.update(file_sha256(p).encode("ascii"))
         h.update(b"\0")
     return h.hexdigest()
@@ -134,12 +137,15 @@ def issue_review(
 
     Returns:
         守卫字典:{"instance": str, "snapshots": {版本名: 文件SHA256},
-        "rules": str, "mode": bool};写入 plan.review 随计划持久化。
+        "rules": str, "rule_sources": [str, ...], "mode": bool};写入 plan.review
+        随计划持久化。rule_sources 仅作失配诊断记录(签名时哈希了哪些文件),
+        不参与指纹(validate_review 不读取)。
     """
     return {
         "instance": str(game_root.resolve()),
         "snapshots": {ver: file_sha256(p) for ver, p in snapshot_paths.items()},
         "rules": rules_fingerprint(rule_sources),
+        "rule_sources": [str(p) for p in rule_sources],
         "mode": bool(modpack_swap),
     }
 

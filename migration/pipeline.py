@@ -241,8 +241,12 @@ def build_ruleset(
     return rs, errors
 
 
-def _rules_dir(data_dir: Path, legacy_dir: Path | None) -> tuple[Path, list[str]]:
-    """规则目录选择:新位置优先,旧位置只读回退,并存时明确提示不暗混(spec §3.1)。
+def select_rules_dir(data_dir: Path, legacy_dir: Path | None) -> tuple[Path, list[str]]:
+    """规则目录选择单点:新位置优先,旧位置只读回退,并存时明确提示不暗混(spec §3.1)。
+
+    三类消费方共用(plan 的 build_plan、diff 的 run_diff、scan 与 migrate 守卫的
+    CLI·GUI 调用方;W2.5 复审 B3 由私有 ``_rules_dir`` 转正):「diff 预演与
+    plan 正片」必须同口径,规则目录选择不允许出现第二套逻辑。
 
     Args:
         data_dir: 生成物锚定 .mcmig 目录(game_root 侧,新规则位置)。
@@ -303,7 +307,7 @@ def build_plan(
         exclude: CLI 级临时规则 glob(本次按 never)。
         include: CLI 级临时规则 glob(本次按 must_migrate)。
         rule_files: 额外规则文件路径列表。
-        rules_dir: 用户规则目录(批次I-T1,spec §3.1);None → 按 _rules_dir 在
+        rules_dir: 用户规则目录(批次I-T1,spec §3.1);None → 按 select_rules_dir 在
             data_dir(新位置,如 <game_root>/.mcmig)与 mcmig_dir(旧布局回退)
             之间自动选择,选择结果非默认时发 warning 提示。
 
@@ -368,7 +372,7 @@ def build_plan(
     # 批次I-T1:用户规则目录选择(新位置=生成物锚定位优先,旧布局回退,不暗混);
     # 显式 rules_dir 跳过选择;非默认选择/并存时逐行 warning 提示
     chosen_rules_dir, rule_notices = (
-        (rules_dir, []) if rules_dir is not None else _rules_dir(data, legacy)
+        (rules_dir, []) if rules_dir is not None else select_rules_dir(data, legacy)
     )
     for n in rule_notices:
         log.warning("%s", n)
@@ -836,6 +840,7 @@ def run_diff(
     rule_files: Sequence[Path] = (),
     mcmig_dir: Path | None = None,  # None → cwd/.mcmig
     game_root: Path | None = None,  # None → 快照走 cwd/.mcmig 直取(仅定位,不管 ctx)
+    rules_dir: Path | None = None,  # None → select_rules_dir 自动选择(W2.5 复审 B3)
 ) -> DiffOutcome:
     """diff 公共管线(自 cli._cmd_diff 整体搬移,编排逻辑不改;CLI 与 GUI 平级消费)。
 
@@ -856,10 +861,14 @@ def run_diff(
         exclude: CLI 级临时规则 glob(本次按 never)。
         include: CLI 级临时规则 glob(本次按 must_migrate)。
         rule_files: 额外规则文件路径列表。
-        mcmig_dir: .mcmig 目录(rules.yaml 所在);None → cwd/.mcmig。
+        mcmig_dir: .mcmig 目录(快照旧布局回退位);None → cwd/.mcmig。
         game_root: 游戏根目录;仅决定快照文件定位(锚定+旧布局回退),
             None → <mcmig_dir or cwd/.mcmig> 直取。活体 ctx 与孤儿/配对是否
             降级由快照内记录的 game_root 是否可达决定(与下沉前 CLI 逐字节一致)。
+        rules_dir: 用户规则目录(与 build_plan 同参;None → game_root 可解析时
+            经 select_rules_dir 在 <game_root>/.mcmig(新位置)与 rules_base
+            (旧布局回退)间自动选择,提示入 notices;game_root=None(夹具
+            复放)时 rules_base 直取,0.6.x 行为)。
 
     Returns:
         DiffOutcome(六桶报告 + 配对 + 双侧快照 + stderr 提示行,调用方逐行转发)。
@@ -881,6 +890,18 @@ def run_diff(
     else:
         src_path = _snapshot_file(rules_base, src)
         dst_path = _snapshot_file(rules_base, dst)
+    # 规则目录(W2.5 复审 B3,spec §3.1 T1 全入口):与 build_plan 同经
+    # select_rules_dir 单点(新位置优先+旧布局只读回退+并存提示入 notices),
+    # diff 预演与 plan 正片口径一致;rules_base 仍专责快照的旧布局回退,
+    # 两职责解耦。game_root=None(夹具复放)无新位置概念,rules_base 直取
+    chosen_rules_dir = rules_dir
+    if chosen_rules_dir is None:
+        if game_root is not None:
+            chosen_rules_dir, rule_notices = select_rules_dir(
+                data_dir, rules_base if rules_base != data_dir else None)
+            notices.extend(rule_notices)
+        else:
+            chosen_rules_dir = rules_base
     missing = [n for n, p in ((src, src_path), (dst, dst_path)) if not p.exists()]
     if missing:
         raise FileNotFoundError(f"缺少 {', '.join(missing)} 快照")
@@ -914,7 +935,7 @@ def run_diff(
         exclude=list(exclude),
         include=list(include),
         rule_files=list(rule_files),
-        mcmig_dir=rules_base,
+        mcmig_dir=chosen_rules_dir,
         orphan_rules=orphan_rules,
         world_dirs=sorted(set(src_snap.world_dirs) | set(dst_snap.world_dirs)),  # F34① 双侧并集
     )

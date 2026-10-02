@@ -848,6 +848,38 @@ def test_interrupted_listing_from_journal(tmp_path, monkeypatch):
     assert items[0]["job_id"] == "deadbeef" and items[0]["entries"][0]["rel"] == "options.txt"
 
 
+def test_interrupted_listing_filters_running_job(tmp_path, monkeypatch):
+    """W2.5 复审 B4:在跑 job 的 journal 不入 interrupted 清单(活性过滤)。
+
+    迁移进行中刷新页面,当前任务的 journal 同样「未收尾+有 unfinished」——
+    不得被报成「上次未完成的迁移」(横幅与仍在增长的进度自相矛盾)。
+    手工预置与在跑 job 同名的 journal,保证观测窗内 journal 确已落盘(不依赖
+    job 内部时序):该条被剔除,无关的中断残留照常呈现。
+    """
+    from migration.journal import JobJournal
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    (game / ".mcmig" / "jobs").mkdir(parents=True)
+    JobJournal(game / ".mcmig" / "jobs", "deadbeef", "migrate").record_intent(
+        "options.txt", {"op": "copy"}
+    )
+    events = _wait_job_done(client, client.post(
+        "/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"])
+    plan_id = events[-1]["plan_id"]
+    monkeypatch.setattr(server_module, "_JOB_MIN_ALIVE_SECONDS", 1.5)  # 放大窗口
+    live = client.post("/api/migrate", json={
+        "src": "src", "dst": "dst", "ask_yes": [], "plan_id": plan_id}).json()["job_id"]
+    # 与在跑 job 同名的 journal 已落盘(手工预置,模拟 journal 写入后 job 仍在跑)
+    JobJournal(game / ".mcmig" / "jobs", live, "migrate").record_intent(
+        "a.txt", {"op": "copy"})
+    items = client.get("/api/jobs/interrupted").json()["items"]
+    assert [i["job_id"] for i in items] == ["deadbeef"]  # 在跑 job 被剔除,残留保留
+    _wait_job_done(client, live)
+    # 收尾后(finished 标记)同样不入清单;残留仍在
+    items2 = client.get("/api/jobs/interrupted").json()["items"]
+    assert [i["job_id"] for i in items2] == ["deadbeef"]
+
+
 def test_shutdown_endpoint_guards_on_busy(tmp_path, monkeypatch):
     """退出入口: 空闲 200 置停机标志;job 运行 409(spec §4.3,uvicorn 侧接线归 T10)。"""
     _game, client = _make_client(tmp_path, monkeypatch)

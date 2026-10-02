@@ -440,6 +440,49 @@ def test_diff_client_only_registry_modid_channel(tmp_path: Path) -> None:
     assert any("客户端" in n and "glacier_dragon-1.0.0.jar" in n for n in out.notices)
 
 
+def test_run_diff_rules_dir_select_single_point(tmp_path: Path) -> None:
+    """W2.5 复审 B3:run_diff 规则目录经 select_rules_dir 单点,与 build_plan 同口径。
+
+    基线无规则 → options.txt 入 to_migrate;仅旧布局(cwd/.mcmig)规则 →
+    回退读+提示;新位置出现(并存)→ 新位置优先+提示忽略旧——diff 预演与
+    plan 正片不再口径分裂(spec §3.1 T1 全入口)。
+    """
+    from migration.pipeline import run_diff, scan_version
+
+    root = tmp_path / "root"
+    for n in ("a", "b"):
+        vdir = root / "versions" / n
+        vdir.mkdir(parents=True)
+        (vdir / "options.txt").write_text("v=1\n" if n == "a" else "v=2\n", encoding="utf-8")
+        (vdir / "servers.dat").write_bytes(b"\x0a\x00\x00")
+    scan_version(root, "a", root / ".mcmig" / "snapshots")
+    scan_version(root, "b", root / ".mcmig" / "snapshots")
+
+    def _to_migrate(out) -> set[str]:
+        return {i.path for i in out.report.to_migrate}
+
+    assert "options.txt" in _to_migrate(run_diff(tmp_path, src="a", dst="b", game_root=root))
+
+    # 仅旧布局规则 → 回退读(never 生效)+ 提示
+    legacy = tmp_path / ".mcmig"
+    legacy.mkdir()
+    (legacy / "rules.yaml").write_text(
+        "version: 1\nrules:\n  - match: options.txt\n    decide: never\n    reason: t\n",
+        encoding="utf-8")
+    out = run_diff(tmp_path, src="a", dst="b", game_root=root)
+    assert "options.txt" not in _to_migrate(out)
+    assert any("旧布局规则" in n for n in out.notices)
+
+    # 新旧并存 → 新位置优先(旧 never 失效,新 never 转投 servers.dat)+ 提示忽略旧
+    (root / ".mcmig" / "rules.yaml").write_text(
+        "version: 1\nrules:\n  - match: servers.dat\n    decide: never\n    reason: t\n",
+        encoding="utf-8")
+    out2 = run_diff(tmp_path, src="a", dst="b", game_root=root)
+    assert "options.txt" in _to_migrate(out2)      # 旧规则被忽略,恢复默认判定
+    assert "servers.dat" not in _to_migrate(out2)  # 新规则生效
+    assert any("已忽略" in n for n in out2.notices)
+
+
 def test_context_read_file_roundtrip_and_missing(tmp_path):
     from migration.pipeline import resolve_diff_context
 

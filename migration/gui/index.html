@@ -1008,13 +1008,16 @@ function loadInterrupted() {
   }).catch(function () { /* 拉取失败静默:横幅属辅助提示,不阻断向导 */ });
 }
 
-/* ---------- 退出服务(批次I-T6):空闲置停机标志,进程退出归启动方 ---------- */
+/* ---------- 退出服务(批次I-T6):空闲置停机标志,进程退出归启动方(T10 接线) ---------- */
 
 function shutdownServer() {
   var btn = $("btn-shutdown");
   btn.disabled = true;
   postJson("/api/shutdown", {}).then(function () {
-    $("shutdown-note").textContent = "服务已退出,请关闭本页面。";
+    // W2.5 复审 B6:停机标志已置,但进程退出由启动方轮询执行(T10 前尚在运行)——
+    // 文案不得声称「已退出」,否则玩家关页后控制台进程残留却自以为已收尾
+    $("shutdown-note").textContent =
+      "已请求退出。请关闭本页面;若控制台窗口仍停留,直接关闭它即可。";
   }).catch(function (err) {
     btn.disabled = false;
     if (err instanceof TypeError) { $("banner-disconnect").hidden = false; return; }

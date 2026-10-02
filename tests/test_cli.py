@@ -448,6 +448,96 @@ def test_migrate_fsops_error_friendly_exit_2(tmp_path, monkeypatch, capsys):
     assert "已完成文件会自动跳过" not in out
 
 
+# ---- W2.5 复审 B7:CLI migrate write-ahead journal(spec §4.3,与 GUI 同构) ----
+
+
+def _w25_journal_setup(tmp_path: Path, monkeypatch, capsys) -> Path:
+    """建 src/dst 两版本+scan+plan 的公共夹具,返回 game_root。"""
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "options.txt").write_text("fps:60\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "src", "--game-root", str(game_root)])
+    cli.main(["scan", "dst", "--game-root", str(game_root)])
+    cli.main(["plan", "src", "dst", "--game-root", str(game_root)])
+    capsys.readouterr()
+    return game_root
+
+
+def test_migrate_writes_finished_journal(tmp_path: Path, monkeypatch, capsys):
+    """W2.5 复审 B7:成功迁移落 journal 于 <game_root>/.mcmig/jobs/,收尾且不入中断清单。"""
+    import json as _json
+
+    from migration import cli
+    from migration.journal import scan_interrupted
+
+    game_root = _w25_journal_setup(tmp_path, monkeypatch, capsys)
+    assert cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"]) == 0
+    out = capsys.readouterr().out
+    jobs = list((game_root / ".mcmig" / "jobs").glob("cli-*.json"))
+    assert len(jobs) == 1  # job_id 形如 cli-<UTC时间戳>-<pid>(升序=时间序)
+    doc = _json.loads(jobs[0].read_text(encoding="utf-8"))
+    assert doc["kind"] == "migrate" and doc["finished"] is True
+    assert doc["entries"]["options.txt"]["completed"] is True  # 三段序收口
+    assert scan_interrupted(game_root / ".mcmig" / "jobs") == []
+    assert "迁移完成" in out  # 正常成功路径不受 journal 接线影响
+
+
+def test_migrate_dry_run_creates_no_journal(tmp_path: Path, monkeypatch, capsys):
+    """W2.5 复审 B7:dry-run 零写盘不建 journal(意图会让待核对清单失真)。"""
+    from migration import cli
+
+    game_root = _w25_journal_setup(tmp_path, monkeypatch, capsys)
+    assert cli.main(
+        ["migrate", "src", "dst", "--game-root", str(game_root), "-y", "--dry-run"]) == 0
+    capsys.readouterr()
+    assert not (game_root / ".mcmig" / "jobs").exists()
+
+
+def test_migrate_journal_write_failure_not_locked_as_executed(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """W2.5 复审 B7:journal 写失败 → 中止呈现退 2、executed_at 不回写、意图留待核对。
+
+    注入点:migration.journal 命名空间的 write_json_atomic——首条 intent 落盘
+    后失败,撑开「操作已发生/完成记录未写」的崩溃窗口(与 GUI 同型注入)。
+    """
+    from migration import cli
+    from migration import journal as journal_ns
+    from migration.journal import scan_interrupted
+    from migration.plan import MigrationPlan
+
+    game_root = _w25_journal_setup(tmp_path, monkeypatch, capsys)
+    orig = journal_ns.write_json_atomic
+    calls = {"n": 0}
+
+    def _flaky(path, payload):
+        calls["n"] += 1
+        if calls["n"] > 1:  # 首条 intent 落盘后失败
+            raise OSError("disk full (injected)")
+        return orig(path, payload)
+
+    monkeypatch.setattr(journal_ns, "write_json_atomic", _flaky)
+    rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "journal 写入失败" in captured.err
+    assert "迁移完成" not in captured.out
+    # 计划未回写执行状态(重跑不被 plan_executed 拦,修复后可重新 plan)
+    plan_file = game_root / ".mcmig" / "plans" / "src__dst.plan.json"
+    assert MigrationPlan.load(plan_file).executed_at is None
+    # 落盘的意图无完成记录 → 中断清单「待核对」(≠未执行,结局须人工核对)
+    items = scan_interrupted(game_root / ".mcmig" / "jobs")
+    assert items and items[0]["kind"] == "migrate"
+    assert items[0]["entries"][0]["rel"] == "options.txt"
+
+
 def test_migrate_force_maps_three_decisions(tmp_path, monkeypatch, capsys):
     """--force = 三项显式决策(白名单③):已执行/快照过期/疑似占用均放行,目录缺失仍拒。
 
@@ -1278,6 +1368,61 @@ def test_plan_rules_legacy_fallback_and_precedence(tmp_path, monkeypatch, capsys
         origins = _t1_plan_origins(game_root, tmp_path, capsys)
     assert origins.get("options.txt") != "never"  # 旧规则被忽略,恢复默认判定
     assert any("已忽略" in m for m in caplog.messages)
+
+
+# ---- W2.5 复审 B3:diff/scan 规则目录与 plan 同口径(spec §3.1 T1 全入口) ----
+
+
+def test_scan_rules_anchored_to_game_root(tmp_path, monkeypatch, capsys):
+    """W2.5 复审 B3:scan 分类读取 <game_root>/.mcmig/rules.yaml(此前仅读 cwd/.mcmig)。
+
+    cwd/.mcmig 不存在时 never 生效只能来自 game_root 侧规则——options.txt 从
+    must_migrate 翻 never(计数此消彼长),diff 预演/plan 正片/scan 汇总三口径一致。
+    """
+    import json
+
+    from migration import cli
+
+    game_root = _setup_game(tmp_path, ["mini"])
+    monkeypatch.chdir(tmp_path)  # cwd/.mcmig 不存在
+    assert cli.main(["scan", "mini", "--game-root", str(game_root), "--json"]) == 0
+    base = json.loads(capsys.readouterr().out)["by_category"]
+
+    rr = game_root / ".mcmig"
+    rr.mkdir(parents=True, exist_ok=True)  # 首轮 scan 已建 snapshots/
+    (rr / "rules.yaml").write_text(_T1_NEVER_RULE, encoding="utf-8")
+    assert cli.main(["scan", "mini", "--game-root", str(game_root), "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)["by_category"]
+    assert doc.get("never", 0) == base.get("never", 0) + 1      # options.txt 翻 never
+    assert doc.get("must_migrate", 0) == base.get("must_migrate", 0) - 1
+    assert not (tmp_path / ".mcmig").exists()                    # cwd 侧从未创建
+
+
+def test_diff_rules_anchored_to_game_root(tmp_path, monkeypatch, capsys):
+    """W2.5 复审 B3:mcmig diff 读取 <game_root>/.mcmig/rules.yaml(与 plan 同口径)。
+
+    规则生效 → options.txt 落 never 桶(--category never 可见),不再入
+    to_migrate——「diff 预演与 plan 正片口径分裂」(复审 Important 3)收口。
+    """
+    from migration import cli
+
+    game_root = _setup_game(tmp_path, ["src", "dst"], variant_b_for="dst")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["scan", "src", "--game-root", str(game_root), "-q"]) == 0
+    assert cli.main(["scan", "dst", "--game-root", str(game_root), "-q"]) == 0
+    capsys.readouterr()
+
+    # 基线:无用户规则 → never 桶无 options.txt
+    assert cli.main(
+        ["diff", "src", "dst", "--game-root", str(game_root), "--category", "never"]) == 0
+    assert "options.txt" not in capsys.readouterr().out
+
+    rr = game_root / ".mcmig"
+    rr.mkdir(parents=True, exist_ok=True)  # scan 已建 snapshots/
+    (rr / "rules.yaml").write_text(_T1_NEVER_RULE, encoding="utf-8")
+    assert cli.main(
+        ["diff", "src", "dst", "--game-root", str(game_root), "--category", "never"]) == 0
+    assert "options.txt" in capsys.readouterr().out  # never 生效=规则被读取
 
 
 # ---- 批次I-T5:跨进程实例锁接线(锁体真实现由 test_instlock.py 覆盖) ----

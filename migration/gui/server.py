@@ -76,13 +76,13 @@ from ..plan import (
     PlanPersistError,
 )
 from ..pipeline import (
-    _rules_dir,  # 同包私有助手:规则目录「新位置优先+旧布局只读回退」单点(终审修复 I4;cli 亦有同款消费)
     build_plan,
     execute_migration,
     find_snapshot,
     list_versions,
     read_active_version,
     scan_version,
+    select_rules_dir,  # 规则目录「新位置优先+旧布局只读回退」单点(W2.5 复审 B3 转正;cli/pipeline 内部同源消费)
 )
 from ..preflight import PreflightBlocker, preflight_execute
 from ..review import check_action_states, plan_fingerprint, validate_review
@@ -350,6 +350,17 @@ class JobStore:
         with self._lock:
             return self._current is not None and not self._current.done
 
+    def active_id(self) -> str | None:
+        """当前在跑 job 的 id;无在跑任务返回 None。
+
+        interrupted 清单活性过滤(W2.5 复审 B4)用:在跑 migrate job 的 journal
+        同样「未收尾+有 unfinished」,但它是**当前任务**而非「上次未完成的迁移」。
+        """
+        with self._lock:
+            if self._current is not None and not self._current.done:
+                return self._current.id
+            return None
+
 
 # ---------------------------------------------------------------------------
 # 错误三段式:{what, why, details} + HTTP 状态码
@@ -556,11 +567,11 @@ def _run_plan_job(job: Job, ctx: InstanceCtx, src: str, dst: str) -> None:
                             {"type": "notice",
                              "text": STRINGS["notice.legacy_snapshot"].format(path=legacy_path)}
                         )
-                # 旧布局规则只读回退提示(终审修复 I4,spec §3.1):_rules_dir 以同参数
+                # 旧布局规则只读回退提示(终审修复 I4,spec §3.1):select_rules_dir 以同参数
                 # 复算(与 build_plan 内部选择一致——同体归 None 的规范化也保持同构),
                 # 提示经既有 notice 事件通道流出——不再让旧 rules.yaml 被无声忽略
                 _rules_legacy = legacy_dir if legacy_dir != data_dir else None
-                _chosen, rule_notices = _rules_dir(data_dir, _rules_legacy)
+                _chosen, rule_notices = select_rules_dir(data_dir, _rules_legacy)
                 for n in rule_notices:
                     job.emit({"type": "notice", "text": n})
             job.emit({"type": "phase", "name": "scan_src"})
@@ -576,7 +587,7 @@ def _run_plan_job(job: Job, ctx: InstanceCtx, src: str, dst: str) -> None:
                 dst,
                 # 批次I-T1+终审修复 I4(spec §3.1):data_dir=实例态 .mcmig 目录
                 # (快照读/写锚定位——scan 后两侧快照已在此,定位语义不受影响);
-                # mcmig_dir=旧布局回退位,build_plan 内经 _rules_dir 据此做规则
+                # mcmig_dir=旧布局回退位,build_plan 内经 select_rules_dir 据此做规则
                 # 「新位置优先+旧布局只读回退」选择,绿色老用户的旧 rules.yaml
                 # 不再被无声忽略;无旧布局时与 data_dir 同值,行为不变
                 mcmig_dir=legacy_dir if legacy_dir is not None else data_dir,
@@ -737,7 +748,7 @@ def _run_migrate_job(
                 src: ctx.snapshots / f"{src}.snapshot.json",
                 dst: ctx.snapshots / f"{dst}.snapshot.json",
             }
-            # 规则来源与签发侧同构(终审修复 I4):plan job 的 build_plan 经 _rules_dir
+            # 规则来源与签发侧同构(终审修复 I4):plan job 的 build_plan 经 select_rules_dir
             # 选定规则目录(新位置优先+旧布局只读回退),此处同参复算同一目录——
             # 旧布局规则用户在 migrate 侧不因路径失配误报 rules_changed
             mig_data_dir = ctx.game_root / ".mcmig"
@@ -746,7 +757,7 @@ def _run_migrate_job(
                 if ctx.legacy_snapshots is not None and ctx.legacy_snapshots.parent != mig_data_dir
                 else None
             )
-            chosen_rules_dir, _rule_notices = _rules_dir(mig_data_dir, mig_legacy)
+            chosen_rules_dir, _rule_notices = select_rules_dir(mig_data_dir, mig_legacy)
             review_blockers = validate_review(
                 plan, game_root=ctx.game_root,
                 snapshot_paths=guard_snapshots, rule_sources=[chosen_rules_dir / "rules.yaml"],
@@ -1237,10 +1248,17 @@ def create_app(workdir: WorkDir | None = None) -> FastAPI:
 
         请求期现扫(而非只读 create_app 时的快照):服务长驻,启动后新落下
         的中断记录同样可见;未配置 game_root(欢迎态)或目录不存在 → 空清单。
-        待核对 ≠ cancelled——只陈述「这条意图没有完成记录」,结局须人工核对。
+        活性过滤(W2.5 复审 B4):在跑 migrate job 的 journal 同样「未收尾+
+        有 unfinished」,但它是当前任务而非中断残留——迁移进行中刷新页面不得
+        把它报成「上次未完成的迁移」(与仍在增长的进度自相矛盾);journal 与
+        job 同 id,按 id 剔除。待核对 ≠ cancelled——只陈述「这条意图没有完成
+        记录」,结局须人工核对。
         """
         jobs_dir = app.state.wdir.jobs
         items = scan_interrupted(jobs_dir) if jobs_dir is not None else []
+        active = store.active_id()
+        if active is not None:
+            items = [i for i in items if i.get("job_id") != active]
         return {"items": items}
 
     @app.get("/api/jobs/{job_id}")

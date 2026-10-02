@@ -16,7 +16,9 @@ from migration.pipeline import scan_version
 from migration.review import (
     check_action_states,
     file_sha256,
+    issue_review,
     plan_fingerprint,
+    rules_fingerprint,
     validate_review,
 )
 
@@ -29,6 +31,48 @@ def test_file_sha256_stable_and_sensitive(tmp_path):
     assert h1 == file_sha256(p) and len(h1) == 64
     p.write_text('{"a":1}', encoding="utf-8")
     assert file_sha256(p) != h1
+
+
+def test_rules_fingerprint_path_independent(tmp_path):
+    """W2.5 复审 B2:指纹只哈希内容——路径拼写差异不得触发假阳性 rules_changed。
+
+    同内容不同位置/不同拼写 → 同指纹;内容变 → 指纹变;缺失来源零贡献
+    (签名时缺失+校验时仍缺失 = 无变化)。
+    """
+    a = tmp_path / "a" / "rules.yaml"
+    b = tmp_path / "b" / "RULES.yaml"
+    a.parent.mkdir()
+    b.parent.mkdir()
+    a.write_text("rules: []\n", encoding="utf-8")
+    b.write_text("rules: []\n", encoding="utf-8")
+    assert rules_fingerprint([a]) == rules_fingerprint([b])  # 路径/大小写无关
+    missing = tmp_path / "nowhere" / "rules.yaml"
+    assert rules_fingerprint([missing]) == rules_fingerprint([])  # 缺失零贡献
+    b.write_text("rules: [x]\n", encoding="utf-8")
+    assert rules_fingerprint([a]) != rules_fingerprint([b])  # 内容敏感
+
+
+def test_issue_review_records_rule_sources(tmp_path):
+    """W2.5 复审 B2:rule_sources 只作失配诊断记录,不参与指纹。"""
+    game = tmp_path / "game"
+    game.mkdir()
+    snap = tmp_path / "s.json"
+    snap.write_text("{}", encoding="utf-8")
+    r1 = tmp_path / "r1.yaml"
+    r1.write_text("rules: []\n", encoding="utf-8")
+    guard = issue_review(
+        game_root=game, snapshot_paths={"v": snap},
+        rule_sources=[r1], modpack_swap=False,
+    )
+    assert guard["rule_sources"] == [str(r1)]
+    # 同内容异名来源:指纹一致(诊断键不同但指纹不受路径影响)
+    r2 = tmp_path / "r2.yaml"
+    r2.write_text("rules: []\n", encoding="utf-8")
+    guard2 = issue_review(
+        game_root=game, snapshot_paths={"v": snap},
+        rule_sources=[r2], modpack_swap=False,
+    )
+    assert guard2["rules"] == guard["rules"]
 
 
 def test_fingerprint_excludes_runtime_fields(built_plan_layout):
