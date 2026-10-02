@@ -143,7 +143,7 @@ def run_doctor(workdir: WorkDir | None = None) -> tuple[bool, list[str]]:
             return ok, lines
 
     # ② game_root 已配置且存在
-    game_root = wd.game_root()
+    game_root = wd.game_root
     if game_root is None:
         add(False, "游戏根目录", "未配置(请先保存 game_root 到工作目录配置)")
     elif game_root.is_dir():

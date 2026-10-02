@@ -14,7 +14,7 @@ When your modpack moves from one NeoForge version folder to another, you want to
 - **Tiered hashing**: full MD5 for text, filename-set for mods, size proxy for bulk (`.sqlite`/`.zip`/`.mca`) — fast and precise (byte-level for text the player edits; size proxy for binaries they don't).
 - **Data-driven classification**: rule engine (`pathspec`, gitignore semantics), layered first-match-wins (CLI override > user rules > built-in default > unknown); changing rules doesn't require rescanning.
 - **Migration-oriented 6-bucket diff**: `to_migrate` / `candidate` / `mods` (by filename set) / `only_in_dst` / `identical` / `never`.
-- **Game-content zero writes**: only writes its own `.mcmig/` (snapshots/plans); never touches mods/config/saves.
+- **Game-content zero writes**: only writes its own `.mcmig/` (snapshots/plans/job journals); never touches mods/config/saves.
 
 ## Installation
 
@@ -34,7 +34,7 @@ pip install -e .
 
 1. **Command flag**: `mcmig scan <ver> --game-root <absolute path>`
 2. **Environment variable**: set `MCMIG_GAME_ROOT`
-3. **Config file**: `cp config.example.yaml .mcmig/config.yaml`, edit `game_root` in it
+3. **Config file**: `cp config.example.yaml .mcmig/config.yaml`, edit `game_root` in it (source runs; with the portable exe, save it from the wizard's step-① "game root" input box, which persists to `data/config.toml`)
 
 If none is provided, the tool errors out with the above guidance.
 
@@ -169,19 +169,29 @@ the previous one failed to pair it, and registry (modid) pairing always takes pr
 
 ## Data & Uninstall
 
-### Where the Tool Keeps Its Data
+### Where the Tool Keeps Its Data (path contract v3)
 
-- **Portable exe (recommended, no Python needed)**: all tool state (config / snapshots / plans / rules) lives in the `data/` folder next to `mcmig.exe` — nothing is ever written to AppData or user directories. Copy the whole client folder and the tool state travels with it. Inside `data/`, state is isolated per game root by a subfolder named after it (`data/<game-dir-name>/snapshots|plans|rules.yaml`), so multiple modpacks never mix; `data/config.toml` records the game root.
-- **Source run (Python)**: two-pronged layout — snapshots and plans are written to `<game_root>/.mcmig` (generated artifacts travel with the game instance); `config.yaml` and `rules.yaml` stay in the working directory's `.mcmig` (bootstrap config travels with the workspace). Reads prefer the anchored location and automatically fall back to the legacy CWD layout with a migration hint when not found. `diff` must be able to locate the game root (`--game-root` / `MCMIG_GAME_ROOT` / `.mcmig/config.yaml`, any one of the three); otherwise it only searches the CWD (fixture-replay compatible).
+Tool state splits into two layers: the **global layer** (travels with the tool) and the **instance layer** (travels with the game instance; the CLI and GUI read/write the same location):
+
+```
+mcmig/ (exe folder)                  <game-root>/.mcmig/ (instance layer, CLI/GUI shared)
+├── mcmig-gui.exe / mcmig.exe        ├── snapshots/ plans/ rules.yaml
+└── data/                            ├── jobs/ (job journal; interrupted = pending review)
+    └── config.toml (global only)    ├── locks/ and backups/ (from Batch I W3)
+```
+
+- **Global layer (software side)**: with the portable exe it is `data/config.toml`, holding **only global config** (the game-root pointer) — nothing is ever written to AppData or user directories, and copying the whole client folder carries the config along. For source runs it is the working directory's `.mcmig/config.yaml` (unchanged). A first run with nothing configured is a welcome state (no error); the wizard's step-① input box guides you to set and persist it.
+- **Instance layer (`<game-root>/.mcmig/`)**: snapshots (`snapshots/`), migration plans (`plans/`), user rules (`rules.yaml`), and job journals (`jobs/` — the migration write-ahead journal; after an abnormal exit it feeds the page's "pending review" banner) are all anchored at the game root, **same location** for both portable and source modes, so multiple modpack roots never mix. `locks/` is the cross-process instance-lock registry (reserved); `backups/` arrives with Batch I W3.
+- **Migrating from the old layout**: the old portable layout `exe/data/<game-name>/snapshots|plans|rules.yaml` and the old source-mode instance state under `cwd/.mcmig/` are **read-only fallbacks** — the tool never writes to the old locations; legacy snapshots are still read, with a hint recommending a bulk move; when `rules.yaml` exists in both places, **the new location wins** (the old file is ignored with a notice). Recommended: move old `snapshots/` and `rules.yaml` into `<game-root>/.mcmig/` as a whole, then delete the old copies.
 
 ### What Gets Written on the Game Side
 
-The only directory the tool ever creates inside the game root is `.mcmig/` (snapshots and migration plans — pure tool artifacts, safely deletable and rebuildable by re-scanning); no other tool directory is created. The only thing written to game **content** during migration is the **conflict backup**: a file with the same name but different content is backed up to `<target-version>/_conflict_backup/` before being overwritten (mirroring the relative path; the first backup is the pre-overwrite original, and re-runs never overwrite it). Once the migration is verified fine, that folder can be safely deleted.
+The only directory the tool ever creates inside the game root is `.mcmig/` (snapshots, migration plans, user rules, and job journals — pure tool artifacts; snapshots rebuild on re-scan, and deleting the job journals merely clears the "pending review" banner); no other tool directory is created. The only thing written to game **content** during migration is the **conflict backup**: a file with the same name but different content is backed up to `<target-version>/_conflict_backup/` before being overwritten (mirroring the relative path; the first backup is the pre-overwrite original, and re-runs never overwrite it). Once the migration is verified fine, that folder can be safely deleted.
 
 ### How to Uninstall
 
-1. Delete the mcmig program folder (for the portable exe, `data/` is inside it — deleting it removes all tool state);
-2. Optional: delete `<game-root>/.mcmig/` (pure tool artifacts; re-scanning rebuilds them);
+1. Delete the mcmig program folder (for the portable exe, `data/config.toml` — the only thing in it — goes with it, clearing the software-side state; the instance layer is step 2);
+2. Optional: delete `<game-root>/.mcmig/` (snapshots / plans / rules / job journals — pure tool artifacts; re-scanning rebuilds the snapshots, and deleting the journals clears the "pending review" banner);
 3. Optional: delete `_conflict_backup/` in each `<game-root>/versions/<version>/` (harmless to keep);
 4. Game **content** directories themselves (mods/config/saves…) are never modified by the tool — no cleanup needed; apart from the `.mcmig/` handled in step 2, nothing else tool-related is left inside the game root.
 

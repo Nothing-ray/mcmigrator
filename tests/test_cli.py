@@ -443,6 +443,186 @@ def test_migrate_fsops_error_friendly_exit_2(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 2
     assert "[错误]" in out and "磁盘空间不足" in out
+    # 重试引导(终审修复 I3):以「重新 plan 再执行」为前提,不再暗示直接重跑
+    assert "重新运行 mcmig plan 再执行" in out
+    assert "已完成文件会自动跳过" not in out
+
+
+def test_migrate_force_maps_three_decisions(tmp_path, monkeypatch, capsys):
+    """--force = 三项显式决策(白名单③):已执行/快照过期/疑似占用均放行,目录缺失仍拒。
+
+    三项全中构造:首跑回写 executed_at(已执行)→ 重扫 src(快照 mtime 变新,过期)
+    → 独占句柄持有 dst/usercache.json(疑似占用,真独占句柄见 conftest.hold_exclusive)。
+    """
+    import shutil as _shutil
+
+    from tests.conftest import hold_exclusive
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "options.txt").write_text("fps:60\n", encoding="utf-8")
+    (dst_dir / "usercache.json").write_text("[]", encoding="utf-8")  # 不入 plan,只供占用探测
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert cli.main(["scan", "dst", "--game-root", str(game_root)]) == 0
+    assert cli.main(["plan", "src", "dst", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    assert cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"]) == 0
+    capsys.readouterr()
+    # 三项全中:已执行(刚回写)+ 重扫 src 后快照比 plan 新 + 独占持有 usercache.json
+    assert cli.main(["scan", "src", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    with hold_exclusive(dst_dir / "usercache.json"):
+        # 不加 --force:阻断取首条(已执行),文案逐字不变
+        rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+        out = capsys.readouterr().out
+        assert rc == 2 and "该计划已执行" in out
+        # --force:三项均降级放行,实际执行成功;降级警告走 stderr(疑似措辞,白名单④)
+        rc2 = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y", "--force"])
+        captured = capsys.readouterr()
+        assert rc2 == 0
+        assert "疑似被占用" in captured.err
+    # 目录缺失:--force 也拒(永不可强制,白名单③)
+    _shutil.rmtree(dst_dir)
+    rc3 = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y", "--force"])
+    out3 = capsys.readouterr().out
+    assert rc3 == 2 and "源/目标版本文件夹不存在" in out3
+
+
+# ---- 批次I-T3:审阅有效性(persisted 阻断 + 渐进采用) ----
+
+
+def test_plan_persist_failure_exits_2(tmp_path, monkeypatch, capsys):
+    """白名单②:plan 保存失败上抛 PlanPersistError → [错误] + 退出 2(不再吞)。"""
+    from migration.plan import MigrationPlan
+
+    game_root = tmp_path / "game"
+    (game_root / "versions" / "src").mkdir(parents=True)
+    (game_root / "versions" / "dst").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "src", "--game-root", str(game_root)])
+    cli.main(["scan", "dst", "--game-root", str(game_root)])
+    capsys.readouterr()
+
+    def _boom(self, path):
+        raise OSError("disk full (注入)")
+
+    monkeypatch.setattr(MigrationPlan, "save", _boom)
+    rc = cli.main(["plan", "src", "dst", "--game-root", str(game_root)])
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "[错误]" in out and "plan 文件写入失败" in out
+
+
+def test_migrate_old_plan_without_review_hint_and_continue(tmp_path, monkeypatch, capsys):
+    """渐进采用:旧 plan(无 review 键)→ stderr 提示后继续执行,不阻断既有流程。"""
+    import json as _json
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    src_dir.mkdir(parents=True)
+    dst_dir.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    cli.main(["scan", "src", "--game-root", str(game_root)])
+    cli.main(["scan", "dst", "--game-root", str(game_root)])
+    cli.main(["plan", "src", "dst", "--game-root", str(game_root)])
+    capsys.readouterr()
+    # 剥掉 review 键 → 模拟旧版工具生成的 plan
+    plan_file = game_root / ".mcmig" / "plans" / "src__dst.plan.json"
+    doc = _json.loads(plan_file.read_text(encoding="utf-8"))
+    doc.pop("review", None)
+    plan_file.write_text(_json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "缺少审阅守卫" in captured.err  # 提示走 stderr,不污染 stdout
+    assert (dst_dir / "options.txt").read_text(encoding="utf-8") == "fps:120\n"  # 照常执行
+
+
+def test_migrate_review_rules_change_blocks_exit_2(tmp_path: Path, monkeypatch, capsys):
+    """终审修复 I1:plan 后 rules.yaml 出现/变化 → migrate 审阅守卫阻断(rules_changed)退 2,零执行。
+
+    CLI 自批次I 起执行与 GUI 同源的 validate_review(spec §3.3 白名单增补):
+    规则指纹失配时提示重跑 plan;重新 plan(规则纳入指纹)后同一链路放行。
+    """
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "options.txt").write_text("fps:60\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert cli.main(["scan", "dst", "--game-root", str(game_root)]) == 0
+    assert cli.main(["plan", "src", "dst", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    # 计划签发后规则出现(签发时无 rules.yaml,指纹为空)→ 规则指纹失配
+    (game_root / ".mcmig" / "rules.yaml").write_text(
+        "version: 1\nrules:\n  - match: 'config/nope.toml'\n    decide: never\n"
+        "    reason: 'test'\n",
+        encoding="utf-8",
+    )
+    rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "规则文件在计划签发后已变化" in out
+    assert (dst_dir / "options.txt").read_text(encoding="utf-8") == "fps:60\n"  # 零执行
+    # 重新 plan(规则纳入指纹)→ 守卫两侧同构,migrate 放行(不改规则时链路不破坏)
+    assert cli.main(["plan", "src", "dst", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    rc2 = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    assert rc2 == 0
+    assert (dst_dir / "options.txt").read_text(encoding="utf-8") == "fps:120\n"
+
+
+def test_migrate_review_guard_legacy_snapshots_no_false_positive(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """复审修复(I1 遗留回归):快照仅存旧布局(cwd/.mcmig/snapshots)→ 守卫不再假阳性。
+
+    签发侧 build_plan 在锚定快照缺失时回退载入旧布局快照并把**旧快照哈希**记入
+    review(pipeline.issue_review);重验侧必须对称取 find_snapshot 的同一实际命中位
+    ——修复前硬编码锚定路径(不存在)→ 双侧 snapshot_changed 退 2,而「重跑 plan」
+    仍读旧布局,死循环。修复后守卫放行,migrate 正常执行(锚定布局的漂移检测由
+    test_migrate_review_rules_change_blocks_exit_2 / GUI 漂移用例继续覆盖,不弱化)。
+    """
+    from migration import cli
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    dst_dir = game_root / "versions" / "dst"
+    for d in (src_dir, dst_dir):
+        d.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (dst_dir / "options.txt").write_text("fps:60\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["scan", "src", "--game-root", str(game_root)]) == 0
+    assert cli.main(["scan", "dst", "--game-root", str(game_root)]) == 0
+    # 快照仅留旧布局:锚定位文件挪到 cwd/.mcmig/snapshots(rename 保 mtime,不触发过期)
+    legacy_snaps = tmp_path / ".mcmig" / "snapshots"
+    legacy_snaps.mkdir(parents=True)
+    anchored = game_root / ".mcmig" / "snapshots"
+    for ver in ("src", "dst"):
+        (anchored / f"{ver}.snapshot.json").rename(legacy_snaps / f"{ver}.snapshot.json")
+    anchored.rmdir()
+    # 新版 plan:回退读旧布局快照,review 记录的是旧快照哈希
+    assert cli.main(["plan", "src", "dst", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "在计划签发后已变化" not in out  # 无假阳性 snapshot_changed
+    assert (dst_dir / "options.txt").read_text(encoding="utf-8") == "fps:120\n"  # 真实执行
 
 
 def test_plan_user_rule_overrides_orphan(tmp_path: Path, monkeypatch, capsys):
@@ -1016,3 +1196,155 @@ def test_diff_same_snapshot_file_self_hint(tmp_path: Path, monkeypatch, capsys) 
     captured = capsys.readouterr()
     json.loads(captured.out)
     assert "自比对" in captured.err
+
+
+# ---- 批次I-T1 路径契约 v3:plan 用户规则锚定 game_root/.mcmig(_rules_dir 选择) ----
+
+# never 规则模板:命中 options.txt(variant_b 使其必迁,规则生效即归零)
+_T1_NEVER_RULE = (
+    "version: 1\n"
+    "rules:\n"
+    "  - match: options.txt\n"
+    "    decide: never\n"
+    "    reason: 测试锚定\n"
+)
+
+
+def _t1_plan_origins(game_root: Path, tmp_path: Path, capsys) -> dict[str, str]:
+    """跑一次 plan --json,返回 {路径: origin}(断言 never 生效与否的公共helper)。"""
+    import json
+
+    from migration import cli
+
+    assert cli.main(
+        ["plan", "src", "dst", "--game-root", str(game_root), "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    return {a["path"]: a["origin"] for a in doc["actions"]}
+
+
+def test_plan_rules_anchored_to_game_root(tmp_path, monkeypatch, capsys):
+    """批次I-T1 路径契约 v3:用户规则读取 <game_root>/.mcmig/rules.yaml(而非 cwd/.mcmig)(spec §3.1)。
+
+    cwd/.mcmig 不存在 → never 生效只能来自 game_root 侧规则;断言以 plan
+    --json 的 origin 表达(options.txt 落 never、must_migrate 计数归零)。
+    """
+    from migration import cli
+
+    game_root = _setup_game(tmp_path, ["src", "dst"], variant_b_for="dst")
+    rr = game_root / ".mcmig"
+    rr.mkdir(parents=True)
+    (rr / "rules.yaml").write_text(_T1_NEVER_RULE, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)  # cwd/.mcmig 不存在 → 只能来自 game_root 侧
+    assert cli.main(["scan", "src", "--game-root", str(game_root), "-q"]) == 0
+    assert cli.main(["scan", "dst", "--game-root", str(game_root), "-q"]) == 0
+    capsys.readouterr()
+
+    import json
+
+    assert cli.main(["plan", "src", "dst", "--game-root", str(game_root), "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    origins = {a["path"]: a["origin"] for a in doc["actions"]}
+    assert origins.get("options.txt") == "never"  # never 生效=规则被读取
+    assert doc["summary"].get("must_migrate", 0) == 0
+    assert not (tmp_path / ".mcmig").exists()  # cwd 侧从未创建
+
+
+def test_plan_rules_legacy_fallback_and_precedence(tmp_path, monkeypatch, capsys, caplog):
+    """批次I-T1 路径契约 v3:仅旧布局(cwd/.mcmig)规则→回退读+提示建议迁移;并存→新位置优先+提示忽略旧。"""
+    from migration import cli
+
+    game_root = _setup_game(tmp_path, ["src", "dst"], variant_b_for="dst")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["scan", "src", "--game-root", str(game_root), "-q"]) == 0
+    assert cli.main(["scan", "dst", "--game-root", str(game_root), "-q"]) == 0
+    capsys.readouterr()
+
+    # ① 仅旧布局存在 → 回退读旧规则(never 生效)+ warning 提示建议迁移
+    legacy = tmp_path / ".mcmig"
+    legacy.mkdir()
+    (legacy / "rules.yaml").write_text(_T1_NEVER_RULE, encoding="utf-8")
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="migration.pipeline"):
+        origins = _t1_plan_origins(game_root, tmp_path, capsys)
+    assert origins.get("options.txt") == "never"
+    assert any("旧布局规则" in m for m in caplog.messages)
+
+    # ② 新旧并存 → 新位置优先(旧规则被忽略,never 不再生效)+ warning 提示已忽略
+    new = game_root / ".mcmig"
+    new.mkdir(parents=True, exist_ok=True)
+    (new / "rules.yaml").write_text("version: 1\nrules: []\n", encoding="utf-8")
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="migration.pipeline"):
+        origins = _t1_plan_origins(game_root, tmp_path, capsys)
+    assert origins.get("options.txt") != "never"  # 旧规则被忽略,恢复默认判定
+    assert any("已忽略" in m for m in caplog.messages)
+
+
+# ---- 批次I-T5:跨进程实例锁接线(锁体真实现由 test_instlock.py 覆盖) ----
+
+
+def test_scan_acquires_instance_lock(tmp_path: Path, monkeypatch, capsys):
+    """批次I-T5:scan 以 game_root+单版本获取实例锁(monkeypatch 记录参数);无争用输出不变。"""
+    from contextlib import contextmanager
+
+    game_root = _setup_game(tmp_path, ["mini"])
+    monkeypatch.chdir(tmp_path)
+    calls: list[tuple[Path, tuple[str, ...]]] = []
+
+    @contextmanager
+    def _recording_locks(game_root, *versions, timeout=5.0):
+        calls.append((Path(game_root), versions))
+        yield {"abandoned": []}
+
+    monkeypatch.setattr(cli, "instance_locks", _recording_locks)
+    assert cli.main(["scan", "mini", "--game-root", str(game_root), "--json"]) == 0
+    assert calls == [(game_root, ("mini",))]
+    # --json stdout 不受锁接线影响(无争用无新增 stdout 行)
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["version"] == "mini"
+
+
+def test_scan_abandoned_lock_warns_stderr(tmp_path: Path, monkeypatch, capsys):
+    """批次I-T5:abandoned 锁 → stderr [警告](jobs/ 为 T6 journal 前向引用占位)。"""
+    from contextlib import contextmanager
+
+    game_root = _setup_game(tmp_path, ["mini"])
+    monkeypatch.chdir(tmp_path)
+
+    @contextmanager
+    def _abandoned_locks(game_root, *versions, timeout=5.0):
+        yield {"abandoned": [str(Path(game_root) / "versions" / versions[0])]}
+
+    monkeypatch.setattr(cli, "instance_locks", _abandoned_locks)
+    assert cli.main(["scan", "mini", "--game-root", str(game_root), "--json"]) == 0
+    captured = capsys.readouterr()
+    assert "上次异常退出的实例锁" in captured.err
+    assert ".mcmig" in captured.err and "jobs" in captured.err
+    assert captured.out.startswith("{")  # stdout 仍为纯 JSON
+
+
+def test_lock_error_exits_2_with_stderr(tmp_path: Path, monkeypatch, capsys):
+    """批次I-T5:实例锁争用(注入)→ CLI 统一出口 stderr [错误] 三段式、退出码 2。"""
+    from contextlib import contextmanager
+
+    from migration.instlock import InstanceLockError
+
+    game_root = _setup_game(tmp_path, ["mini"])
+    monkeypatch.chdir(tmp_path)
+
+    @contextmanager
+    def _contended_locks(game_root, *versions, timeout=5.0):
+        key = str(Path(game_root) / "versions" / versions[0])
+        raise InstanceLockError(
+            f"实例锁({key})",
+            "获取实例排他锁超时:另一 mcmig 进程正在操作该实例",
+            {"holders": [key]},
+        )
+        yield  # pragma: no cover — 仅为满足 contextmanager 生成器语法
+
+    monkeypatch.setattr(cli, "instance_locks", _contended_locks)
+    assert cli.main(["scan", "mini", "--game-root", str(game_root)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""  # stdout 零污染(--json 机器可读输出不受影响)
+    assert "[错误] 实例锁(" in captured.err
+    assert "另一 mcmig 进程" in captured.err

@@ -1,18 +1,20 @@
 """workdir:mcmig 工作目录布局解析(绿色软件模式 + 兼容模式)。
 
-PyInstaller 单文件 exe(frozen)下采用「绿色软件」布局——所有 mcmig 状态
-(配置/快照/计划/规则)存放于 exe 同级的 ``data/`` 目录内,绝不写入
-APPDATA/用户目录,玩家整个客户端文件夹拷走即带走全部工具状态;
-快照/计划/规则再按「游戏根目录名(slug)」隔离子目录,支持多个整合包根共存
-互不串数据。源码运行(非 frozen)下,``cwd/.mcmig`` 兼容布局现由 **GUI 表面**
-使用(GUI 生成物仍走 workdir);CLI 自 0.7.0 起生成物(快照/计划)锚定
-``game_root/.mcmig``(由 ``cli.py`` 接线),不再落在本布局内。
+路径契约 v3(spec §3.1,批次I-T1):状态分两层——
 
-两种模式一览:
-- 绿色模式(frozen):root=exe_dir/data;config=root/config.toml(TOML);
-  snapshots=root/<slug>/snapshots、plans=root/<slug>/plans、rules=root/<slug>/rules.yaml
-- 兼容模式(源码):root=cwd/.mcmig;snapshots=root/snapshots、plans=root/plans、
-  rules=root/rules.yaml、config=root/config.yaml(YAML ``game_root:`` 键,兼容现状)
+- **全局态**(软件侧,跟工具走):绿色模式为 exe 同级 ``data/``
+  (config.toml;不写 APPDATA,玩家整个客户端文件夹拷走即带走),
+  源码运行为 ``cwd/.mcmig``(config.yaml,兼容现状)。
+- **实例态**(游戏侧,跟实例走):统一锚定 ``<game_root>/.mcmig/``
+  ——snapshots/plans/rules.yaml/jobs/locks,绿色与源码两模式**同址**,
+  支持多个整合包根共存互不串数据;CLI/GUI 生成物不再随 CWD/exe 散落。
+
+首跑欢迎态:绿色模式未配置 game_root 时**不再抛错**,返回 game_root=None、
+实例态字段全 None 的布局,由 GUI/CLI 引导配置(spec §3.1)。
+
+旧布局只读回退:绿色模式旧 slug 布局(``exe/data/<slug>/snapshots``)与源码
+模式旧 CWD 布局(``cwd/.mcmig/snapshots``)存在时记入 ``legacy_snapshots``,
+供调用方提示迁移,绝不自动写入。
 
 注意:``_is_frozen``/``_exe_dir``/``_ensure_writable``
 为模块级小函数,兼作测试注入点。
@@ -23,7 +25,7 @@ from __future__ import annotations
 import logging
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
@@ -57,23 +59,32 @@ class WorkdirError(Exception):
 
 @dataclass(frozen=True)
 class WorkDir:
-    """mcmig 工作目录布局(不可变值对象)。
+    """mcmig 工作目录布局(不可变值对象,路径契约 v3)。
 
     Attributes:
-        root: 工作目录根(绿色=exe/data,兼容=cwd/.mcmig)。
-        snapshots: 快照目录。
-        plans: 迁移计划目录。
-        rules: 用户规则文件路径(rules.yaml)。
-        config: 配置文件路径(绿色=config.toml,兼容=config.yaml)。
+        root: 全局态根(绿色=exe/data,兼容=cwd/.mcmig)。
+        config: 全局配置文件路径(绿色=config.toml,兼容=config.yaml)。
         green: 是否绿色软件模式。
+        game_root: 游戏根目录;None=未配置(首跑欢迎态,实例态字段随之全 None)。
+        snapshots: 实例态快照目录(<game_root>/.mcmig/snapshots)。
+        plans: 实例态迁移计划目录(<game_root>/.mcmig/plans)。
+        rules: 实例态用户规则文件路径(<game_root>/.mcmig/rules.yaml)。
+        jobs: 实例态 job journal 目录(T6 预留)。
+        locks: 实例态锁登记目录(T5 预留,POSIX 回退用)。
+        legacy_snapshots: 旧布局快照目录(只读回退:绿色=exe/data/<slug>/snapshots,
+            兼容=cwd/.mcmig/snapshots);不存在或与新位置同体时为 None。
     """
 
     root: Path
-    snapshots: Path
-    plans: Path
-    rules: Path
     config: Path
     green: bool
+    game_root: Path | None = None
+    snapshots: Path | None = None
+    plans: Path | None = None
+    rules: Path | None = None
+    jobs: Path | None = None
+    locks: Path | None = None
+    legacy_snapshots: Path | None = None
 
     def save_game_root(self, path: Path) -> None:
         """把游戏根目录持久化写入 config 文件(按模式分流 TOML/YAML)。
@@ -94,36 +105,28 @@ class WorkDir:
             )
         log.debug("已保存游戏根目录 %s → %s", path, self.config)
 
-    def game_root(self) -> Path | None:
-        """从 config 文件读取游戏根目录(按模式分流 TOML/YAML)。
-
-        Returns:
-            游戏根目录;未配置或 config 不存在/损坏时返回 None。
-        """
-        if self.green:
-            return _load_game_root_toml(self.config)
-        return _load_game_root_yaml(self.config)
-
 
 def resolve_workdir(game_root: Path | None = None) -> WorkDir:
-    """解析 mcmig 工作目录布局。
+    """解析 mcmig 工作目录布局(路径契约 v3)。
 
-    frozen(exe)→ 绿色模式(exe/data,按游戏根目录名隔离);
-    源码运行 → 兼容模式(cwd/.mcmig,与 v0.x 一致)。
+    frozen(exe)→ 绿色模式(全局态=exe/data);源码运行 → 兼容模式
+    (全局态=cwd/.mcmig)。实例态统一锚定 ``<game_root>/.mcmig``(两模式同址);
+    未配置 game_root 时返回欢迎态布局(game_root=None,实例态字段全 None),
+    **不再抛错**。
 
     Args:
-        game_root: 游戏根目录;None 时绿色模式先读 config.toml,
-            读不到抛 WorkdirError(兼容模式不参与 game_root 解析)。
+        game_root: 游戏根目录;None 时按模式读 config
+            (绿色=config.toml,兼容=config.yaml)。
 
     Returns:
-        工作目录布局。
+        工作目录布局(未配置时实例态字段为 None)。
 
     Raises:
-        WorkdirError: 绿色模式下 exe 目录不可写,或未配置游戏目录。
+        WorkdirError: 绿色模式下 exe 目录不可写。
     """
     if _is_frozen():
         return _resolve_green(game_root)
-    return _resolve_compat()
+    return _resolve_compat(game_root)
 
 
 def _is_frozen() -> bool:
@@ -153,17 +156,29 @@ def _ensure_writable(p: Path) -> None:
         probe.unlink(missing_ok=True)
 
 
+def _instance_layout(game_root: Path) -> dict[str, Path]:
+    """实例态目录布局(spec §3.1:统一 <game_root>/.mcmig,绿/源码同址)。"""
+    base = game_root / ".mcmig"
+    return {
+        "snapshots": base / "snapshots",
+        "plans": base / "plans",
+        "rules": base / "rules.yaml",
+        "jobs": base / "jobs",
+        "locks": base / "locks",
+    }
+
+
 def _resolve_green(game_root: Path | None) -> WorkDir:
-    """绿色模式布局:root=exe/data,按游戏根目录名(slug)隔离子目录。
+    """绿色模式布局:全局态=exe/data,实例态锚定 game_root/.mcmig(路径契约 v3)。
 
     Args:
-        game_root: 游戏根目录;None 时读 data/config.toml。
+        game_root: 游戏根目录;None 时读 data/config.toml,仍未配置则返回欢迎态。
 
     Returns:
-        绿色模式工作目录布局。
+        绿色模式工作目录布局(未配置时 game_root 与实例态字段均为 None)。
 
     Raises:
-        WorkdirError: exe 目录不可写,或未配置游戏目录。
+        WorkdirError: exe 目录不可写。
     """
     root = _exe_dir() / "data"
     # 前置可写性检查:data/ 不存在则尝试创建,不可写即整体失败
@@ -176,39 +191,48 @@ def _resolve_green(game_root: Path | None) -> WorkDir:
         ) from e
     if game_root is None:
         game_root = _load_game_root_toml(root / "config.toml")
-        if game_root is None:
-            # 指引须指向真实入口:图形界面步①有「游戏根目录」输入框(终审 I-1),
-            # 绿色 exe 首跑界面起不来时则手动建 data/config.toml
-            raise WorkdirError(
-                what="未配置游戏目录",
-                why='启动图形界面后设置,或手动创建 data/config.toml 写入 game_root = "路径"',
-            )
-    # slug=游戏根目录名,不做 sanitize:目录名本身即合法文件夹名
-    slug = game_root.name
+    if game_root is None:
+        # 首跑欢迎态:不抛错,实例态字段为 None,由 GUI/CLI 引导配置(spec §3.1)。
+        # 指引仍指向真实入口:图形界面步①有「游戏根目录」输入框(终审 I-1)
+        return WorkDir(root=root, config=root / "config.toml", green=True)
+    inst = _instance_layout(game_root)
+    # 旧绿色 slug 布局(exe/data/<slug>/snapshots)存在时记入 legacy 只读回退
+    legacy = root / game_root.name / "snapshots"
     return WorkDir(
         root=root,
-        snapshots=root / slug / "snapshots",
-        plans=root / slug / "plans",
-        rules=root / slug / "rules.yaml",
         config=root / "config.toml",
         green=True,
+        game_root=game_root,
+        legacy_snapshots=legacy if legacy.is_dir() else None,
+        **inst,
     )
 
 
-def _resolve_compat() -> WorkDir:
-    """兼容模式布局:root=cwd/.mcmig,与 v0.x 现状完全一致(不按 slug 隔离)。
+def _resolve_compat(game_root: Path | None) -> WorkDir:
+    """兼容模式布局:全局态=cwd/.mcmig(config.yaml),实例态锚定 game_root/.mcmig。
+
+    Args:
+        game_root: 游戏根目录;None 时读 cwd/.mcmig/config.yaml,仍未配置则返回欢迎态。
 
     Returns:
-        兼容模式工作目录布局。
+        兼容模式工作目录布局(未配置时 game_root 与实例态字段均为 None)。
     """
     root = Path.cwd() / ".mcmig"
-    return WorkDir(
-        root=root,
-        snapshots=root / "snapshots",
-        plans=root / "plans",
-        rules=root / "rules.yaml",
-        config=root / "config.yaml",
-        green=False,
+    if game_root is None:
+        game_root = _load_game_root_yaml(root / "config.yaml")
+    base = WorkDir(root=root, config=root / "config.yaml", green=False)
+    if game_root is None:
+        return base
+    inst = _instance_layout(game_root)
+    # 旧 CWD 布局(cwd/.mcmig/snapshots)存在且与新位置不同体时记入 legacy
+    legacy = root / "snapshots"
+    return replace(
+        base,
+        game_root=game_root,
+        legacy_snapshots=(
+            legacy if legacy.is_dir() and legacy != inst["snapshots"] else None
+        ),
+        **inst,
     )
 
 

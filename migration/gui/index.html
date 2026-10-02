@@ -171,6 +171,11 @@
 <!-- 断线横幅:EventSource onerror 时显示(任务已收尾的主动断流不算) -->
 <div id="banner-disconnect" hidden>连接断开,刷新页面重新开始</div>
 
+<!-- 中断横幅(批次I-T6):页面加载时扫描 /api/jobs/interrupted,有未收尾的
+     job journal(上次异常退出)时提示核对;待核对≠取消,仅提示不阻断 -->
+<div id="banner-interrupted" hidden
+     style="background:#7c2d12;color:#fff;border-radius:8px;padding:10px 16px;margin-bottom:12px;font-weight:600"></div>
+
 <!-- ============ 步① 选择版本 ============ -->
 <section class="step" id="step1">
   <h2>① 选择源版本与目标版本</h2>
@@ -227,6 +232,8 @@
 <section class="step" id="step3" hidden>
   <h2>③ 执行迁移</h2>
   <p class="phase-line"><span class="spin" id="migrate-spin"></span><span id="migrate-phase">正在启动…</span></p>
+  <p><button id="btn-cancel" type="button" hidden>取消迁移</button>
+    <span class="hint" id="cancel-hint" hidden>取消在当前文件完成后生效(安全边界,无半途文件)。</span></p>
   <p id="file-count">0 / 0</p>
   <progress id="file-progress" max="1" value="0"></progress>
   <p id="last-file"></p>
@@ -239,7 +246,7 @@
     <h3 style="margin-top:0">失败清单(<span id="failed-count">0</span>)</h3>
     <button id="btn-copy-failed" class="small" type="button">复制失败清单</button>
     <ul id="failed-list"></ul>
-    <p class="hint">修正问题(关闭占用文件的程序、释放磁盘等)后刷新页面重跑;已完成的文件会按「内容一致」跳过,不会重复复制。</p>
+    <p class="hint">修正问题(关闭占用文件的程序、释放磁盘等)后,刷新页面重新生成计划再执行;重新生成的计划中已完成的文件会按「内容一致」跳过,不会重复复制。</p>
   </div>
 
   <!-- done 事件:summary 五键 + reminder 全文 -->
@@ -261,6 +268,12 @@
   <summary>运行日志(SSE 事件原文)</summary>
   <pre id="log"></pre>
 </details>
+
+<!-- 退出服务(批次I-T6):空闲时 POST /api/shutdown 置停机标志,进程退出归启动方 -->
+<footer style="margin:18px 0 0;padding-top:10px;border-top:1px solid #e2e4e9;text-align:right">
+  <button id="btn-shutdown" type="button">退出服务</button>
+  <span id="shutdown-note" class="hint" style="margin-left:10px"></span>
+</footer>
 
 <script>
 "use strict";
@@ -550,6 +563,10 @@ var planGroups = [];         // 规范化后的分组数组(渲染顺序=服务�
 var groupOpen = {};          // origin → 是否展开(搜索时暂存用户态)
 var askChecked = {};         // path → true(❓组勾选状态)
 var planSrc = "", planDst = "";
+// 当前计划的校验标识(plan job done 事件的 plan_id,批次I-T3 终审修复 C1):
+// migrate 请求必须回传,否则服务端按 plan_id_missing 拒绝;persisted:false 或
+// 页面刷新丢失时为 null——刷新后靠该错误事件引导重新生成计划,不做额外持久化
+var planId = null;
 
 // 规范化分组:契约真源唯一为 origin 字典(server._group_actions 的返回形态),
 // 渲染顺序=对象键序(Origin 枚举声明序)。原型期的 {groups:[{items}]} 数组形态
@@ -704,6 +721,7 @@ function resetStep2() {
   planGroups = [];
   groupOpen = {};
   askChecked = {};
+  planId = null; // 旧计划标识作废:migrate 只接受当前页面的计划
 }
 
 // 启动 plan job:POST /api/plan → 订阅 SSE → phase 更新 / done 渲染分组 / error 渲染错误条
@@ -723,6 +741,20 @@ function startPlan() {
       },
       onDone: function (ev) {
         $("plan-progress").hidden = true;
+        // persisted:false(批次I-T3 白名单②):计划未落盘,不可执行——渲染三段式
+        // 错误并禁用「执行迁移」(what/why/details 与 done 事件同载荷),封死
+        // 「审新执旧」;重新生成计划成功后按钮随新 done 事件恢复可用
+        if (ev.persisted === false) {
+          planId = null;
+          renderError($("step2-error"), ev.what, ev.why, ev.details);
+          openLogOnError();
+          $("btn-migrate").disabled = true;
+          $("btn-plan").disabled = false;
+          return;
+        }
+        // 计划身份(C1):捕获 plan_id 供 migrate 请求回传(校验「页面审阅的计划
+        // =盘上将执行的计划」);刷新页面丢失后由 plan_id_missing 错误引导重新生成
+        planId = ev.plan_id || null;
         var plan = ev.plan || {};
         planGroups = normalizeGroups(plan);
         // 初始展开状态:白名单展开,其余折叠(spec §5;服务端无 default_visible 字段)
@@ -757,6 +789,8 @@ function startPlan() {
  * ==================================================================== */
 
 var failedFiles = []; // {path, error} 失败清单(done 前可复制)
+var currentMigrateJobId = null; // 当前 migrate job(取消端点用,批次I-T6)
+var cancelPollTimer = null;     // 取消后的状态轮询句柄(done 事件到达即停)
 
 function resetStep3() {
   $("migrate-phase").textContent = "正在启动…";
@@ -771,10 +805,18 @@ function resetStep3() {
   $("failed-count").textContent = "0";
   $("summary-box").hidden = true;
   $("stats").innerHTML = "";
+  var oldNote = document.getElementById("cancel-note"); // 上一轮取消清单注记
+  if (oldNote) { oldNote.remove(); }
   $("reminder-box").hidden = true;
   $("reminder-text").textContent = "";
   $("done-title").textContent = "迁移完成";
   failedFiles = [];
+  // 取消按钮复位(批次I-T6)
+  $("btn-cancel").hidden = false;
+  $("btn-cancel").disabled = false;
+  $("btn-cancel").textContent = "取消迁移";
+  $("cancel-hint").hidden = true;
+  if (cancelPollTimer) { clearInterval(cancelPollTimer); cancelPollTimer = null; }
 }
 
 function onFileEvent(ev) {
@@ -801,10 +843,25 @@ function onMigrateDone(ev) {
   $("migrate-phase").textContent = "已结束";
   var spin = $("migrate-spin");
   if (spin && spin.parentNode) { spin.parentNode.removeChild(spin); }
+  $("btn-cancel").hidden = true; // 任务收尾:取消入口退场(含取消终态)
+  if (cancelPollTimer) { clearInterval(cancelPollTimer); cancelPollTimer = null; }
   var summary = ev.summary || {};
+  // 取消终态(批次I-T6):标题+部分完成清单;其余按失败数给文案
+  if (ev.cancelled) {
+    $("done-title").textContent = "迁移已取消";
+    var note = document.createElement("p");
+    note.className = "hint";
+    note.id = "cancel-note";
+    note.textContent = "已完成 " + (ev.completed || []).length + " 个文件,未执行 " +
+      (ev.pending || []).length + " 个;如需继续迁移,请返回重新生成计划后再执行" +
+      "(重新生成的计划中已完成文件会按「内容一致」跳过,不会重复复制)。";
+    $("summary-box").insertBefore(note, $("stats"));
+  }
   // summary 五键恒存在(服务端契约 I1);done-title 按失败数给文案
   var failed = summary.failed || 0;
-  $("done-title").textContent = failed > 0 ? "迁移结束(有 " + failed + " 个失败)" : "迁移完成";
+  if (!ev.cancelled) {
+    $("done-title").textContent = failed > 0 ? "迁移结束(有 " + failed + " 个失败)" : "迁移完成";
+  }
   var stats = $("stats");
   stats.innerHTML = "";
   SUMMARY_KEYS.forEach(function (k) {
@@ -855,14 +912,58 @@ function fallbackCopy(text) {
   setTimeout(function () { $("btn-copy-failed").textContent = "复制失败清单"; }, 1500);
 }
 
-// 启动 migrate job:勾选路径放 ask_yes → POST /api/migrate → 订阅 SSE
+/* ---------- 取消迁移(批次I-T6):POST cancel → 「正在停止…」→ 轮询终态 ---------- */
+
+function cancelMigrate() {
+  if (!currentMigrateJobId) { return; }
+  var btn = $("btn-cancel");
+  btn.disabled = true;
+  btn.textContent = "正在停止…";
+  $("cancel-hint").hidden = false;
+  postJson("/api/jobs/" + encodeURIComponent(currentMigrateJobId) + "/cancel", {})
+    .then(function () {
+      $("migrate-phase").textContent = "正在停止…(等待当前文件完成)";
+      pollCancelStatus();
+    })
+    .catch(function (err) {
+      // 405(不可取消)/409(已结束)等:回滚按钮态并提示;终态由 SSE 收口
+      btn.disabled = false;
+      btn.textContent = "取消迁移";
+      $("cancel-hint").hidden = true;
+      if (err instanceof TypeError) { $("banner-disconnect").hidden = false; return; }
+      renderError($("step3-error"), err.what, err.why, err.details || {});
+    });
+}
+
+// 兜底轮询:SSE 断流时也能观察到终态(cancelled),正常路径由 done 事件收口
+function pollCancelStatus() {
+  if (cancelPollTimer) { clearInterval(cancelPollTimer); }
+  cancelPollTimer = setInterval(function () {
+    if (!currentMigrateJobId) {
+      clearInterval(cancelPollTimer); cancelPollTimer = null;
+      return;
+    }
+    fetch("/api/jobs/" + encodeURIComponent(currentMigrateJobId))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (body) {
+        if (body && body.status !== "running" && body.status !== "cancelling") {
+          clearInterval(cancelPollTimer); cancelPollTimer = null;
+          $("btn-cancel").hidden = true;
+        }
+      })
+      .catch(function () { /* 轮询失败静默:SSE 仍是主数据源 */ });
+  }, 1000);
+}
+
+// 启动 migrate job:勾选路径放 ask_yes + 计划校验标识 plan_id(C1)→ POST /api/migrate → 订阅 SSE
 function startMigrate() {
   var askYes = Object.keys(askChecked);
   $("btn-migrate").disabled = true;
   resetStep3();
   showStep(3);
-  postJson("/api/migrate", { src: planSrc, dst: planDst, ask_yes: askYes, dry_run: false })
+  postJson("/api/migrate", { src: planSrc, dst: planDst, ask_yes: askYes, dry_run: false, plan_id: planId })
     .then(function (body) {
+      currentMigrateJobId = body.job_id;
       openEvents(body.job_id, {
         onPhase: function (ev) {
           $("migrate-phase").textContent = PHASE_LABELS[ev.name] || ev.name;
@@ -871,6 +972,7 @@ function startMigrate() {
         onDone: onMigrateDone,
         onError: function (ev) {
           $("migrate-phase").textContent = "任务失败";
+          $("btn-cancel").hidden = true;
           renderError($("step3-error"), ev.what, ev.why, ev.details);
           openLogOnError();
           $("btn-migrate").disabled = false; // 允许修正后直接重试
@@ -889,6 +991,37 @@ function startMigrate() {
     });
 }
 
+/* ---------- 中断横幅(批次I-T6):加载时扫描待核对清单 ---------- */
+
+function loadInterrupted() {
+  fetch("/api/jobs/interrupted").then(function (resp) {
+    return resp.ok ? resp.json() : { items: [] };
+  }).then(function (body) {
+    var items = body.items || [];
+    if (!items.length) { return; }
+    var n = items.reduce(function (s, it) { return s + (it.entries || []).length; }, 0);
+    $("banner-interrupted").textContent =
+      "检测到上次未完成的迁移(" + items.length + " 个任务、" + n +
+      " 项文件状态待核对),请核对相关文件后重新生成计划再继续迁移;" +
+      "已完成文件在重新生成的计划中会按「内容一致」跳过。";
+    $("banner-interrupted").hidden = false;
+  }).catch(function () { /* 拉取失败静默:横幅属辅助提示,不阻断向导 */ });
+}
+
+/* ---------- 退出服务(批次I-T6):空闲置停机标志,进程退出归启动方 ---------- */
+
+function shutdownServer() {
+  var btn = $("btn-shutdown");
+  btn.disabled = true;
+  postJson("/api/shutdown", {}).then(function () {
+    $("shutdown-note").textContent = "服务已退出,请关闭本页面。";
+  }).catch(function (err) {
+    btn.disabled = false;
+    if (err instanceof TypeError) { $("banner-disconnect").hidden = false; return; }
+    $("shutdown-note").textContent = err.why || err.what || "退出失败";
+  });
+}
+
 /* ---------- 事件绑定与启动 ---------- */
 
 function init() {
@@ -897,6 +1030,8 @@ function init() {
   $("btn-save-root").addEventListener("click", saveConfig);
   $("btn-plan").addEventListener("click", startPlan);
   $("btn-migrate").addEventListener("click", startMigrate);
+  $("btn-cancel").addEventListener("click", cancelMigrate);
+  $("btn-shutdown").addEventListener("click", shutdownServer);
   $("btn-back1").addEventListener("click", function () {
     closeEvents();          // 放弃当前订阅(job 若仍在跑由服务端单锁兜底)
     $("btn-plan").disabled = false;
@@ -906,6 +1041,7 @@ function init() {
   // 步③返回:计划仍留在内存(勾选状态保留),修正问题后可直接重试
   $("btn-back2").addEventListener("click", function () {
     closeEvents();
+    currentMigrateJobId = null; // 离开执行页:取消入口与轮询一并收口
     $("btn-migrate").disabled = false;
     showStep(2);
   });
@@ -914,6 +1050,7 @@ function init() {
   showStep(1);
   loadConfig();   // 预填游戏根目录(未配置留空,由用户在输入框填写)
   loadVersions();
+  loadInterrupted(); // 中断横幅:上次异常退出的待核对清单(批次I-T6)
 }
 
 document.addEventListener("DOMContentLoaded", init);

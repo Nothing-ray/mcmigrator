@@ -6,6 +6,9 @@
 - 覆盖已存在文件前先镜像备份到 <dst>/_conflict_backup/<rel>(首份不可逆)
 - 复制/备份/校验/换名下沉 fsops.copy_atomic(事务式,任一步失败回滚且不留 tmp)
 - 逐文件容错:捕获 FsOpsError,单文件失败不中断整个计划;绝不删除任何文件
+- 取消检查点+journal 三段序挂点(批次I-T6,spec §4.3):should_cancel 在动作间
+  检查(当前动作单元完成后才停,安全边界内绝无半途文件);before/after_action
+  包住每个动手动作(①意图 write-ahead → ②操作 → ③完成)
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .fsops import FsOpsError, copy_atomic, md5_of as _md5_of
+from .journal import JournalError
 from .plan import ActionRecord, Behavior, MigrationPlan
 
 log = logging.getLogger(__name__)
@@ -67,6 +71,10 @@ class Executor:
         self.src_root = src_root
         self.dst_root = dst_root
         self.ask_handler = ask_handler
+        # 停发标志(批次I-T6,spec §4.3):取消/journal 写失败都以「当前动作
+        # 单元已完成」为安全边界停止分发后续动作,由调用方读标志区分呈现
+        self.cancelled = False
+        self.journal_failed = False
 
     def _copy_one(self, rel: str, dry_run: bool) -> FileResult:
         """执行单个 COPY:identical 短路 → fsops 事务复制(逐文件容错)。
@@ -100,6 +108,10 @@ class Executor:
         self,
         dry_run: bool = False,
         progress_cb: Callable[[FileResult], None] | None = None,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+        before_action: Callable[[ActionRecord], None] | None = None,
+        after_action: Callable[[ActionRecord, FileResult], None] | None = None,
     ) -> list[FileResult]:
         """执行计划,返回逐文件结果(按 plan.actions 顺序)。
 
@@ -107,22 +119,47 @@ class Executor:
             dry_run: True 时零写盘,结果为推演。
             progress_cb: 逐文件实时进度回调——每个 FileResult 产出后立即同步调用
                 (GUI 进度条数据源);None 时无回调,行为与旧版完全一致。
+            should_cancel: 取消检查点(动作间轮询;首批动作恒执行,此后命中即停
+                发)→ ``self.cancelled = True`` 并返回部分结果(批次I-T6)。
+            before_action: 动手动作(COPY/ASK)执行前的回调——①意图持久化锚点
+                (write-ahead);抛 ``JournalError`` → ``self.journal_failed = True``
+                并停止分发(写失败停发,与取消同型安全停止)。
+            after_action: 动作完成后的回调——③完成持久化锚点;asked_no(用户
+                未确认,零写盘)不触发;失败动作同样触发(结局已知即收口)。
+
+        Returns:
+            逐文件执行结果;取消/journal 停发时为部分结果(按已分发顺序)。
         """
         cb: Callable[[FileResult], None] = (
             progress_cb if progress_cb is not None else (lambda _r: None)
         )
         results: list[FileResult] = []
         for action in self.plan.actions:
+            # 取消检查点(动作间):首个动作恒执行(results 为空不判停),此后
+            # 命中即停——当前动作单元已完成,安全边界内绝无半途文件(spec §4.3)
+            if should_cancel is not None and results and should_cancel():
+                self.cancelled = True
+                break
+            if action.behavior in (Behavior.COPY, Behavior.ASK) and before_action is not None:
+                try:
+                    before_action(action)  # ①意图(write-ahead)
+                except JournalError as e:
+                    # journal 写失败:后续动作不再分发(停发),与取消同型安全停止
+                    self.journal_failed = True
+                    log.error("journal 写入失败,停止分发后续动作: %s", e)
+                    break
             result: FileResult
             if action.behavior == Behavior.COPY:
-                result = self._copy_one(action.path, dry_run)
+                result = self._copy_one(action.path, dry_run)  # ②操作
             elif action.behavior == Behavior.ASK:
                 if self.ask_handler(action):
-                    result = self._copy_one(action.path, dry_run)
+                    result = self._copy_one(action.path, dry_run)  # ②操作
                 else:
                     result = FileResult(action.path, "asked_no")
             else:
                 result = FileResult(action.path, "skipped")
+            if after_action is not None and result.status != "asked_no":
+                after_action(action, result)  # ③完成
             results.append(result)
             cb(result)  # 实时回调:单文件完成即上报,而非执行完批量回放
         return results

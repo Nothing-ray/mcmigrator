@@ -11,7 +11,7 @@
 - **分层哈希**:文本全量 MD5、mods 按文件名集合、bulk(`.sqlite`/`.zip`/`.mca`)按 size——快且精确(玩家会改的文本字节级,不会改的二进制走 size 代理)。
 - **数据驱动分类**:规则引擎(`pathspec`,gitignore 语义),分层 first-match-wins(CLI 覆盖 > 用户规则 > 内置默认 > unknown),改规则不重扫。
 - **迁移导向 6 桶 diff**:`to_migrate`(必迁)/ `candidate`(待确认)/ `mods`(按文件名集合)/ `only_in_dst`(目标自带)/ `identical`(一致)/ `never`(不迁)。
-- **游戏内容零改写**:只写工具自有 `.mcmig/`(快照/计划),mods/config/saves 等游戏文件绝不改动。
+- **游戏内容零改写**:只写工具自有 `.mcmig/`(快照/计划/任务日志),mods/config/saves 等游戏文件绝不改动。
 
 ## 安装
 
@@ -31,7 +31,7 @@ pip install -e .
 
 1. **命令标志**:`mcmig scan <ver> --game-root <绝对路径>`
 2. **环境变量**:设 `MCMIG_GAME_ROOT`
-3. **配置文件**:`cp config.example.yaml .mcmig/config.yaml`,改其中的 `game_root`
+3. **配置文件**:`cp config.example.yaml .mcmig/config.yaml`,改其中的 `game_root`(源码运行;绿色 exe 则在向导步①「游戏根目录」输入框保存,落盘到 `data/config.toml`)
 
 三者都没给时,工具报错退出并给出上述引导。
 
@@ -173,19 +173,29 @@ feature/release/up/port/api/lib/compat`,家族键任意位置出现即剥,闭集
 
 ## 数据与卸载
 
-### 工具数据放在哪
+### 工具数据放在哪(路径契约 v3)
 
-- **绿色 exe(推荐,免 Python)**:所有工具状态(配置/快照/计划/规则)都在 `mcmig.exe` 同级的 `data/` 文件夹内,绝不写入 AppData 或用户目录——整个客户端文件夹拷走即带走全部工具状态。`data/` 内再按游戏根目录名建子文件夹隔离(`data/<游戏目录名>/snapshots|plans|rules.yaml`),多个整合包互不串数据;`data/config.toml` 记录游戏根目录。
-- **源码运行(Python)**:两分法布局——快照与 plan 写入 `<game_root>/.mcmig`(生成物跟游戏实例走);`config.yaml` 与 `rules.yaml` 仍在工作目录 `.mcmig`(引导配置跟工作区走)。读取时锚定位置优先,找不到自动回退旧 CWD 布局并提示迁移。diff 需能定位 game-root(`--game-root` / `MCMIG_GAME_ROOT` / `.mcmig/config.yaml` 三选一),否则仅查 CWD(夹具复放兼容)。
+工具状态分两层:**软件侧全局态**(跟工具走)与**实例态**(跟游戏实例走,CLI 与 GUI 读写同一位置):
+
+```
+mcmig/(exe 所在文件夹)              <游戏根>/.mcmig/(实例态,CLI/GUI 互通)
+├── mcmig-gui.exe / mcmig.exe        ├── snapshots/ plans/ rules.yaml
+└── data/                            ├── jobs/(任务 journal,中断待核对)
+    └── config.toml(仅全局配置)      ├── locks/ 与 backups/(批次I W3 起)
+```
+
+- **软件侧全局态**:绿色 exe 下为 `data/config.toml`,**仅存全局配置**(游戏根目录指向),绝不写入 AppData 或用户目录——整个客户端文件夹拷走即带走配置;源码运行下为工作目录 `.mcmig/config.yaml`(兼容现状)。首跑未配置时不报错(欢迎态),由向导步①输入框引导填写并落盘。
+- **实例态(`<游戏根>/.mcmig/`)**:快照(`snapshots/`)、迁移计划(`plans/`)、用户规则(`rules.yaml`)、任务日志(`jobs/`,迁移 write-ahead journal,异常退出后据此在页面横幅提示「待核对」)统一锚定游戏根目录,绿色与源码两模式**同址**,多个整合包根互不串数据;`locks/` 为跨进程实例锁登记位(预留),`backups/` 自批次I W3 起启用。
+- **旧布局迁移说明**:旧绿色布局 `exe/data/<游戏名>/snapshots|plans|rules.yaml` 与旧源码布局 `cwd/.mcmig/` 实例态为**只读回退**——工具绝不自动写入旧位置;旧快照命中时照常读取并提示建议整体迁移;`rules.yaml` 两处并存时**以新位置为准**(旧文件忽略并提示)。建议把旧 `snapshots/`、`rules.yaml` 整体搬至 `<游戏根>/.mcmig/` 后删除旧文件。
 
 ### 游戏侧会写什么
 
-工具在游戏根目录创建的唯一目录是 `.mcmig/`(快照与迁移计划,纯工具产物,删除后重新 scan 即可重建);除此之外不创建任何其他工具目录。迁移期间唯一写入游戏内容的是**冲突备份**:同名但内容不同的文件在覆盖前会先备份到 `<目标版本>/_conflict_backup/`(镜像相对路径结构;首份备份为覆盖前的原件,重跑不会覆盖)。迁移完成并确认无误后,该文件夹可安全删除。
+工具在游戏根目录创建的唯一目录是 `.mcmig/`(快照、迁移计划、用户规则与任务日志,纯工具产物——快照重扫即重建;任务日志不会重扫重建,删除它只会让「中断待核对」横幅消失);除此之外不创建任何其他工具目录。迁移期间唯一写入游戏内容的是**冲突备份**:同名但内容不同的文件在覆盖前会先备份到 `<目标版本>/_conflict_backup/`(镜像相对路径结构;首份备份为覆盖前的原件,重跑不会覆盖)。迁移完成并确认无误后,该文件夹可安全删除。
 
 ### 如何卸载
 
-1. 删除 mcmig 程序文件夹(绿色 exe 下 `data/` 在其中,一并删除即清空全部工具状态);
-2. 可选:删除 `<游戏根>/.mcmig/`(纯工具产物,重扫即重建);
+1. 删除 mcmig 程序文件夹(绿色 exe 下 `data/config.toml`(仅全局配置)在其中,一并删除即清空软件侧状态;实例态见第 2 步);
+2. 可选:删除 `<游戏根>/.mcmig/`(快照/计划/规则/任务日志,纯工具产物;快照重扫即重建,删除任务日志会一并清掉「中断待核对」提示);
 3. 可选:删除各 `<游戏根>/versions/<版本>/_conflict_backup/`(留着也无害);
 4. 游戏**内容**目录(mods/config/saves…)本身不会被工具改动,无需清理;游戏根内除第 2 步的 `.mcmig/` 外不残留其他工具文件。
 

@@ -12,8 +12,10 @@ from pathlib import Path
 from . import __version__, doctor
 from .classifier import Classifier
 from .fsops import FsOpsError, copy_atomic
-from .plan import Behavior, MigrationPlan, PlanFormatError, plan_path
+from .instlock import InstanceLockError, instance_locks
+from .plan import Behavior, MigrationPlan, PlanFormatError, PlanPersistError, plan_path
 from .pipeline import (
+    _rules_dir,
     build_plan,
     execute_migration,
     find_snapshot,
@@ -21,7 +23,9 @@ from .pipeline import (
     run_diff,
     scan_version,
 )
+from .preflight import ExecutionDecisions, preflight_execute
 from .reporter import DiffReporter, PlanOptions, PlanReporter, ReportOptions
+from .review import ReviewStateError, validate_review
 from .workdir import WorkdirError, resolve_workdir
 from rich.prompt import Confirm
 
@@ -96,7 +100,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_mig.add_argument("--skip-ask", action="store_true", help="needs_review 全部跳过")
     p_mig.add_argument("--yes-ask", action="store_true", help="needs_review 全部迁移")
     p_mig.add_argument("-y", action="store_true", help="跳过执行前确认")
-    p_mig.add_argument("--force", action="store_true", help="忽略已执行/过期防护")
+    p_mig.add_argument(
+        "--force", action="store_true",
+        help="忽略已执行/快照过期/疑似占用防护(目录缺失不可强制)"
+    )
 
     # doctor 无参数:工作目录按 frozen/兼容模式自动解析
     sub.add_parser("doctor", help="环境体检:数据完整性/配置/权限/磁盘")
@@ -183,6 +190,18 @@ def _print_err(text: str) -> None:
     print(text, file=sys.stderr)
 
 
+def _warn_abandoned_lock(game_root: Path, lockinfo: dict[str, list[str]]) -> None:
+    """abandoned 实例锁提示:前持有者异常退出,须核对 journal 中断记录(批次I-T5)。
+
+    journal 归 T6;jobs/ 目录路径为前向引用占位(T6 落地后即为真实指引)。
+    """
+    if lockinfo["abandoned"]:
+        _print_err(
+            "[警告] 检测到上次异常退出的实例锁,请核对 "
+            f"{game_root / '.mcmig' / 'jobs'} 下的中断记录"
+        )
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     game_root = _resolve_game_root(args)
     ver_dir = _version_dir(game_root, args.version)
@@ -192,58 +211,62 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         if avail:
             _print("可用版本: " + ", ".join(avail))
         return 2
-    cwd = Path.cwd()
-    rules_dir = cwd / ".mcmig"       # 静态配置跟工作区(bootstrap 两分法,spec T5b)
-    data_dir = game_root / ".mcmig"  # 生成物跟实例(F8)
-    # 扫描构建逻辑已下沉 pipeline(快照写锚定 <game_root>/.mcmig/snapshots/,F8);
-    # 不可读文件经 on_error 收集,恢复 unreadable 计数(v0 spec §7 报告契约)
-    # F34①:先扫描后组规则——build_ruleset 需要快照内探测到的 world_dirs
-    # (动态世界层注入;[规则警告] 打印随之移到扫描输出后,stdout 顺序变化是有意为之)
-    unreadable: list[str] = []
-    snap = scan_version(
-        game_root,
-        args.version,
-        data_dir / "snapshots",
-        strict=args.strict,
-        on_error=unreadable.append,
-    )
-    rs, errs = build_ruleset(
-        args.version,
-        exclude=args.exclude,
-        include=args.include,
-        rule_files=[Path(f) for f in args.rule],
-        mcmig_dir=rules_dir,
-        world_dirs=snap.world_dirs,
-    )
-    for e in errs:
-        _print(f"[规则警告] {e}")
-    spath = snapshot_path(game_root, args.version)
-    clf = Classifier(rs)
-    classified = clf.classify_all(snap.files)
-    counts: dict[str, int] = {}
-    for c in classified:
-        counts[c.category.value] = counts.get(c.category.value, 0) + 1
-    if args.json:
-        import json
-
-        _print(
-            json.dumps(
-                {
-                    "version": args.version,
-                    "file_count": snap.file_count,
-                    "by_category": counts,
-                    "unreadable": len(unreadable),
-                    "snapshot": str(spath),
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+    # 批次I-T5(spec §4.2):扫描写快照前获取实例排他锁,封「检查-取锁-写」竞争窗
+    # (无争用即时通过,常规路径零延迟;abandoned → 前持有者异常退出提示)
+    with instance_locks(game_root, args.version) as lockinfo:
+        _warn_abandoned_lock(game_root, lockinfo)
+        cwd = Path.cwd()
+        rules_dir = cwd / ".mcmig"       # 静态配置跟工作区(bootstrap 两分法,spec T5b)
+        data_dir = game_root / ".mcmig"  # 生成物跟实例(F8)
+        # 扫描构建逻辑已下沉 pipeline(快照写锚定 <game_root>/.mcmig/snapshots/,F8);
+        # 不可读文件经 on_error 收集,恢复 unreadable 计数(v0 spec §7 报告契约)
+        # F34①:先扫描后组规则——build_ruleset 需要快照内探测到的 world_dirs
+        # (动态世界层注入;[规则警告] 打印随之移到扫描输出后,stdout 顺序变化是有意为之)
+        unreadable: list[str] = []
+        snap = scan_version(
+            game_root,
+            args.version,
+            data_dir / "snapshots",
+            strict=args.strict,
+            on_error=unreadable.append,
         )
-    else:
-        _print(f"[完成] 扫描 {args.version}: {snap.file_count} 个文件 → {spath}")
-        _print("分类汇总: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-        if unreadable:
-            _print(f"[警告] {len(unreadable)} 个文件无法读取(已跳过)")
+        rs, errs = build_ruleset(
+            args.version,
+            exclude=args.exclude,
+            include=args.include,
+            rule_files=[Path(f) for f in args.rule],
+            mcmig_dir=rules_dir,
+            world_dirs=snap.world_dirs,
+        )
+        for e in errs:
+            _print(f"[规则警告] {e}")
+        spath = snapshot_path(game_root, args.version)
+        clf = Classifier(rs)
+        classified = clf.classify_all(snap.files)
+        counts: dict[str, int] = {}
+        for c in classified:
+            counts[c.category.value] = counts.get(c.category.value, 0) + 1
+        if args.json:
+            import json
+
+            _print(
+                json.dumps(
+                    {
+                        "version": args.version,
+                        "file_count": snap.file_count,
+                        "by_category": counts,
+                        "unreadable": len(unreadable),
+                        "snapshot": str(spath),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            _print(f"[完成] 扫描 {args.version}: {snap.file_count} 个文件 → {spath}")
+            _print("分类汇总: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+            if unreadable:
+                _print(f"[警告] {len(unreadable)} 个文件无法读取(已跳过)")
     return 0
 
 
@@ -321,45 +344,43 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         return 2
     game_root = gr if gr is not None else _resolve_game_root(args)
     data_dir = game_root / ".mcmig"
-    try:
-        plan, compat_warnings, pairs = build_plan(
-            cwd,
-            game_root,
-            args.src,
-            args.dst,
-            modpack_swap=args.modpack_swap,
-            rescan_dst=False,
-            save=not args.no_save,
-            mcmig_dir=cwd / ".mcmig",
-            plans_dir=data_dir / "plans",
-            data_dir=data_dir,
-            exclude=args.exclude,
-            include=args.include,
-            rule_files=[Path(f) for f in args.rule],
-        )
-    except (FileNotFoundError, ValueError) as e:
-        _print(f"[错误] {e}")
-        return 2
-    reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst, mod_pairs=pairs)
-    if args.json:
-        _print(reporter.to_json(compat_warnings))
-    else:
-        reporter.render(PlanOptions(show_skip=args.show_skip, category=args.category))
-        reporter.render_compat_warnings(compat_warnings)
+    # 批次I-T5(spec §4.2):生成计划(读双侧快照 → 写 plan 文件)全程持源/目标
+    # 实例锁,封「检查-取锁-写」竞争窗(无争用即时通过)
+    with instance_locks(game_root, args.src, args.dst) as lockinfo:
+        _warn_abandoned_lock(game_root, lockinfo)
+        try:
+            # 批次I-T1:rules_dir 缺省=data_dir → 用户规则优先读 <game_root>/.mcmig/rules.yaml;
+            # mcmig_dir=cwd/.mcmig 仅作旧布局回退(仅旧侧存在时回退读+提示,build_plan._rules_dir)
+            plan, compat_warnings, pairs = build_plan(
+                cwd,
+                game_root,
+                args.src,
+                args.dst,
+                modpack_swap=args.modpack_swap,
+                rescan_dst=False,
+                save=not args.no_save,
+                mcmig_dir=cwd / ".mcmig",
+                plans_dir=data_dir / "plans",
+                data_dir=data_dir,
+                exclude=args.exclude,
+                include=args.include,
+                rule_files=[Path(f) for f in args.rule],
+            )
+        except (FileNotFoundError, ValueError) as e:
+            _print(f"[错误] {e}")
+            return 2
+        except PlanPersistError as e:
+            # 白名单②:plan 保存失败不再吞,非零退出(未持久化的计划不可执行,spec §3.3)
+            _print(f"[错误] {e}")
+            _print("计划未保存,无法进入 migrate;请检查目标目录权限/磁盘空间后重试。")
+            return 2
+        reporter = PlanReporter(plan, src_version=args.src, dst_version=args.dst, mod_pairs=pairs)
+        if args.json:
+            _print(reporter.to_json(compat_warnings))
+        else:
+            reporter.render(PlanOptions(show_skip=args.show_skip, category=args.category))
+            reporter.render_compat_warnings(compat_warnings)
     return 0
-
-
-def _game_running(dst_root: Path) -> bool:
-    """探测目标版本是否被运行中的游戏占用(Windows 文件锁)。"""
-    for name in ("usercache.json", "options.txt"):
-        p = dst_root / name
-        if p.exists():
-            try:
-                with p.open("r+b"):
-                    pass
-            except OSError:
-                return True
-    return False
 
 
 def _md5(path: Path) -> str | None:
@@ -436,85 +457,89 @@ def _cmd_swap(args: argparse.Namespace) -> int:
         _print(f"[错误] 新整合包目录缺少 mods/ 子目录: {new_pack}")
         return 2
 
-    # 第一步:预检(NeoForge 兼容)
-    err, bad = _swap_preflight(dst_dir, new_pack)
-    if err is not None:
-        _print(f"[错误] {err}")
-        return 2
-    # 预检:src 快照必须已存在(规划步依赖;装包前检查,dry-run 同样生效)
-    # F8:快照锚定优先+旧 CWD 布局回退(与 diff/plan 同一定位规则)
-    src_snap = find_snapshot(game_root / ".mcmig", Path.cwd() / ".mcmig", args.src)[0]
-    if not src_snap.exists():
-        _print(f"[错误] 缺少源版本快照 {src_snap}")
-        _print(f"请先运行: mcmig scan {args.src}")
-        return 2
-    if bad:
-        console.print("[red]以下 mod 与目标 NeoForge 版本不兼容:[/red]")
-        for line in bad:
-            _print(line)
-        if not args.force:
-            _print("中止。确认可忽略请加 --force 继续。")
+    # 批次I-T5(spec §4.2):预检→装包(写目标 mods/)→重扫规划全程持源/目标
+    # 实例锁;装包确认等交互在锁内进行属有意语义(正在操作该实例)
+    with instance_locks(game_root, args.src, args.dst) as lockinfo:
+        _warn_abandoned_lock(game_root, lockinfo)
+        # 第一步:预检(NeoForge 兼容)
+        err, bad = _swap_preflight(dst_dir, new_pack)
+        if err is not None:
+            _print(f"[错误] {err}")
             return 2
-        _print("[警告] --force 已指定,忽略上述不兼容继续。")
+        # 预检:src 快照必须已存在(规划步依赖;装包前检查,dry-run 同样生效)
+        # F8:快照锚定优先+旧 CWD 布局回退(与 diff/plan 同一定位规则)
+        src_snap = find_snapshot(game_root / ".mcmig", Path.cwd() / ".mcmig", args.src)[0]
+        if not src_snap.exists():
+            _print(f"[错误] 缺少源版本快照 {src_snap}")
+            _print(f"请先运行: mcmig scan {args.src}")
+            return 2
+        if bad:
+            console.print("[red]以下 mod 与目标 NeoForge 版本不兼容:[/red]")
+            for line in bad:
+                _print(line)
+            if not args.force:
+                _print("中止。确认可忽略请加 --force 继续。")
+                return 2
+            _print("[警告] --force 已指定,忽略上述不兼容继续。")
 
-    # 第二步:装包
-    dst_mods = dst_dir / "mods"
-    new_names = {p.name for p in (new_pack / "mods").glob("*.jar")}
-    existing = {p.name for p in dst_mods.glob("*.jar")} if dst_mods.is_dir() else set()
-    extras = sorted(existing - new_names)
-    if extras and not args.force:
-        _print(f"[警告] 目标 mods/ 存在 {len(extras)} 个不在新包中的 jar,将被新包替换后残留:")
-        for name in extras[:10]:
-            _print(f"  {name}")
-        if len(extras) > 10:
-            _print(f"  ... 共 {len(extras)} 个")
-        if not Confirm.ask("继续装包?(建议先清理目标 mods/)", default=False):
-            _print("已取消。")
-            return 0
-    elif extras:
-        _print(f"[警告] --force:目标 mods/ 有 {len(extras)} 个新包外 jar,保留不动。")
+        # 第二步:装包
+        dst_mods = dst_dir / "mods"
+        new_names = {p.name for p in (new_pack / "mods").glob("*.jar")}
+        existing = {p.name for p in dst_mods.glob("*.jar")} if dst_mods.is_dir() else set()
+        extras = sorted(existing - new_names)
+        if extras and not args.force:
+            _print(f"[警告] 目标 mods/ 存在 {len(extras)} 个不在新包中的 jar,将被新包替换后残留:")
+            for name in extras[:10]:
+                _print(f"  {name}")
+            if len(extras) > 10:
+                _print(f"  ... 共 {len(extras)} 个")
+            if not Confirm.ask("继续装包?(建议先清理目标 mods/)", default=False):
+                _print("已取消。")
+                return 0
+        elif extras:
+            _print(f"[警告] --force:目标 mods/ 有 {len(extras)} 个新包外 jar,保留不动。")
 
-    def resolver(jar_name: str) -> bool:
-        """同名冲突决策:默认保留目标(保守)。"""
-        return Confirm.ask(f"  {jar_name} 与目标同名但内容不同,覆盖目标?", default=False)
+        def resolver(jar_name: str) -> bool:
+            """同名冲突决策:默认保留目标(保守)。"""
+            return Confirm.ask(f"  {jar_name} 与目标同名但内容不同,覆盖目标?", default=False)
 
-    copied, skipped, conflicted = _swap_install(
-        dst_mods, new_pack / "mods", resolver, dry_run=args.dry_run
-    )
-    _print(
-        f"[装包] 复制 {copied} / 相同跳过 {skipped} / 冲突 {conflicted}"
-        f"{' (dry-run)' if args.dry_run else ''}"
-    )
-
-    # 第三步:重扫 dst(装包刚改写 mods/)→ 规划(modpack_swap 内置)
-    if args.dry_run:
-        # 彩排模式未真正写盘,规划会基于旧状态误导用户,故跳过规划
-        _print("[提示] dry-run 未写盘,跳过规划步骤。去掉 --dry-run 将自动生成迁移计划。")
-        return 0
-    try:
-        plan, compat_warnings, _pairs = build_plan(
-            Path.cwd(),
-            game_root,
-            args.src,
-            args.dst,
-            modpack_swap=True,
-            rescan_dst=True,
-            mcmig_dir=Path.cwd() / ".mcmig",
-            plans_dir=game_root / ".mcmig" / "plans",
-            data_dir=game_root / ".mcmig",
+        copied, skipped, conflicted = _swap_install(
+            dst_mods, new_pack / "mods", resolver, dry_run=args.dry_run
         )
-    except (FileNotFoundError, ValueError) as e:
-        _print(f"[错误] 规划失败: {e}")
-        return 2
-    for w in compat_warnings:
-        _print(f"[兼容警告] {w}")
-    # 第四步:摘要 + 下一步提示
-    _print("[规划] 迁移计划已生成,按来源分类计数:")
-    _print(
-        "  " + ", ".join(f"{k}={v}" for k, v in sorted(plan.summary().items()) if v > 0)
-    )
-    p_path = plan_path(game_root, args.src, args.dst)
-    _print(f"审阅 {p_path} 后运行: mcmig migrate {args.src} {args.dst}")
+        _print(
+            f"[装包] 复制 {copied} / 相同跳过 {skipped} / 冲突 {conflicted}"
+            f"{' (dry-run)' if args.dry_run else ''}"
+        )
+
+        # 第三步:重扫 dst(装包刚改写 mods/)→ 规划(modpack_swap 内置)
+        if args.dry_run:
+            # 彩排模式未真正写盘,规划会基于旧状态误导用户,故跳过规划
+            _print("[提示] dry-run 未写盘,跳过规划步骤。去掉 --dry-run 将自动生成迁移计划。")
+            return 0
+        try:
+            plan, compat_warnings, _pairs = build_plan(
+                Path.cwd(),
+                game_root,
+                args.src,
+                args.dst,
+                modpack_swap=True,
+                rescan_dst=True,
+                mcmig_dir=Path.cwd() / ".mcmig",
+                plans_dir=game_root / ".mcmig" / "plans",
+                data_dir=game_root / ".mcmig",
+            )
+        except (FileNotFoundError, ValueError, PlanPersistError) as e:
+            _print(f"[错误] 规划失败: {e}")
+            return 2
+        for w in compat_warnings:
+            _print(f"[兼容警告] {w}")
+        # 第四步:摘要 + 下一步提示
+        _print("[规划] 迁移计划已生成,按来源分类计数:")
+        _print(
+            "  " + ", ".join(f"{k}={v}" for k, v in sorted(plan.summary().items()) if v > 0)
+        )
+        p_path = plan_path(game_root, args.src, args.dst)
+        _print(f"审阅 {p_path} 后运行: mcmig migrate {args.src} {args.dst}")
     return 0
 
 
@@ -523,108 +548,158 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     cwd = Path.cwd()
     game_root = _resolve_game_root(args)
     data_dir = game_root / ".mcmig"
-    # F8:plan 文件锚定优先,旧 CWD 布局回退;两侧皆无时取锚定路径报「缺少计划」
-    p_anchored = plan_path(game_root, args.src, args.dst)
-    p_legacy = plan_path(cwd, args.src, args.dst)
-    p_path = p_anchored if p_anchored.exists() else (p_legacy if p_legacy.exists() else p_anchored)
-    if not p_path.exists():
-        _print(f"[错误] 缺少计划文件 {p_path}")
-        _print("请先运行: mcmig plan <源> <目标>")
-        return 2
-    if p_path == p_legacy and p_legacy != p_anchored:
-        # 仅真·旧布局命中才提示(game_root==CWD 时两路径同体,不提示,spec 验收 4)
-        _print_err(
-            f"[提示] 使用旧布局 plan({p_legacy}),建议整体迁移至 {game_root / '.mcmig' / 'plans'}"
+    # 批次I-T5(spec §4.2):加载计划→预检→确认→执行→回写状态全程持源/目标
+    # 实例锁——预检在锁内进行,封「检查-取锁-执行」竞争窗;交互确认在锁内
+    # 属有意语义(正在操作该实例,他方 mcmig 应等待而非并发写盘)
+    with instance_locks(game_root, args.src, args.dst) as lockinfo:
+        _warn_abandoned_lock(game_root, lockinfo)
+        # F8:plan 文件锚定优先,旧 CWD 布局回退;两侧皆无时取锚定路径报「缺少计划」
+        p_anchored = plan_path(game_root, args.src, args.dst)
+        p_legacy = plan_path(cwd, args.src, args.dst)
+        p_path = (
+            p_anchored if p_anchored.exists() else (p_legacy if p_legacy.exists() else p_anchored)
         )
-    try:
-        plan = MigrationPlan.load(p_path)
-    except (PlanFormatError, OSError) as e:
-        _print(f"[错误] 计划文件读取失败: {e}")
-        return 2
-    if plan.executed_at and not args.force:
-        _print(
-            f"[错误] 该计划已执行(时间 {plan.executed_at})。重跑请加 --force"
-            "(可重入:已完成文件会自动跳过)。"
-        )
-        return 2
-    # F8:stale 检查取两侧实际存在的快照(锚定优先+旧布局回退;存在才比 mtime,原逻辑保留)
-    src_snap = find_snapshot(data_dir, cwd / ".mcmig", args.src)[0]
-    dst_snap = find_snapshot(data_dir, cwd / ".mcmig", args.dst)[0]
-    stale = any(
-        p.exists() and p.stat().st_mtime > p_path.stat().st_mtime for p in (src_snap, dst_snap)
-    )
-    if stale and not args.force:
-        _print("[错误] 快照比计划新,计划可能过期。请重跑 plan,或 --force 强制执行。")
-        return 2
-    src_root = _version_dir(game_root, args.src)
-    dst_root = _version_dir(game_root, args.dst)
-    if not src_root.is_dir() or not dst_root.is_dir():
-        _print("[错误] 源/目标版本文件夹不存在")
-        return 2
-    if _game_running(dst_root):
-        _print("[警告] 目标版本文件被占用,游戏可能仍在运行;继续可能损坏存档。")
-        if not args.force:
+        if not p_path.exists():
+            _print(f"[错误] 缺少计划文件 {p_path}")
+            _print("请先运行: mcmig plan <源> <目标>")
             return 2
-    # ASK 预收集:执行期 ASK 决策 = 路径 ∈ ask_yes(pipeline.execute_migration 消费)
-    if args.yes_ask:
-        ask_yes: set[str] = {a.path for a in plan.actions if a.behavior == Behavior.ASK}
-    else:
-        ask_yes = set()
-    copy_n = sum(1 for a in plan.actions if a.behavior == Behavior.COPY)
-    ask_n = sum(1 for a in plan.actions if a.behavior == Behavior.ASK)
-    _print(
-        f"将执行: 复制 {copy_n} / 待确认 {ask_n} / 其余跳过"
-        f"{' (dry-run)' if args.dry_run else ''}"
-    )
-    if not args.y and not args.dry_run:
-        if not Confirm.ask("确认执行?", default=False):
-            _print("已取消。")
-            return 0
-    if not args.skip_ask and not args.yes_ask:
-        # 交互模式:逐文件确认(显示路径与判定原因),先收集决策集合再统一交执行器
-        from rich.console import Console
-
-        console = Console()
-        for a in plan.actions:
-            if a.behavior == Behavior.ASK:
-                console.print(f"  ❓ {a.path} — {a.reason}")
-                if Confirm.ask("  迁移此文件?", default=False):
-                    ask_yes.add(a.path)
-    try:
-        results = execute_migration(plan, src_root, dst_root, ask_yes, dry_run=args.dry_run)
-    except FsOpsError as e:
-        # 执行段可预期文件操作失败(磁盘不足预检/目标被占用等):
-        # 三段式短文案替代 traceback(携带项 a;DiskSpaceError 等均为此族)
-        _print(f"[错误] {e.what}:{e.why}")
-        _print("修正问题(关闭占用文件的程序、释放磁盘空间)后重跑;已完成文件会自动跳过。")
-        return 2
-    from collections import Counter
-
-    stat = Counter(r.status for r in results)
-    failed = [r for r in results if r.failed]
-    _print(f"结果: {dict(stat)};失败 {len(failed)}")
-    for r in failed:
-        _print(f"  [失败] {r.path}: {r.error}")
-    if not args.dry_run and not failed:
-        # --force 重跑统计修正:保留首次 executed_at(执行状态的时间锚点),
-        # execution_summary 取最新一次(反映当前实例状态;重跑多为全 identical)
-        first_executed_at = plan.executed_at
-        plan.mark_executed(
-            {
-                "copied": stat.get("copied", 0),
-                "identical": stat.get("identical", 0),
-                "asked_no": stat.get("asked_no", 0),
-                "failed": 0,
-            }
+        if p_path == p_legacy and p_legacy != p_anchored:
+            # 仅真·旧布局命中才提示(game_root==CWD 时两路径同体,不提示,spec 验收 4)
+            _print_err(
+                f"[提示] 使用旧布局 plan({p_legacy}),"
+                f"建议整体迁移至 {game_root / '.mcmig' / 'plans'}"
+            )
+        try:
+            plan = MigrationPlan.load(p_path)
+        except (PlanFormatError, OSError) as e:
+            _print(f"[错误] 计划文件读取失败: {e}")
+            return 2
+        if plan.review is None:
+            # 渐进采用(批次I-T3):旧版 plan 无审阅守卫——提示后继续,不阻断既有流程
+            _print_err("[提示] 计划缺少审阅守卫(旧版生成),建议重跑 plan 启用保护")
+        # 共享执行预检(批次I-T2):四道防护统一经 preflight_execute 出口;
+        # --force 映射为三项显式决策(已执行重跑/接受过期/接受疑似占用),
+        # 目录缺失永不可强制(无降级通道);快照/plan 定位语义与下沉前一致
+        blockers, warnings = preflight_execute(
+            plan, game_root, args.src, args.dst,
+            decisions=ExecutionDecisions(rerun_executed=args.force, accept_stale=args.force,
+                                         accept_maybe_running=args.force),
+            data_dir=data_dir, legacy_dir=cwd / ".mcmig")
+        for b in blockers:                       # 不可强制项与可强制项统一经此出口
+            _print(f"[错误] {b.message}")
+            return 2
+        for w in warnings:
+            _print_err(f"[警告] {w.message}")
+        # 审阅守卫(终审修复 I1,spec §3.3 白名单增补):与 GUI 同源的 validate_review
+        # ——实例身份/双侧快照指纹/规则指纹失配即阻断,CLI/GUI 防护对称。路径定位与
+        # 签发/preflight 两侧对称:快照取 find_snapshot 的**实际命中位**(锚定优先+
+        # 旧布局回退)——build_plan 签发时锚定快照缺失会记录实际载入的旧布局快照哈希
+        # (pipeline.issue_review),重验必须取同一命中位,否则旧布局快照用户假阳性
+        # snapshot_changed 且「重跑 plan」仍读旧布局,死循环(复审修复);规则=
+        # build_plan 当时经 _rules_dir 选定的目录。legacy 归一化只此一处变量
+        # (`cwd/.mcmig ≠ data_dir 才有回退`),与 build_plan 的
+        # `legacy = mcmig_dir if data != mcmig_dir else None` 同构,不引入第三种。
+        # 旧计划(review=None)跳过,沿用上方「缺少审阅守卫」提示路径(渐进采用)。
+        # --force 对齐 accept_stale 决策:快照内容漂移(snapshot_changed)与预检
+        # 「快照过期」同源,可随 --force 放行(既有 --force 重跑语义不变);
+        # 实例漂移/规则变化无决策通道,恒阻断(重新 plan 即可,保守默认)
+        if plan.review is not None:
+            legacy_dir = cwd / ".mcmig" if (cwd / ".mcmig") != data_dir else None
+            chosen_rules_dir, _rule_notices = _rules_dir(data_dir, legacy_dir)
+            review_blockers = [
+                b for b in validate_review(
+                    plan,
+                    game_root=game_root,
+                    snapshot_paths={
+                        args.src: find_snapshot(data_dir, legacy_dir, args.src)[0],
+                        args.dst: find_snapshot(data_dir, legacy_dir, args.dst)[0],
+                    },
+                    rule_sources=[chosen_rules_dir / "rules.yaml"],
+                )
+                if not (args.force and b.code == "snapshot_changed")
+            ]
+            for b in review_blockers:
+                _print(f"[错误] {b.message}")
+            if review_blockers:
+                return 2
+        src_root = _version_dir(game_root, args.src)
+        dst_root = _version_dir(game_root, args.dst)
+        # ASK 预收集:执行期 ASK 决策 = 路径 ∈ ask_yes(pipeline.execute_migration 消费)
+        if args.yes_ask:
+            ask_yes: set[str] = {a.path for a in plan.actions if a.behavior == Behavior.ASK}
+        else:
+            ask_yes = set()
+        copy_n = sum(1 for a in plan.actions if a.behavior == Behavior.COPY)
+        ask_n = sum(1 for a in plan.actions if a.behavior == Behavior.ASK)
+        _print(
+            f"将执行: 复制 {copy_n} / 待确认 {ask_n} / 其余跳过"
+            f"{' (dry-run)' if args.dry_run else ''}"
         )
-        if first_executed_at is not None:
-            plan.executed_at = first_executed_at
-        plan.save(p_path)
-        _print("[提醒] 迁移完成。若要让启动器默认打开新版本,需同步两处配置:")
-        _print(f"  1. {game_root / 'PCL.ini'} 的 Version: 行 → 改为 {args.dst}")
-        _print(f"  2. {game_root / 'PCL' / 'Setup.ini'} 的 LaunchVersionSelect: 行 → 改为 {args.dst}")
-        _print("工具不代改启动器配置(改错会导致无法启动任何版本),请手动确认后修改。")
-    return 1 if failed else 0
+        if not args.y and not args.dry_run:
+            if not Confirm.ask("确认执行?", default=False):
+                _print("已取消。")
+                return 0
+        if not args.skip_ask and not args.yes_ask:
+            # 交互模式:逐文件确认(显示路径与判定原因),先收集决策集合再统一交执行器
+            from rich.console import Console
+
+            console = Console()
+            for a in plan.actions:
+                if a.behavior == Behavior.ASK:
+                    console.print(f"  ❓ {a.path} — {a.reason}")
+                    if Confirm.ask("  迁移此文件?", default=False):
+                        ask_yes.add(a.path)
+        try:
+            results = execute_migration(
+                plan, src_root, dst_root, ask_yes, dry_run=args.dry_run,
+                # 重跑豁免(白名单⑤):--force 即 rerun_executed 决策 → 跳过目标状态校验,
+                # 依赖 identical 短路;首跑必须校验(spec §3.3 v4 补注)
+                validate_states=not args.force,
+            )
+        except ReviewStateError as e:
+            # 审阅状态校验失配(源/目标与审阅时不一致,零写盘):逐条展示后退出
+            for b in e.blockers:
+                _print(f"[错误] {b.message}")
+            _print("请重跑 mcmig plan 重新审阅后再执行;确认要按当前状态继续可加 --force。")
+            return 2
+        except FsOpsError as e:
+            # 执行段可预期文件操作失败(磁盘不足预检/目标被占用等):
+            # 三段式短文案替代 traceback(携带项 a;DiskSpaceError 等均为此族)。
+            # 部分执行后的重试路径=重新生成计划(状态校验按新计划重算;直接重跑同
+            # 一计划会被目标漂移阻断),identical 跳过仅在重新 plan 后生效(终审修复 I3)
+            _print(f"[错误] {e.what}:{e.why}")
+            _print(
+                "修正问题(关闭占用文件的程序、释放磁盘空间)后,重新运行 mcmig plan 再执行;"
+                "重新生成的计划中已完成文件会按「内容一致」跳过,不会重复复制。"
+            )
+            return 2
+        from collections import Counter
+
+        stat = Counter(r.status for r in results)
+        failed = [r for r in results if r.failed]
+        _print(f"结果: {dict(stat)};失败 {len(failed)}")
+        for r in failed:
+            _print(f"  [失败] {r.path}: {r.error}")
+        if not args.dry_run and not failed:
+            # --force 重跑统计修正:保留首次 executed_at(执行状态的时间锚点),
+            # execution_summary 取最新一次(反映当前实例状态;重跑多为全 identical)
+            first_executed_at = plan.executed_at
+            plan.mark_executed(
+                {
+                    "copied": stat.get("copied", 0),
+                    "identical": stat.get("identical", 0),
+                    "asked_no": stat.get("asked_no", 0),
+                    "failed": 0,
+                }
+            )
+            if first_executed_at is not None:
+                plan.executed_at = first_executed_at
+            plan.save(p_path)
+            _print("[提醒] 迁移完成。若要让启动器默认打开新版本,需同步两处配置:")
+            _print(f"  1. {game_root / 'PCL.ini'} 的 Version: 行 → 改为 {args.dst}")
+            _print(f"  2. {game_root / 'PCL' / 'Setup.ini'} 的 LaunchVersionSelect: 行 → 改为 {args.dst}")
+            _print("工具不代改启动器配置(改错会导致无法启动任何版本),请手动确认后修改。")
+        return 1 if failed else 0
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
@@ -647,8 +722,9 @@ def _free_port() -> int:
 def _cmd_gui(args: argparse.Namespace) -> int:
     """gui 子命令:启动自检 → 起本地服务(127.0.0.1)→ 延时自动开浏览器。
 
-    启动自检(spec §11):①resolve_workdir(绿色模式未配置游戏目录/目录不可写
-    在起服务前暴露)②verify_data_manifest(杀软误删/传输损坏的规则数据拦截);
+    启动自检(spec §11):①resolve_workdir(目录不可写在起服务前暴露;
+    未配置 game_root 自批次I-T1 起为欢迎态,不再拦截,由界面步①引导配置)
+    ②verify_data_manifest(杀软误删/传输损坏的规则数据拦截);
     任一失败打印 doctor 引导文案退 2,绝不带病起服务。
     """
     import threading
@@ -688,19 +764,25 @@ def main(argv: list[str] | None = None) -> int:
     _safe_reconfigure_streams()
     args = build_parser().parse_args(argv)
     _setup_logging(getattr(args, "quiet", False))
-    if args.command == "scan":
-        return _cmd_scan(args)
-    if args.command == "diff":
-        return _cmd_diff(args)
-    if args.command == "plan":
-        return _cmd_plan(args)
-    if args.command == "swap":
-        return _cmd_swap(args)
-    if args.command == "migrate":
-        return _cmd_migrate(args)
-    if args.command == "doctor":
-        return _cmd_doctor(args)
-    if args.command == "gui":
-        return _cmd_gui(args)
+    try:
+        if args.command == "scan":
+            return _cmd_scan(args)
+        if args.command == "diff":
+            return _cmd_diff(args)
+        if args.command == "plan":
+            return _cmd_plan(args)
+        if args.command == "swap":
+            return _cmd_swap(args)
+        if args.command == "migrate":
+            return _cmd_migrate(args)
+        if args.command == "doctor":
+            return _cmd_doctor(args)
+        if args.command == "gui":
+            return _cmd_gui(args)
+    except InstanceLockError as e:
+        # 批次I-T5:实例锁获取失败(scan/plan/swap/migrate)——另一 mcmig 进程
+        # 正在操作源/目标实例;走 stderr 不污染 --json 的 stdout
+        _print_err(f"[错误] {e.what}:{e.why}")
+        return 2
     build_parser().print_help()
     return 1

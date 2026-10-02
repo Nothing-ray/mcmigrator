@@ -199,3 +199,61 @@ def test_unreadable_src_md5_fails_without_copy(tmp_path, monkeypatch):
     assert results[0].failed
     assert "不可读" in (results[0].error or "")
     assert not (dst / "options.txt").exists()
+
+
+# ---- 批次I-T6:取消检查点(动作间停发,安全边界内无半途文件) ----
+
+
+def test_cancel_checkpoint_stops_between_files(mini_plan_dirs):
+    """should_cancel 在第 1 个文件后命中→停发,返回部分结果且 executor.cancelled。"""
+    ex = Executor(mini_plan_dirs.plan, mini_plan_dirs.src, mini_plan_dirs.dst, yes)
+    gate = {"stop": False}
+    results = ex.execute(should_cancel=lambda: gate["stop"],
+                         progress_cb=lambda r: gate.__setitem__("stop", True))
+    assert ex.cancelled and len(results) == 1
+    assert results[0].status == "copied"
+    # 安全边界:已分发文件完整落盘,未分发文件零痕迹
+    assert (mini_plan_dirs.dst / "f0.txt").exists()
+    assert not (mini_plan_dirs.dst / "f1.txt").exists()
+    assert ex.journal_failed is False
+
+
+def test_first_action_always_runs_before_cancel_check(mini_plan_dirs):
+    """取消检查点的守门:首个动作恒执行(results 为空不判停)——GUI 在 job 启动
+    瞬间取消时,仍能保证至少一个动作单元完整走完,进度与 journal 不空转;
+    停发判定在第二个检查点生效(cancelled 置位)。"""
+    ex = Executor(mini_plan_dirs.plan, mini_plan_dirs.src, mini_plan_dirs.dst, yes)
+    results = ex.execute(should_cancel=lambda: True)  # 一开始就喊停
+    assert len(results) == 1 and results[0].status == "copied"
+    assert ex.cancelled is True
+
+
+def test_rerun_identical_after_partial(mini_plan_dirs):
+    """取消后重跑: 已完成文件 identical 短路(与 T3 重跑豁免协同的回归锚)。"""
+    ex = Executor(mini_plan_dirs.plan, mini_plan_dirs.src, mini_plan_dirs.dst, yes)
+    gate = {"stop": False}
+    partial = ex.execute(should_cancel=lambda: gate["stop"],
+                         progress_cb=lambda r: gate.__setitem__("stop", True))
+    assert ex.cancelled and len(partial) == 1
+    results2 = ex.execute()  # 重跑(取消路径不标记 executed,依赖 identical 短路)
+    assert len(results2) == 3
+    assert results2[0].status == "identical"      # 已完成文件短路,不重复复制
+    assert results2[1].status == "copied"          # 续迁剩余文件
+    assert results2[2].status == "copied"
+    results3 = ex.execute()  # 全量完成后再跑:整体 identical(T3 重跑锚)
+    assert all(r.status == "identical" for r in results3)
+
+
+def test_before_after_action_hooks_wrap_copy(mini_plan_dirs):
+    """before/after 挂点包住每个动手动作:①意图→②操作→③完成序(SKIP 不触发)。"""
+    ex = Executor(mini_plan_dirs.plan, mini_plan_dirs.src, mini_plan_dirs.dst, yes)
+    calls: list[tuple[str, str]] = []
+    ex.execute(
+        before_action=lambda a: calls.append(("intent", a.path)),
+        after_action=lambda a, r: calls.append(("done", a.path)),
+    )
+    assert calls == [
+        ("intent", "f0.txt"), ("done", "f0.txt"),
+        ("intent", "f1.txt"), ("done", "f1.txt"),
+        ("intent", "f2.txt"), ("done", "f2.txt"),
+    ]

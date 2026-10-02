@@ -244,6 +244,43 @@ def test_execute_migration_cleans_tmp_and_checks_disk(tmp_path, monkeypatch):
     assert not (dst / "options.txt").exists()  # 执行未发生(预检失败零写盘)
 
 
+def test_disk_check_counts_confirmed_ask(tmp_path, monkeypatch):
+    """磁盘预检计入 ask_yes 命中的 ASK 动作(spec §3.2,修只计 COPY 的口径)。
+
+    构造 COPY+ASK 各一条 src_size=100MB 的动作(真实文件很小,size 取计划记录),
+    余量注入 150MB:ask_yes 空(只计 COPY=100MB)通过并真实执行;同一计划
+    ask_yes 命中 ASK(共 200MB)→ DiskSpaceError,零写盘。
+    """
+    import shutil
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    import pytest
+
+    from migration.fsops import DiskSpaceError
+
+    src_root = tmp_path / "s"
+    dst_root = tmp_path / "d"
+    src_root.mkdir()
+    dst_root.mkdir()
+    (src_root / "big.bin").write_bytes(b"c")
+    (src_root / "q.bin").write_bytes(b"q")
+    big = replace(_mk_action("big.bin", Behavior.COPY), src_size=100 << 20)
+    ask = replace(_mk_action("q.bin", Behavior.ASK), src_size=100 << 20)
+    plan = _mk_plan([big, ask])
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: SimpleNamespace(free=150 << 20))
+
+    # 对照:只计 COPY(100MB ≤ 150MB)→ 通过(ASK 未确认不计入)
+    results = execute_migration(plan, src_root, dst_root, ask_yes=set())
+    assert {r.status for r in results} == {"copied", "asked_no"}
+    # 计入已确认 ASK(100+100MB > 150MB)→ 拒绝,预检失败零写盘
+    (dst_root / "big.bin").unlink()  # 移除上一轮产物,验证未再写盘
+    with pytest.raises(DiskSpaceError):
+        execute_migration(plan, src_root, dst_root, ask_yes={"q.bin"})
+    assert not (dst_root / "big.bin").exists()
+    assert not (dst_root / "q.bin").exists()
+
+
 def test_execute_migration_dry_run_keeps_stale_tmp(tmp_path):
     """携带项 b:dry-run 零写盘契约 → 既有残留 tmp 原样保留(clean_stale_tmp 随 dry-run 跳过)。
 
@@ -733,3 +770,88 @@ def test_escape_world_glob_identity_without_specials() -> None:
     from migration import pipeline
 
     assert pipeline.escape_world_glob("mods/create-1.0.jar") == "mods/create-1.0.jar"
+
+
+# ---- 批次I-T3:审阅有效性(build_plan 签发守卫 + persisted 阻断 + 重跑豁免) ----
+
+
+def test_build_plan_issues_review(built_plan_layout) -> None:
+    """build_plan 签发审阅守卫并随 plan 持久化(spec §3.3:计划生成时定格执行前置条件)。"""
+    import json
+
+    from migration.review import file_sha256
+
+    lay = built_plan_layout
+    review = lay.plan.review
+    assert review is not None
+    assert review["instance"] == str(lay.game.resolve())
+    assert set(review["snapshots"]) == {"src", "dst"}
+    assert review["mode"] is False
+    assert review["snapshots"]["src"] == file_sha256(lay.snapshot_paths["src"])
+    assert review["snapshots"]["dst"] == file_sha256(lay.snapshot_paths["dst"])
+    # 落盘的 plan JSON 同样含 review(load 兼容)
+    doc = json.loads(
+        (lay.data / "plans" / "src__dst.plan.json").read_text(encoding="utf-8")
+    )
+    assert doc["review"] == review
+
+
+def test_build_plan_save_failure_raises(built_plan_layout, monkeypatch) -> None:
+    """② 白名单:保存失败上抛 PlanPersistError 不再吞(封死「审新执旧」,spec §3.3)。"""
+    import pytest
+
+    from migration import pipeline
+    from migration.plan import MigrationPlan, PlanPersistError
+
+    def _boom(self, path: Path) -> None:  # noqa: ARG001 — 类属性替换,签名须与 save 一致
+        raise OSError("disk full (注入)")
+
+    monkeypatch.setattr(MigrationPlan, "save", _boom)
+    with pytest.raises(PlanPersistError):
+        pipeline.build_plan(
+            built_plan_layout.cwd, built_plan_layout.game, "src", "dst",
+            mcmig_dir=built_plan_layout.data,
+            plans_dir=built_plan_layout.data / "plans",
+            data_dir=built_plan_layout.data,
+        )
+
+
+def test_rerun_skips_target_state_check(built_plan_layout) -> None:
+    """⑤ 白名单:重跑(validate_states=False 明确决策)跳过目标状态校验→identical 短路。
+
+    Review Focus 3:首跑改写目标后状态必然失配——不加豁免必被 ReviewStateError
+    拦截;豁免是重跑决策的特权,依赖 identical 短路与 job journal(spec §3.3 v4 补注)。
+    """
+    import pytest
+
+    from migration.review import ReviewStateError
+
+    lay = built_plan_layout
+    # 首跑:状态与快照一致 → 内部校验通过,真实执行
+    results = execute_migration(lay.plan, lay.src_dir, lay.dst_dir, ask_yes=set())
+    assert not any(r.failed for r in results)
+    # 重跑不加豁免:目标已被首跑改写 → 审阅状态校验拦截
+    with pytest.raises(ReviewStateError):
+        execute_migration(lay.plan, lay.src_dir, lay.dst_dir, ask_yes=set())
+    # 重跑加豁免(调用方 rerun_executed 决策):identical 短路,照常完成
+    results2 = execute_migration(
+        lay.plan, lay.src_dir, lay.dst_dir, ask_yes=set(), validate_states=False
+    )
+    assert not any(r.failed for r in results2)
+
+
+def test_execute_migration_without_snapshots_skips_state_check(tmp_path) -> None:
+    """合成计划/非锚定布局(无 .mcmig/snapshots)→ 状态校验降级跳过,执行照常。
+
+    兼容既有直调用法(execute_migration 不因快照缺失而拒绝执行;
+    真实 plan 管线用法恒有锚定快照)。
+    """
+    src_root = tmp_path / "s"
+    dst_root = tmp_path / "d"
+    src_root.mkdir()
+    dst_root.mkdir()
+    (src_root / "a.txt").write_text("A", encoding="utf-8")
+    plan = _mk_plan([_mk_action("a.txt", Behavior.COPY)])
+    results = execute_migration(plan, src_root, dst_root, ask_yes=set())
+    assert {r.status for r in results} == {"copied"}
+    assert (dst_root / "a.txt").read_text(encoding="utf-8") == "A"

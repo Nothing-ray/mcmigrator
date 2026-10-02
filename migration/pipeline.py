@@ -28,8 +28,24 @@ from .classifier import Classifier
 from .differ import DiffReport, Differ, is_mod_jar
 from .executor import Executor, FileResult
 from .fsops import check_disk_space, clean_stale_tmp
-from .plan import ActionRecord, Behavior, MigrationPlan, Origin
+from .plan import ActionRecord, Behavior, MigrationPlan, Origin, PlanPersistError
 from .planner import Planner
+from .preflight import (  # noqa: F401 — 重导出:spec 命名 pipeline.preflight_execute 成立
+    ExecutionDecisions,
+    PreflightBlocker,
+    PreflightWarning,
+    preflight_execute,
+    probe_maybe_running,
+)
+from .review import (  # noqa: F401 — 重导出:审阅有效性符号经 pipeline.* 可达,供 T5/GUI/W3 消费
+    ReviewStateError,
+    check_action_states,
+    file_sha256,
+    issue_review,
+    plan_fingerprint,
+    rules_fingerprint,
+    validate_review,
+)
 from .scanner import Scanner
 from .snapshot import Snapshot
 
@@ -225,6 +241,29 @@ def build_ruleset(
     return rs, errors
 
 
+def _rules_dir(data_dir: Path, legacy_dir: Path | None) -> tuple[Path, list[str]]:
+    """规则目录选择:新位置优先,旧位置只读回退,并存时明确提示不暗混(spec §3.1)。
+
+    Args:
+        data_dir: 生成物锚定 .mcmig 目录(game_root 侧,新规则位置)。
+        legacy_dir: 旧布局 .mcmig 目录(通常 CWD 侧);None 或与 data_dir
+            相同表示无回退。
+
+    Returns:
+        (选定的规则目录, 提示行列表):新位置存在→用之(旧位置并存则提示已忽略);
+        仅旧位置存在→用旧位置+提示建议迁移;均无→新位置。
+    """
+    new, old = data_dir / "rules.yaml", (legacy_dir / "rules.yaml" if legacy_dir else None)
+    notices: list[str] = []
+    if new.exists() and old and old.exists():
+        notices.append(f"[提示] 检测到旧规则 {old},已忽略(并存时以 {new} 为准),建议删除旧文件")
+        return data_dir, notices
+    if not new.exists() and old and old.exists():
+        notices.append(f"[提示] 使用旧布局规则 {old},建议迁移至 {new}")
+        return legacy_dir, notices  # type: ignore[return-value]
+    return data_dir, notices
+
+
 def build_plan(
     cwd: Path,
     game_root: Path,
@@ -240,6 +279,7 @@ def build_plan(
     exclude: Sequence[str] = (),
     include: Sequence[str] = (),
     rule_files: Sequence[Path] = (),
+    rules_dir: Path | None = None,  # 用户规则目录;None → 新旧位置自动选择(批次I-T1)
 ) -> tuple[MigrationPlan, list["CompatWarning"], list["ModPair"]]:
     """plan 公共管线(plan 子命令与 swap 第三步共用,GUI 亦可直调)。
 
@@ -255,7 +295,7 @@ def build_plan(
         modpack_swap: 换包模式(源独有 mod 视为旧包自带,不回迁)。
         rescan_dst: True 时重扫 dst 生成最新快照并落盘(swap 装包后必开)。
         save: 是否持久化 plan 文件。
-        mcmig_dir: .mcmig 目录(rules.yaml 所在)。
+        mcmig_dir: .mcmig 目录(旧布局快照/rules.yaml 回退位)。
         plans_dir: plan 目录(写为 plans_dir/<src>__<dst>.plan.json)。
         data_dir: 生成物锚定目录(F8 批次D):快照读/写均落 <data_dir>/snapshots/;
             None → 等于 mcmig_dir(GUI 兼容布局,行为不变)。mcmig_dir 侧快照仅作
@@ -263,6 +303,9 @@ def build_plan(
         exclude: CLI 级临时规则 glob(本次按 never)。
         include: CLI 级临时规则 glob(本次按 must_migrate)。
         rule_files: 额外规则文件路径列表。
+        rules_dir: 用户规则目录(批次I-T1,spec §3.1);None → 按 _rules_dir 在
+            data_dir(新位置,如 <game_root>/.mcmig)与 mcmig_dir(旧布局回退)
+            之间自动选择,选择结果非默认时发 warning 提示。
 
     Returns:
         (plan, compat_warnings, mod_pairs):plan 与兼容警告同前;mod_pairs 为
@@ -322,12 +365,19 @@ def build_plan(
     dst_mods = registry_from_dicts(dst_snap.mods) if dst_snap.mods else scan_mods(dst_dir)
     override = load_mod_config_map()
     orphan_rules = generate_orphan_rules(src_snap.files, dst_mods, override)
+    # 批次I-T1:用户规则目录选择(新位置=生成物锚定位优先,旧布局回退,不暗混);
+    # 显式 rules_dir 跳过选择;非默认选择/并存时逐行 warning 提示
+    chosen_rules_dir, rule_notices = (
+        (rules_dir, []) if rules_dir is not None else _rules_dir(data, legacy)
+    )
+    for n in rule_notices:
+        log.warning("%s", n)
     rs, errs = build_ruleset(
         [src, dst],
         exclude=list(exclude),
         include=list(include),
         rule_files=list(rule_files),
-        mcmig_dir=mcmig_dir,
+        mcmig_dir=chosen_rules_dir,
         with_whitelist=True,
         orphan_rules=orphan_rules,
         world_dirs=sorted(set(src_snap.world_dirs) | set(dst_snap.world_dirs)),  # F34① 双侧并集
@@ -366,12 +416,52 @@ def build_plan(
         r.path for r in plan.actions if r.behavior == Behavior.COPY and r.origin == Origin.MOD_ADDED
     ]
     compat_warnings = check_mod_compat(mod_added_paths, src_mods, dst_nf_version)
+    # 规划完成后、save 前:签发审阅守卫(spec §3.3)——计划生成时定格执行前置条件
+    # (实例身份/双侧快照内容指纹/规则指纹/迁移模式),执行前由 validate_review 重验。
+    # 快照取位:锚定位存在取锚定位(与执行侧校验同构);仅旧布局存在时取实际载入位
+    # (守卫记录的是计划实际消费的快照);规则来源取本函数选定的规则目录
+    guard_src = data / "snapshots" / f"{src}.snapshot.json"
+    guard_dst = data / "snapshots" / f"{dst}.snapshot.json"
+    plan.review = issue_review(
+        game_root=game_root,
+        snapshot_paths={
+            src: guard_src if guard_src.is_file() else src_path,
+            dst: guard_dst if guard_dst.is_file() else dst_path,
+        },
+        rule_sources=[chosen_rules_dir / "rules.yaml"],
+        modpack_swap=modpack_swap,
+    )
     if save:
         try:
             plan.save(plans_dir / f"{src}__{dst}.plan.json")
         except OSError as e:
-            log.warning("[警告] plan 文件写入失败(已忽略,stdout 仍有效): %s", e)
+            # 不再吞:保存失败的计划不可进入可执行状态(封死「审新执旧」,spec §3.3)
+            raise PlanPersistError(f"plan 文件写入失败: {e}") from e
     return plan, compat_warnings, mod_pairs
+
+
+def _load_guard_snapshots(plan: MigrationPlan, src_root: Path) -> tuple[Snapshot, Snapshot] | None:
+    """按锚定布局加载双侧快照(<src_root 上两级>/.mcmig/snapshots),供审阅状态校验。
+
+    Args:
+        plan: 迁移计划(src/dst 字段定位快照文件)。
+        src_root: 源版本根目录(game_root/versions/<src>;上两级即 game_root)。
+
+    Returns:
+        (src_snap, dst_snap);任一快照缺失或损坏返回 None——调用方降级跳过状态
+        校验(不可校验≠阻断;真实 plan 管线用法恒有锚定快照,合成计划/非锚定
+        布局的直调用法不应因此拒绝执行)。
+    """
+    snap_dir = src_root.parent.parent / ".mcmig" / "snapshots"
+    src_p = snap_dir / f"{plan.src}.snapshot.json"
+    dst_p = snap_dir / f"{plan.dst}.snapshot.json"
+    if not (src_p.is_file() and dst_p.is_file()):
+        return None
+    try:
+        return Snapshot.load(src_p), Snapshot.load(dst_p)
+    except Exception as e:  # noqa: BLE001 — 快照损坏时降级跳过并留日志,不阻断执行流程
+        log.warning("[提示] 审阅状态校验所需快照不可读,已跳过(%s / %s): %s", src_p, dst_p, e)
+        return None
 
 
 def execute_migration(
@@ -381,14 +471,24 @@ def execute_migration(
     ask_yes: set[str],
     dry_run: bool = False,
     progress_cb: Callable[[FileResult], None] | None = None,
+    validate_states: bool = True,
+    *,
+    should_cancel: Callable[[], bool] | None = None,
+    before_action: Callable[[ActionRecord], None] | None = None,
+    after_action: Callable[[ActionRecord, FileResult], None] | None = None,
 ) -> list[FileResult]:
-    """执行迁移计划(三道预检 + Executor 封装,CLI 与 GUI 平级消费)。
+    """执行迁移计划(三道预检 + 审阅状态校验 + Executor 封装,CLI 与 GUI 平级消费)。
 
     预检序列(执行前):
     1. clean_stale_tmp(dst_root):清理上次崩溃残留的 *.mcmig-tmp(有写盘副作用,
        dry-run 跳过以守住零写盘契约)
-    2. check_disk_space(dst_root, Σ COPY 动作源文件大小):不足抛 DiskSpaceError,
-       此时零写盘(模块级函数引用,便于 GUI/测试注入替身)
+    2. check_disk_space(dst_root, Σ COPY + 已确认 ASK 动作源文件大小):不足抛
+       DiskSpaceError,此时零写盘(模块级函数引用,便于 GUI/测试注入替身);
+       批次I-T2 起 ASK 命中 ask_yes 即将真实写盘,须计入口径
+    3. check_action_states(批次I-T3,spec §3.3):待执行动作的源/目标当前状态 vs
+       快照记录状态,失配抛 ReviewStateError(零写盘);重跑(rerun_executed 明确
+       决策)由调用方传 validate_states=False 跳过,依赖 identical 短路与 job
+       journal——行为集中一处,CLI/GUI 平级;快照不可得时降级跳过
 
     Args:
         plan: 已审阅的迁移计划。
@@ -398,27 +498,49 @@ def execute_migration(
         dry_run: True 时零写盘,结果为推演(tmp 清理随之跳过;磁盘预检只读仍执行)。
         progress_cb: 逐文件结果实时回调——注入 Executor.execute,单文件完成即同步
             调用(GUI 进度条数据源);None 时无回调,行为不变。
+        validate_states: 是否执行审阅状态校验(默认 True);False 仅供重跑路径
+            (调用方 rerun_executed 决策),首跑必须校验。
+        should_cancel: 取消检查点,透传 Executor.execute(GUI 取消按钮接线,
+            批次I-T6);None 时行为不变。
+        before_action: 动手动作前置回调(①意图 write-ahead),透传 Executor.execute。
+        after_action: 动作完成回调(③完成持久化),透传 Executor.execute。
 
     Returns:
         逐文件执行结果(按 plan.actions 顺序)。
 
     Raises:
         DiskSpaceError: 目标磁盘剩余空间不足(预检失败,零写盘)。
+        ReviewStateError: 审阅状态校验失配(源/目标与审阅时不一致,零写盘)。
     """
     if not dry_run:
         removed = clean_stale_tmp(dst_root)
         if removed:
             log.info("[预检] 已清理 %d 个残留临时文件(*.mcmig-tmp)", removed)
-    # 磁盘预检:按 COPY 动作源文件大小求和(identical 会零写盘,偏保守无害)
-    needed = sum(a.src_size or 0 for a in plan.actions if a.behavior == Behavior.COPY)
+    # 磁盘预检:按 COPY + ask_yes 命中的 ASK 动作源文件大小求和(批次I-T2 口径,
+    # 已确认 ASK 与 COPY 同样将真实写盘;identical 会零写盘,偏保守无害)
+    needed = sum(
+        a.src_size or 0 for a in plan.actions
+        if a.behavior == Behavior.COPY or (a.behavior == Behavior.ASK and a.path in ask_yes)
+    )
     check_disk_space(dst_root, needed)
+    # 审阅状态校验(只读,零写盘):快照可得才校验;GUI 侧已在 job 内先行校验过
+    # 的场景也经 validate_states=False 显式跳过,避免双侧快照重复全量哈希
+    if validate_states:
+        snaps = _load_guard_snapshots(plan, src_root)
+        if snaps is not None:
+            src_snap, dst_snap = snaps
+            blockers = check_action_states(plan.actions, src_snap, dst_snap, src_root, dst_root)
+            if blockers:
+                raise ReviewStateError(blockers)
 
     def ask(a: ActionRecord) -> bool:
         """ASK 动作决策:路径在预确认集合内即迁移。"""
         return a.path in ask_yes
 
     return Executor(plan, src_root, dst_root, ask).execute(
-        dry_run=dry_run, progress_cb=progress_cb
+        dry_run=dry_run, progress_cb=progress_cb,
+        should_cancel=should_cancel, before_action=before_action,
+        after_action=after_action,
     )
 
 

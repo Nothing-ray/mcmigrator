@@ -23,6 +23,10 @@ class PlanFormatError(Exception):
     """plan 文件格式版本不支持或内容损坏。"""
 
 
+class PlanPersistError(OSError):
+    """计划持久化失败(build_plan 不再吞 OSError,spec §3.3)。"""
+
+
 class Behavior(str, Enum):
     """单个文件的操作(Executor 关心,3 值闭合,极稳)。
 
@@ -171,6 +175,7 @@ class MigrationPlan:
     plan_format: int = PLAN_FORMAT
     executed_at: str | None = None
     execution_summary: dict[str, int] | None = None
+    review: dict | None = None  # 审阅守卫(批次I-T3,spec §3.3);旧 plan 缺省 None
 
     def mark_executed(self, summary: dict[str, int]) -> None:
         """记录执行状态(防重复执行;summary 为结果计数)。"""
@@ -184,19 +189,28 @@ class MigrationPlan:
             counts[r.origin.value] += 1
         return counts
 
-    def save(self, path: Path) -> None:
-        """写入 JSON(原子写:tmp+replace,自动创建父目录,失败不留半截文件)。"""
-        payload = {
-            "tool_version": self.tool_version,
+    def normalized_payload(self) -> dict:
+        """规范化 payload(save 同构,剔除 executed_at/execution_summary/tool_version)。
+
+        plan_fingerprint 的规范化基础:运行结果字段与工具版本不参与计划身份
+        (spec §3.3 计划身份契约),save 与指纹共用本构造避免两处键漂移。
+        """
+        return {
             "plan_format": self.plan_format,
             "src": self.src,
             "dst": self.dst,
             "generated_at": self.generated_at,
             "summary": self.summary(),
             "actions": [r.to_dict() for r in self.actions],
-            "executed_at": self.executed_at,
-            "execution_summary": self.execution_summary,
+            "review": self.review,
         }
+
+    def save(self, path: Path) -> None:
+        """写入 JSON(原子写:tmp+replace,自动创建父目录,失败不留半截文件)。"""
+        payload = self.normalized_payload()
+        payload["tool_version"] = self.tool_version
+        payload["executed_at"] = self.executed_at
+        payload["execution_summary"] = self.execution_summary
         write_json_atomic(path, payload)
 
     @classmethod
@@ -223,6 +237,7 @@ class MigrationPlan:
                 actions=actions,
                 executed_at=payload.get("executed_at"),
                 execution_summary=payload.get("execution_summary"),
+                review=payload.get("review"),
             )
         except (KeyError, TypeError, ValueError) as e:
             raise PlanFormatError(f"plan 内容字段缺失或类型错误: {e}") from e
