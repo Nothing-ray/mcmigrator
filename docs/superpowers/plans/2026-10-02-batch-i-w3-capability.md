@@ -1,10 +1,12 @@
-# 批次I-W3 实现计划:能力补全+可靠性收口(T1-T10,v3)
+# 批次I-W3 实现计划:能力补全+可靠性收口(T1-T10,v4)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **v2(2026-10-02):** 收编计划评审 2 P1+6 P2+3 建议(见「计划评审修订记录」);十任务结构不变。
 >
 > **v3(2026-10-02):** 收编计划评审第二轮 1 P1+5 P2+2 结果契约建议(见「计划评审修订记录(v3)」);十任务结构不变。
+>
+> **v4(2026-10-02):** 收编计划评审第三轮 1 P1+3 P2+2 T5 接线测试建议(见「计划评审修订记录(v4)」);十任务结构不变。
 
 **Goal:** 落地批次I spec(v4)W3 能力四项(审阅页 IA 重构/swap 下沉+两阶段/swap 页面/pywebview 窗口壳),同时收口 W1W2 两轮复审沿挂的全部可靠性条目(终态原子提交/慢订阅者溢出/中断恢复模型/POSIX flock/页面事件恢复协议/执行上下文传到底)。
 
@@ -36,7 +38,7 @@
   8. 页面 SSE onerror 不再主动 close EventSource(交浏览器自动重连),断线文案改「正在重连」;收到任意新事件即清除断线横幅(T5);
   9. SSE 续订游标优先级从「query 参数 > Last-Event-ID 头」翻转为「**有效头 > query > 0**」(WHATWG 重连语义:自动重连以头携带最新游标,URL 残留旧 query 不得压回重放;query 仅服务显式恢复的首次请求)(T2,评审 v3 P2-2);
   10. swap job 装包阶段结束后**取消窗关闭**——此后 cancel 请求 409「装包已完成,正在重新规划,不可取消」,重扫+规划段不可取消(避免「done 带成功计划 vs GET 收口 cancelled」分歧)(T7,评审 v3 P2-3);
-  11. 窗口关闭判定与拒绝新任务**原子化**:`JobStore.begin_shutdown()` 在锁内判定(忙→阻止;闲→置 draining),draining 后新建 job 请求 503(封「检查为空闲→新迁移启动→窗口退出」竞争窗)(T9,评审 v3 P2-5)。
+  11. 窗口关闭判定与拒绝新任务**原子化**:`JobStore.begin_shutdown()` 在锁内判定(忙→阻止;闲→置 draining);**draining 拒绝发生在 `JobStore.start()` 的同一临界区内**(StoreDraining 异常,端点映射 503)——封「检查为空闲→新迁移启动→窗口退出」竞争窗(T9,评审 v3 P2-5+v4 P2-2)。
 - 涉及 index.html 的任务必须同步更新 `tests/test_page_contract.py`(源码契约钉,W1W2 教训①:UI 接缝是评审盲区)。
 
 ## Review Focus
@@ -126,6 +128,22 @@ v2 结论:十任务结构保留;T2/T5 因终态载荷与代际守卫的依赖关
 | 契约B | (并入契约A 的「规划失败须报装包状态」半) | — | 同上 |
 
 v3 结论:十任务结构保留;修订集中在跨任务接口(T2↔T5 游标、T5 请求代际、T7↔T8 取消窗、T9 生命周期)与测试可执行性,核心编排不动。
+
+---
+
+## 计划评审修订记录(v4,2026-10-02 收编计划评审第三轮 1 P1+3 P2+2 T5 建议)
+
+评审者对 v3 复审(独立交叉核查+内存探针复现交错),71 个可解析测试函数确认无空壳、621 测试可收集;全部发现经本仓源码与 pywebview 官方源码逐项复核属实。处置:
+
+| # | 评审发现 | 复核 | 处置 |
+|---|---|---|---|
+| P1 | `selected_renderer` 用 `from webview import guilib` 取子模块——`webview/__init__.py` 模块级 `guilib = None`(start() 才赋值),首启 `.initialize()` 必抛 AttributeError;测试以 `fake.guilib` 掩盖了真实接口 | ✅ `webview/__init__.py` 源码确证:模块级 `guilib = None`+`start()` 内 `global guilib` 赋值(虽然 __init__ 顶部 `from webview.guilib import initialize` 已加载子模块,但同名属性被 None 覆盖) | **T9**:改 `from webview.guilib import initialize`(子模块函数导入,__init__.py 自身同款用法,不经过包属性);**预检自身抛异常**(如缺 pythonnet 的 WebViewException)同样走浏览器降级(try/except 包住,不崩);测试假件改为经 `sys.modules["webview.guilib"]` 注入(匹配真实接口),另补预检异常降级用例 |
+| P2-2 | draining 判定在端点「提交前检查」仍是 TOCTOU:请求过检→关窗置 draining→原请求进 `JobStore.start()` 照常注册启动 | ✅ `JobStore.start()` 锁内仅查 `_current`,draining 判定若放端点必在锁外 | **T9**:`start()` 锁内先判 draining → 抛 `StoreDraining`(新异常;端点捕获映射 503 三段式;返回 None=占用 409 语义不变);`begin_shutdown` 与之同一把 `self._lock`——判定与注册同一临界区,窗封死;测试以「drain-then-start 交错注入」红绿判别(仅端点检查时该交错会 202) |
+| P2-3 | swap 取消窗仍可被迟到请求穿透:取消端点在 job 锁**外**读 `can_cancel`(server.py:1316),读到允许→装包关窗→取消进锁内置 cancelling→重现「规划成功 vs cancelled」 | ✅ 现取消端点锁外 `if not job.can_cancel: 405`,锁内仅查 `done/_settled`(后者正是同类竞态的既有先例——修法对齐) | **T7**:取消端点在 `job._lock` 内**重检** `cancel_closed`(关→409 `err_cancel_closed` 三段式)与 `can_cancel`(不支持→405)——锁外只做 404;`Job.can_cancel` 降级为锁内复核的辅助,端点不得依赖锁外读;白盒用例(cancel_closed=True 的 swap job→409 且不置 cancelling)与既有 phase=replan 屏障用例双钉 |
+| P2-4 | 四处新增验收测试验证不到预期分支:①replan 失败用例预检后才加 victim.jar(先触发指纹失配)且新包无同名 jar(无冲突可覆盖)②`done.plan.actions` 假设扁平结构(实为 `_group_actions` 按 origin 分组)③切根夹具只有 dst 无 src(端点版本校验先 422)④假 `create_window` 返回 None,`window.events.closing` 接线即 AttributeError,触不到 start() | ✅ 全部复核:`_group_actions` 返回 `{origin: {title,count,actions:[{path,origin,...}]}}`;apply 端点先做版本对目录校验 | **已修**:①victim.jar 两侧预检前创建(同名不同内容=冲突)+断言 `pf["conflicts"]` 含之;②`moved` 改遍历各组 `group["actions"]`;③切根夹具建完整版本对(src 带文件+dst 带 json);④假件改返回完整假窗口(`events.closing` 支持 `+=`、`destroy()`),并断言 start 确实被调用+降级确实发生 |
+| T5 建议 | 原语测试不足以验证实际消费路径:计划终态后发起迁移的成功响应须确实订阅新 job;刷新恢复须「保存游标=终态 seq,GET done 完整恢复审阅页」 | ✅ 合理——beginRequest/requestAlive 目前只有原语级用例 | **T5**:页面侧把刷新恢复逻辑提取为零 DOM 的 `restoreSavedJob(saved)`(返回 Promise,init() 薄壳调用),node 行为测试以 fetch 桩走真实恢复路径(GET→applyStatus 消费 done 载荷,断言 planId/persisted/terminal 复原);新增 startMigrate 接线契约测试(beginRequest 先于 /api/migrate 请求、回调内 requestAlive→newJob→openEvents 链条齐备) |
+
+v4 结论:十任务结构保留;本轮集中在「并发交错的原子性收尾」(draining/取消窗的锁内判定)与「测试对真实接口的贴合」(guilib 导入形态/分组载荷/假窗口),编排不变。
 
 ---
 
@@ -1053,6 +1071,11 @@ var requestSeq = 0          // 请求代际(评审 v3 P1):POST 回调的归属�
 function beginRequest()     // 发请求前调用:++requestSeq 并返回本次 gen
 function requestAlive(gen)  // gen === requestSeq(发起新请求即废止旧请求回调)
 function render()           // 模型 → DOM(全部展示逻辑唯一出口)
+function restoreSavedJob(saved)  // 刷新恢复零 DOM 主体(评审 v4 T5 建议):
+                                // GET /api/jobs/<id> → applyStatus 消费 done 载荷
+                                // → 未终态按规则②带游标续订;返回 Promise,
+                                // node 行为测试以 fetch 桩直测真实恢复路径,
+                                // init() 仅薄壳调用(读 sessionStorage 后转发)
 // 游标规则(评审 P2-5,四条钉死,与 WHATWG SSE 重连机制一致):
 //   ① 正常订阅的 EventSource URL **不携带** last_event_id——断线后浏览器自动
 //      重连按标准回发 Last-Event-ID 请求头,服务端以 header 续订;
@@ -1137,6 +1160,26 @@ def test_async_callbacks_check_ownership() -> None:
     """评审 P2-6:全部异步回调提交 UI 前验证 ownsCurrent(旧任务回调不污染新代际)。"""
     assert _PAGE.count("ownsCurrent") >= 5, \
         "POST then/catch、轮询、SSE 终态等回调均须归属校验(≥5 处)"
+
+def test_start_migrate_wires_request_generation_and_subscribe() -> None:
+    """评审 v4 T5 建议:startMigrate 的实际接线——发请求前取 generation,成功
+    回调内 requestAlive→newJob→openEvents 订阅新 job(计划终态后发起迁移的
+    真实消费路径,原语级测试覆盖不到)。"""
+    m = re.search(r"function\s+startMigrate\(\)\s*\{[\s\S]*?\n\}", _PAGE)
+    assert m, "须有 startMigrate"
+    body = m.group(0)
+    assert "beginRequest()" in body and "/api/migrate" in body
+    assert body.index("beginRequest()") < body.index("/api/migrate"), \
+        "generation 须在发请求前捕获"
+    for needle in ("requestAlive(", "newJob(", "openEvents("):
+        assert needle in body, f"startMigrate 回调缺 {needle}"
+
+def test_restore_saved_job_is_extracted_function() -> None:
+    """评审 v4 T5 建议:刷新恢复主体为零 DOM 的 restoreSavedJob(可被 node
+    行为测试直测),init() 薄壳调用。"""
+    assert re.search(r"function\s+restoreSavedJob\(", _PAGE)
+    init = re.search(r"function\s+init\(\)\s*\{[\s\S]{0,600}", _PAGE)
+    assert init and "restoreSavedJob(" in init.group(0)
 
 def test_reset_and_overflow_handlers_resync() -> None:
     """#11/T2 契约:reset/overflow 事件 → 重读 GET 状态并重订(不静默丢弃)。"""
@@ -1282,6 +1325,28 @@ def test_newer_request_invalidates_older_callback():
       emit({old: requestAlive(g1), cur: requestAlive(g2)});
     """)
     assert r == {"old": False, "cur": True}
+
+def test_restore_saved_job_consumes_done_payload():
+    """评审 v4 T5 建议:刷新恢复的真实消费路径——保存游标=终态 seq,GET 的
+    done 载荷完整恢复审阅页数据(fetch 桩返回终态 plan job 快照)。"""
+    r = _run_js(r"""
+      globalThis.fetch = function () {
+        return Promise.resolve({ ok: true, json: function () {
+          return Promise.resolve({
+            status: "succeeded", kind: "plan", revision: 7,
+            done: {type: "done", job_kind: "plan", plan_id: "pf-1",
+                   persisted: true, plan: {must_migrate: {count: 2}}, seq: 7}
+          });
+        } });
+      };
+      restoreSavedJob({job_id: "j9", seq: 7}).then(function () {
+        emit({id: jobModel.jobId, planId: jobModel.planId,
+              persisted: jobModel.persisted, terminal: jobModel.terminal,
+              seq: jobModel.lastSeq});
+      });
+    """)
+    assert r == {"id": "j9", "planId": "pf-1", "persisted": True,
+                 "terminal": True, "seq": 7}
 ```
 
 (实现侧配合:jobModel 增 `planId/persisted/diff` 字段,applyEvent 的 done 分支与 applyStatus 的 done 载荷分支同源填充——migrate 请求的 planId 取自模型而非闭包变量。)
@@ -1289,7 +1354,7 @@ def test_newer_request_invalidates_older_callback():
 - [ ] **Step 2: 跑测试确认失败**
 
 Run: `.venv/Scripts/python.exe -m pytest tests/test_page_contract.py tests/test_page_behavior.py -v`
-Expected: 新增契约 8 用例+行为 7 用例 FAIL(现状 onerror 无条件 close/无游标/无模型/reset 溢出无处理/无 node 可执行的状态核函数与请求代际原语)。
+Expected: 新增契约 10 用例+行为 8 用例 FAIL(现状 onerror 无条件 close/无游标/无模型/reset 溢出无处理/无 node 可执行的状态核函数与请求代际原语/无 restoreSavedJob 提取)。
 
 - [ ] **Step 3: 实现(index.html 脚本段重构)**
 
@@ -1303,26 +1368,28 @@ Expected: 新增契约 8 用例+行为 7 用例 FAIL(现状 onerror 无条件 cl
   - 请求归属——startPlan/startMigrate/swap 的 POST 与 init() 恢复 fetch,**发请求前** `var gen = beginRequest();`,then/catch 首行 `if (!requestAlive(gen)) return;`(校验失败静默丢弃);成功回调内 `newJob(body.job_id, kind)` 切换任务模型。**禁止**对 POST 回调用 ownsCurrent——「计划完成→执行迁移」时当前任务已终态,ownsCurrent 必拒而后台已开跑(v3 P1 正是此坑);
   - 任务归属——cancelMigrate 的 202 then、pollCancelStatus 的 fetch then、SSE onDone/onError 提交 UI 前 `ownsCurrent(capturedJobId)`(id+非终态),校验失败即静默丢弃(旧代际回调)。
 - `render()`:现有 onFileEvent/onMigrateDone/plan-phase 的 DOM 写入全部改经模型派生;终态渲染自 model.status 分支(succeeded/partial_failed/failed/cancelled)。
-- handlers 装配提取为共享函数 `migrateHandlers()`/`planHandlers()`(自现 startMigrate/startPlan 的内联对象字面量提出,恢复路径与正常路径共用同一份分派);`init()` 首行增游标恢复:
+- handlers 装配提取为共享函数 `migrateHandlers()`/`planHandlers()`(自现 startMigrate/startPlan 的内联对象字面量提出,恢复路径与正常路径共用同一份分派);刷新恢复主体提取为**零 DOM 的 `restoreSavedJob(saved)`**(评审 v4 T5 建议:返回 Promise,node 行为测试可经 fetch 桩直测消费路径),`init()` 首行为薄壳(读 sessionStorage→转发):
 
 ```javascript
-  var saved = null;
-  try { saved = JSON.parse(sessionStorage.getItem("mcmig.job") || "null"); } catch (e) {}
-  if (saved && saved.job_id) {
-    var gen = beginRequest();               // 恢复期间用户可能已发起新任务
-    fetch("/api/jobs/" + encodeURIComponent(saved.job_id))
+function restoreSavedJob(saved) {
+  var gen = beginRequest();               // 恢复期间用户可能已发起新任务
+  return fetch("/api/jobs/" + encodeURIComponent(saved.job_id))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (body) {
         if (!requestAlive(gen)) return;     // 旧恢复回调不覆盖新任务(v3 P1)
         if (!body) { sessionStorage.removeItem("mcmig.job"); return; }
         newJob(saved.job_id, body.kind);
-        jobModel.lastSeq = saved.seq || 0;      // GET 前先立游标(applyStatus 的 revision 门用)
-        applyStatus(body); render();            // 终态:done 载荷按 kind 重建页面
-        if (!jobModel.terminal) {               // 未终态:规则②带游标续订
+        jobModel.lastSeq = saved.seq || 0;  // GET 前先立游标(applyStatus 的 revision 门用)
+        applyStatus(body); render();        // 终态:done 载荷按 kind 重建页面
+        if (!jobModel.terminal) {           // 未终态:规则②带游标续订
           openEvents(saved.job_id, migrateHandlers(), { resumeSeq: jobModel.lastSeq });
         }
       });
-  }
+}
+// init() 首行薄壳:
+//   var saved = null;
+//   try { saved = JSON.parse(sessionStorage.getItem("mcmig.job") || "null"); } catch (e) {}
+//   if (saved && saved.job_id) { restoreSavedJob(saved); }
 ```
 
 - `cancelMigrate()`:入口与 202 then 两处 `if (!ownsCurrent(currentMigrateJobId)) return;`;`pollCancelStatus()` 终态分支改 `applyStatus(body); render(); $("btn-cancel").hidden = true;`。
@@ -1535,9 +1602,12 @@ def run_swap(cwd, game_root, src, dst, new_pack, *, confirm_extras: Callable[[li
 #     error 事件 code=swap_inputs_changed;② 请求版本对/游戏根与指纹仓记录核对;
 #    ③ swap_preflight 的兼容检查重跑——三项全过才装包;装包持 journal;)
 #     **装包段结束即原子判定并关闭取消窗**(评审 v3 P2-3):命中取消→cancelled
-#     收尾(跳过链式重规划);未命中→job.cancel_closed=True(锁内置位),此后
-#     cancel 请求 409「装包已完成,正在重新规划,不可取消」——重扫+规划段
-#     不可取消,封死「done 带成功计划 vs GET 收口 cancelled」的分歧
+#     收尾(跳过链式重规划);未命中→job.cancel_closed=True(锁内置位);取消
+#     端点在 job._lock 内**重检**(评审 v4 P2-3):cancel_closed → 409「装包已
+#     完成,正在重新规划,不可取消」(err_cancel_closed 三段式)/ can_cancel
+#     不支持 → 405——锁外只做 404,**不得在锁外读 can_cancel/cancel_closed**
+#     (迟到取消读到允许→关窗→进锁置 cancelling 的交错已复核可复现);重扫+
+#     规划段不可取消,封死「done 带成功计划 vs GET 收口 cancelled」的分歧
 #   apply 装包完成后**链式重规划**(评审 P1-2,spec §5.2「装包 → 重扫+规划」):
 #     同一 job 内 scan src+dst(与 plan job 同型恒重扫)→
 #     build_plan(modpack_swap=True, rescan_dst=True) →
@@ -1550,7 +1620,8 @@ def run_swap(cwd, game_root, src, dst, new_pack, *, confirm_extras: Callable[[li
 #     元信息入指纹(评审 P2-3:跨游戏根同名版本/篡改版本 json 必失配);
 #     服务端进程内 preflight_id → 指纹仓(仅保留最近 10 条,防无界增长)
 #   Job.can_cancel 判定改 kind ∈ {"migrate", "swap"} 且 not cancel_closed
-#   (既有 migrate 用例不受影响;migrate 无 cancel_closed 置位路径,恒可取消)
+#   (**仅作取消端点锁内复核的辅助**——锁外读是 TOCTOU,评审 v4 P2-3;
+#   既有 migrate 用例不受影响;migrate 无 cancel_closed 置位路径,恒可取消)
 ```
 
 - [ ] **Step 1: 写失败测试**
@@ -1714,7 +1785,14 @@ def test_swap_apply_rejects_switched_game_root(tmp_path, monkeypatch):
     game, client = _swap_layout(tmp_path, monkeypatch)
     pf = _swap_preflight_done(client, game)
     other = tmp_path / "other_root"
-    (other / "versions" / "dst").mkdir(parents=True)
+    # 完整版本对(评审 v4 P2-4:只有 dst 会先被 apply 的版本校验 422 挡下,
+    # 触不到指纹失配分支)
+    for name in ("src", "dst"):
+        (other / "versions" / name).mkdir(parents=True)
+    (other / "versions" / "src" / "options.txt").write_text("x\n", encoding="utf-8")
+    (other / "versions" / "dst" / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
     assert client.post("/api/config", json={"game_root": str(other)}).status_code == 200
     job = client.post("/api/swap/apply", json=_apply_body(pf)).json()["job_id"]
     err = _wait_job_done(client, job)[-1]
@@ -1744,7 +1822,11 @@ def test_swap_apply_chains_modpack_swap_replan(tmp_path, monkeypatch):
     assert done["type"] == "done" and done["job_kind"] == "swap"
     assert done["plan_id"] and done["persisted"] is True
     assert done["install"]["copied"] == 1
-    moved = {a["path"] for a in done["plan"]["actions"]
+    # done.plan 是 _group_actions 分组 {origin: {actions: [...]}}(评审 v4 P2-4:
+    # 无扁平 actions 键)——遍历各组的 actions
+    moved = {a["path"]
+             for group in done["plan"].values()
+             for a in group["actions"]
              if a["origin"] in ("must_migrate", "mod_added")}
     assert "mods/oldpack-only.jar" not in moved        # 换包排除,非可迁移
     mig = client.post("/api/migrate", json={
@@ -1778,12 +1860,31 @@ def test_swap_cancel_window_closes_before_replan(tmp_path, monkeypatch):
     done = _wait_job_done(client, job)[-1]
     assert done["type"] == "done" and done.get("plan_id")
 
+def test_cancel_endpoint_rechecks_closed_window_in_lock(tmp_path, monkeypatch):
+    """评审 v4 P2-3:取消端点不得依赖锁外 can_cancel 读——白盒直接构造
+    cancel_closed=True 的 swap job(关窗瞬间的形态),取消 409 且不置
+    cancelling(锁内重检;若只在锁外判定,此形态会 202 并污染终态)。"""
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    from migration.gui.server import Job
+    job = Job("swapclosed", "swap")
+    job.cancel_closed = True                           # 白盒:直接构造关窗形态
+    store = client.app.state.jobs                      # T7 暴露(app.state.jobs)
+    store._jobs["swapclosed"] = job
+    resp = client.post("/api/jobs/swapclosed/cancel")
+    assert resp.status_code == 409
+    assert job.status != "cancelling"                  # 未被置为取消中
+
 def test_swap_apply_replan_failure_reports_install_state(tmp_path, monkeypatch):
     """评审 v3 契约A/B:装包成功而链式规划失败——error 载荷带 install 统计与
     backup_dir(用户须知目标 mods/ 已被修改,不可静默只报规划失败)。"""
     game, client = _swap_layout(tmp_path, monkeypatch)
-    pf = _swap_preflight_done(client, game)
+    # 冲突 jar 必须在 preflight **前**于两侧创建(评审 v4 P2-4:指纹覆盖两侧
+    # jar 清单,预检后再加 victim.jar 会先触发 swap_inputs_changed;且新包
+    # 无同名 jar 则根本没有可覆盖冲突)
     (game / "versions" / "dst" / "mods" / "victim.jar").write_bytes(b"OLD")
+    (game.parent / "newpack" / "mods" / "victim.jar").write_bytes(b"NEW")
+    pf = _swap_preflight_done(client, game)
+    assert "victim.jar" in pf["conflicts"]             # 冲突已被预检识别
 
     def _boom(*a, **k):
         raise ValueError("规划失败(模拟)")
@@ -1839,7 +1940,7 @@ def _swap_fingerprint(game_root: Path, src: str, dst: str, new_pack: Path,
   - 重验②:锁内重算 `_swap_fingerprint` ≠ 仓内指纹 → error 事件 `swap_inputs_changed`(STRINGS);失配覆盖「目标 mods/ 被改」「目标 <dst>.json 被改」两形态;
   - 重验③:`swap_preflight` 的兼容检查重跑——`accept_incompat=False` 且仍有 incompat → error;`accept_extras` 同理;`overwrite_jars` 必须 ⊆ conflicts(越界→422)。
 - **链式重规划(评审 P1-2,spec §5.2「装包 → 重扫+规划」原文)**:apply job 在装包完成后**同一 job 内**继续:`job.emit({"type":"phase","name":"replan"})` → `scan_version(ctx.game_root, src, ctx.snapshots)`+`scan_version(ctx.game_root, dst, ctx.snapshots)`(与 plan job 同型恒重扫,src+dst 双侧;server 侧经模块级名引用 scan_version/build_plan——与既有 `monkeypatch.setattr(server_module, "scan_version", …)` 注入惯例一致)→ `build_plan(..., modpack_swap=True, rescan_dst=True, ...)`(4 元组)→ done 事件与 plan job 同形:`{"type":"done","job_kind":"swap","install":SwapInstallOutcome序列化,"backup_dir":...,"plan":...,"plan_id":...,"persisted":...,"diff":...}`——页面直接以 plan_id 进②审阅页执行迁移;**不存在**「装包后回步① 用普通 /api/plan(modpack_swap=False)把旧包独有 jar 重新列为可迁移」的路径(T8 页面按此接线,验收用例 test_swap_apply_chains_modpack_swap_replan 断言旧包 jar 不回迁)。**链式段失败**(重扫/规划抛错):error 事件 `code=swap_replan_failed`,**载荷带 install 统计与 backup_dir**(评审 v3 契约B——装包已成功,目标 mods/ 已被修改,用户必须知道);journal finish 照常收尾(装包部分已双记录,重规划不写 journal)。
-- 装包+journal+取消窗:`swap_install` 挂 `JobJournal(ctx.jobs, job.id, "swap", src=src, dst=dst, game_root=str(ctx.game_root))`+should_cancel(查 job.status=="cancelling");**装包段结束的原子判定与关窗(评审 v3 P2-3,白名单⑩)**:`swap_install` 返回后、进入 replan 前,在 job 锁内一次完成——`status=="cancelling"` → 复用 migrate 的 cancelled 收尾口径(done 事件 cancelled:true+已完成/未完成 jar 清单,**跳过链式规划**——部分装包后的计划没有审阅意义,重走 swap);否则 `job.cancel_closed = True`(此后 cancel 端点 409「装包已完成,正在重新规划,不可取消」),再发 phase=replan 进入不可取消的重扫+规划段——封死「取消在无检查点的规划段被受理→done 带成功计划 vs GET 收口 cancelled」的分歧。T8 页面在 phase=replan 时同步隐藏取消入口。
+- 装包+journal+取消窗:`swap_install` 挂 `JobJournal(ctx.jobs, job.id, "swap", src=src, dst=dst, game_root=str(ctx.game_root))`+should_cancel(查 job.status=="cancelling");**装包段结束的原子判定与关窗(评审 v3 P2-3,白名单⑩)**:`swap_install` 返回后、进入 replan 前,在 job 锁内一次完成——`status=="cancelling"` → 复用 migrate 的 cancelled 收尾口径(done 事件 cancelled:true+已完成/未完成 jar 清单,**跳过链式规划**——部分装包后的计划没有审阅意义,重走 swap);否则 `job.cancel_closed = True`,再发 phase=replan 进入不可取消的重扫+规划段。**取消端点配套改造(评审 v4 P2-3)**:`api_job_cancel` 的 `can_cancel`/终态判定整体挪进 `with job._lock:`——锁内序 `job.done or job._settled → 409`、`job.cancel_closed → 409`(STRINGS 新增 `err_cancel_closed.what/why`:「装包已完成,正在重新规划」「此阶段不可取消;若不需要该计划,可在审阅页放弃」)、`not job.can_cancel → 405`、否则置 cancelling(幂等 202);锁外仅做 404——与既有 `_settled` 锁内守卫(终审 I2)同构,封死「取消在锁外读到允许→关窗→进锁置 cancelling→规划成功却收口 cancelled」的交错。T8 页面在 phase=replan 时同步隐藏取消入口。**另:`create_app` 暴露 `app.state.jobs = store`**(单行;T9 窗口壳单源取用的前提,同时供本任务取消窗白盒用例注入)。
 
 - [ ] **Step 4: 全量回归 + Commit**
 
@@ -1950,17 +2051,25 @@ def verify_data_integrity() -> list[str]
     # 窗口入口的数据清单自检(评审 P2-7):复用既有 manifest 校验路径
     # (doctor 同源逻辑抽出的校验函数);失败返回中文错误行列表(非空即弹窗+退出码 2)
 def selected_renderer(gui: str) -> str
-    # 实际渲染器预检(评审 v3 P2-4,源码核实修正):pywebview 在 Windows 上无论
-    # gui= 传什么(除 qt)都 import winforms 平台模块,edgechromium/mshtml 的
-    # 选择发生在模块内 —— is_chromium = not is_cef and _is_chromium() and
+    # 实际渲染器预检(评审 v3 P2-4+v4 P1):pywebview 在 Windows 上无论 gui=
+    # 传什么(除 qt)都 import winforms 平台模块,edgechromium/mshtml 的选择
+    # 发生在模块内 —— is_chromium = not is_cef and _is_chromium() and
     # forced_gui != 'mshtml';缺 WebView2 运行时 _is_chromium()=False → 走
     # MSHTML 分支且**只发 log.warning,不抛异常**(guilib.py/winforms.py,
     # r0x0r/pywebview master)。故 `webview.start(gui="edgechromium")` 不足以
-    # 保证现代渲染器。本函数 `from webview import guilib; mod = guilib.initialize(gui)`,
-    # 返回 `getattr(mod, "renderer", gui)`(winforms 模块级 renderer 属性,
+    # 保证现代渲染器。
+    # 导入形态(评审 v4 P1):**`from webview.guilib import initialize`**——
+    # 不能用 `from webview import guilib`:webview/__init__.py 模块级
+    # `guilib = None`(start() 内才 `global guilib` 赋值,且顶部
+    # `from webview.guilib import initialize` 加载子模块后同名属性仍被 None
+    # 覆盖),包属性首启必为 None → AttributeError;子模块函数导入才是真实
+    # 接口(__init__.py 自身同款用法)。调用 `initialize(gui)` 返回平台模块,
+    # 取 `getattr(mod, "renderer", gui)`(winforms 模块级 renderer 属性,
     # 'edgechromium'/'mshtml'/'cef';非 Windows 平台无该属性,回落 gui 名);
-    # initialize 可重复调用(模块导入缓存+setup_app 有幂等守卫),start() 内部
+    # initialize 可重复调用(模块导入缓存+setup_app 幂等守卫),start() 内部
     # 再调一次无害。内部 API 风险由 `pywebview>=5.0` 钉版承担(注释说明)。
+    # 本函数**可能抛异常**(如缺 pythonnet → WebViewException):调用方(main ③)
+    # 以 try/except 包住,按「渲染器不可用」同路径降级,绝不裸抛
 def wait_server_ready(port: int, timeout: float = 10.0) -> bool
     # 服务就绪后开窗(评审 P2-7):轮询 GET /api/config 至 200 才 create_window,
     # 避免窗口先于服务打开时的加载错误页;超时 False → 按启动失败处理;
@@ -1976,12 +2085,13 @@ def main(argv: Sequence[str] | None = None) -> int
     # ①verify_data_integrity 非空 → 弹窗(消息框)+return 2(缺 Python 包以外的
     #   第一道失败防护,评审 P2-7)
     # ②import webview 失败 → 打印指引(安装链接)并**降级**调 _cmd_gui 浏览器模式
-    # ③**渲染器预检(评审 v3 P2-4,先于服务线程——免「起即拆」)**:
-    #   webview 可导入后先 selected_renderer("edgechromium");
-    #   ≠"edgechromium"(即 MSHTML——页面依赖 EventSource/ES5+,IE11 形态不可用)
-    #   → 记日志、提示「安装 WebView2 运行时(链接)或改用 mcmig gui」、
-    #   **降级浏览器模式**——不起 uvicorn 线程、不进 webview.create_window/
-    #   start,窗口根本不打开
+    # ③**渲染器预检(评审 v3 P2-4+v4 P1,先于服务线程——免「起即拆」)**:
+    #   webview 可导入后,在 try/except 中调用 selected_renderer("edgechromium")
+    #   ——函数自身可能抛异常(缺 pythonnet 的 WebViewException 等),异常与
+    #   返回值 ≠"edgechromium"(即 MSHTML——页面依赖 EventSource/ES5+,IE11
+    #   形态不可用)同走降级分支:记日志、提示「安装 WebView2 运行时(链接)
+    #   或改用 mcmig gui」、**降级浏览器模式**——不起 uvicorn 线程、不进
+    #   webview.create_window/start,窗口根本不打开
     # ④app = create_app() → store = app.state.jobs(**单源**:关闭守卫/停机轮询/
     #   HTTP 服务同一 JobStore,评审 v3 P2-5)→ pick_free_port →
     #   _start_server_thread(app, port)(uvicorn.Config(app) 直接吃 app 实例)
@@ -1994,12 +2104,15 @@ def main(argv: Sequence[str] | None = None) -> int
     #   运行时/启动异常三段失败路径全部有出路,不留僵尸线程)
     # ⑥退出码:正常 0;自检失败/端口占用/uvicorn 启动失败/就绪超时 2(中文报错);
     #   finally 恒置 server.should_exit 并 join 线程(所有异常路径回收)
-# migration/gui/server.py(评审 v3 P2-5)
+# migration/gui/server.py(评审 v3 P2-5+v4 P2-2)
 #   JobStore.begin_shutdown() -> tuple[bool, str | None]
 #     锁内原子判定:busy → (True, f"任务 {active_id()} 正在执行")(状态不变);
-#     空闲 → self._draining = True 并 (False, None)。job 创建端点(plan/migrate/
-#     swap 两阶段)在提交前检查 store.draining → ApiError(503, shutting_down)
-#     ——窗口退出判定后再来的新任务请求被拒,不再有「判定后启动」的窗口
+#     空闲 → self._draining = True 并 (False, None)。
+#   **draining 拒绝进 start() 的临界区(评审 v4 P2-2,白名单⑪)**:
+#   JobStore.start() 在 self._lock 内**首先**判 _draining → 抛 StoreDraining
+#   (新异常类,server 内定义);随后才查 _current 占用(None→调用方 409)。
+#   端点不再做锁外预检——捕获 StoreDraining → ApiError(503, shutting_down
+#   三段式)。判定与注册同锁,「端点过检→关窗→start 照常注册」的交错不存在。
 ```
 
 - [ ] **Step 1: 写失败测试**
@@ -2094,14 +2207,18 @@ def test_wait_server_ready_false_on_timeout(monkeypatch):
 def test_mshtml_renderer_rejected_before_start(monkeypatch):
     """评审 v3 P2-4:预检发现实际 renderer=mshtml(WebView2 缺失时 pywebview 的
     静默回退形态)→ **不起服务线程**、不进 webview.create_window/start,降级
-    浏览器模式(缺运行时的主防线;start 抛错是二道防线,见下一用例)。"""
+    浏览器模式(缺运行时的主防线;start 抛错是二道防线,见下两用例)。
+
+    假件注入点= `sys.modules["webview.guilib"]`(评审 v4 P1:真实接口是
+    `from webview.guilib import initialize`,经子模块路径解析;**不设**
+    `fake.guilib` 包属性——包属性初始为 None 正是被修的坑,设了反而掩盖)。
+    """
     import types
     fake_guilib = types.ModuleType("webview.guilib")
     fake_winforms = types.ModuleType("webview.platforms.winforms")
     fake_winforms.renderer = "mshtml"              # 预检信号:实际选中 MSHTML
     fake_guilib.initialize = lambda gui: fake_winforms
     fake = types.ModuleType("webview")
-    fake.guilib = fake_guilib
     started = {"n": 0}
 
     def _must_not_start(*a, **k):
@@ -2131,36 +2248,101 @@ def test_mshtml_renderer_rejected_before_start(monkeypatch):
     assert rc in (0, 2) and started["n"] == 0
     assert served["n"] == 0 and fell_back["rc"] == 0   # 未起线程+已降级
 
+def test_renderer_precheck_exception_falls_back(monkeypatch):
+    """评审 v4 P1:预检自身抛异常(如缺 pythonnet → WebViewException)→ 与
+    「渲染器不可用」同路径降级浏览器模式,不起服务线程、不裸抛。"""
+    import types
+    fake_guilib = types.ModuleType("webview.guilib")
+
+    def _boom(gui):
+        raise RuntimeError("You must have pythonnet installed")
+
+    fake_guilib.initialize = _boom
+    fake = types.ModuleType("webview")
+
+    def _must_not_start(*a, **k):
+        raise AssertionError("预检失败不得进入 webview.start")
+
+    fake.start = _must_not_start
+    fake.create_window = lambda *a, **k: None
+    monkeypatch.setitem(sys.modules, "webview", fake)
+    monkeypatch.setitem(sys.modules, "webview.guilib", fake_guilib)
+    monkeypatch.setattr(gui_app, "verify_data_integrity", lambda: [])
+    served = {"n": 0}
+
+    def _track_server(app, port):
+        served["n"] += 1
+        return None, None
+
+    monkeypatch.setattr(gui_app, "_start_server_thread", _track_server)
+    fell_back = {"rc": None}
+
+    def _fake_gui(args):
+        fell_back["rc"] = 0
+        return 0
+
+    monkeypatch.setattr("migration.cli._cmd_gui", _fake_gui)
+    rc = gui_app.main([])
+    assert rc in (0, 2) and served["n"] == 0 and fell_back["rc"] == 0
+
 def test_webview_start_failure_falls_back_and_stops_server(monkeypatch):
-    """评审 P2-7+v3 P2-4:渲染器预检通过(edgechromium)但 webview.start 期
-    抛错(EdgeChrome 初始化失败的二道防线)→ 停 uvicorn 线程+降级浏览器模式+
-    退出码有定义,不留僵尸线程。"""
+    """评审 P2-7+v3 P2-4+v4 P2-4:渲染器预检通过(edgechromium)但 webview.start
+    期抛错(EdgeChrome 初始化失败的二道防线)→ 停 uvicorn 线程+降级浏览器
+    模式+退出码有定义,不留僵尸线程;start 确实被调用、降级确实发生。"""
     import types
     fake_guilib = types.ModuleType("webview.guilib")
     fake_winforms = types.ModuleType("webview.platforms.winforms")
     fake_winforms.renderer = "edgechromium"        # 预检通过,异常在 start 期
     fake_guilib.initialize = lambda gui: fake_winforms
     fake = types.ModuleType("webview")
+    started = {"n": 0}
+
     def _boom(*a, **k):
+        started["n"] += 1
         raise RuntimeError("WebView2 runtime not found")
+
     fake.start = _boom
-    fake.create_window = lambda *a, **k: None
-    fake.guilib = fake_guilib
+
+    class _FakeClosing:
+        def __iadd__(self, handler):
+            return self
+
+    class _FakeWindow:
+        # 完整假窗口(评审 v4 P2-4:返回 None 会在 window.events.closing 接线
+        # 即 AttributeError,触不到 start())
+        events = types.SimpleNamespace(closing=_FakeClosing())
+
+        def destroy(self):
+            pass
+
+    fake.create_window = lambda *a, **k: _FakeWindow()
     monkeypatch.setitem(sys.modules, "webview", fake)
     monkeypatch.setitem(sys.modules, "webview.guilib", fake_guilib)
     monkeypatch.setattr(gui_app, "verify_data_integrity", lambda: [])
     monkeypatch.setattr(gui_app, "wait_server_ready", lambda port, timeout=10.0: True)
     stopped = {"called": False}
+
     class _FakeServer:
         should_exit = False
+
     monkeypatch.setattr(gui_app, "_start_server_thread",
                         lambda app, port: (_FakeServer(), None))
+
     def _fake_stop(srv):
         stopped["called"] = True; srv.should_exit = True
+
     monkeypatch.setattr(gui_app, "_stop_server", _fake_stop)
-    monkeypatch.setattr("migration.cli._cmd_gui", lambda args: 0)   # 降级出口
+    fell_back = {"rc": None}
+
+    def _fake_gui(args):
+        fell_back["rc"] = 0
+        return 0
+
+    monkeypatch.setattr("migration.cli._cmd_gui", _fake_gui)
     rc = gui_app.main([])
-    assert rc in (0, 2) and stopped["called"]       # 线程已回收+降级已走
+    assert rc in (0, 2)
+    assert started["n"] == 1                            # start 被调用且抛错
+    assert stopped["called"] and fell_back["rc"] == 0   # 线程已回收+降级已走
 
 def test_verify_data_integrity_delegates(monkeypatch):
     """评审 P2-7:窗口入口复用数据清单自检——校验函数失败行直传(非空即拒)。"""
@@ -2173,11 +2355,26 @@ def test_verify_data_integrity_delegates(monkeypatch):
 ```python
 # tests/test_gui_server.py 追加(T9:draining 拒新 job 的端点级用例)
 def test_job_submission_rejected_while_draining(tmp_path, monkeypatch):
-    """评审 v3 P2-5:begin_shutdown 置 draining 后,新 job 提交 503——封死
-    「窗口判定空闲→新迁移启动→窗口退出」竞争窗(端点侧,plan/migrate/swap
-    三入口同一守卫,此处以 plan 代表)。"""
+    """评审 v3 P2-5:begin_shutdown 置 draining 后,新 job 提交 503(plan/
+    migrate/swap 三入口同一守卫,此处以 plan 代表)。"""
     game, client = _make_client(tmp_path, monkeypatch)
     client.app.state.jobs.begin_shutdown()
+    resp = client.post("/api/plan", json={"src": "src", "dst": "dst"})
+    assert resp.status_code == 503
+
+def test_job_submission_rejected_when_drain_lands_during_start(tmp_path, monkeypatch):
+    """评审 v4 P2-2:draining 判定必须在 JobStore.start() 的临界区内——以
+    「drain-then-start」交错注入模拟「端点过检→关窗→注册」的真实交错:
+    判定仅在端点锁外预检时,本交错会照常建 job(红);锁内首判 → 503(绿)。"""
+    from migration.gui.server import JobStore
+    game, client = _make_client(tmp_path, monkeypatch)
+    real_start = JobStore.start
+
+    def _drain_then_start(self, *a, **k):
+        self.begin_shutdown()                 # 注册前一瞬关窗(交错点)
+        return real_start(self, *a, **k)
+
+    monkeypatch.setattr(JobStore, "start", _drain_then_start)
     resp = client.post("/api/plan", json={"src": "src", "dst": "dst"})
     assert resp.status_code == 503
 ```
@@ -2193,12 +2390,12 @@ Expected: FAIL(`No module named 'migration.gui.app'`)。
 
 - [ ] **Step 3: 实现 app.py + 接线**
 
-- `should_block_close(store)`: 直调 `store.begin_shutdown()`(评审 v3 P2-5:原子);实现消费 server 的公开面,不 import cli 私有函数。server 侧配套:`JobStore.begin_shutdown()`(锁内:busy → (True, 描述) 状态不变;空闲 → `_draining=True` → (False, None))+ `draining` 属性;job 创建端点(plan/migrate/swap preflight+apply)提交前检查 draining → `ApiError(503, "err_shutting_down.what", "err_shutting_down.why")`(STRINGS 新增;白名单⑪)。
-- `selected_renderer(gui)`: `from webview import guilib; mod = guilib.initialize(gui); return str(getattr(mod, "renderer", gui))`——评审 v3 P2-4 主防线;注释说明内部 API 风险由 `pywebview>=5.0` 钉版承担、非 Windows 平台无 renderer 属性回落 gui 名。
+- `should_block_close(store)`: 直调 `store.begin_shutdown()`(评审 v3 P2-5:原子);实现消费 server 的公开面,不 import cli 私有函数。server 侧配套(评审 v4 P2-2):`JobStore.begin_shutdown()`(锁内:busy → (True, 描述) 状态不变;空闲 → `_draining=True` → (False, None));**`JobStore.start()` 锁内首判 `_draining` → 抛 `StoreDraining`**(新异常类;其后 `_current` 占用返回 None 的 409 语义不变);job 创建端点(plan/migrate/swap preflight+apply)以 `try: store.start(...) except StoreDraining: raise ApiError(503, "err_shutting_down.what", "err_shutting_down.why")` 接线(STRINGS 新增;白名单⑪)——端点**无锁外预检**。
+- `selected_renderer(gui)`: `from webview.guilib import initialize`(**不得** `from webview import guilib`——包属性初始为 None,评审 v4 P1);`mod = initialize(gui); return str(getattr(mod, "renderer", gui))`——评审 v3 P2-4 主防线;注释说明内部 API 风险由 `pywebview>=5.0` 钉版承担、非 Windows 平台无 renderer 属性回落 gui 名、函数可抛异常由调用方降级。
 - `_start_server_thread(app, port) -> tuple[uvicorn.Server, threading.Thread]` / `_stop_server(server)`:模块级可注入原语(daemon=False);`main` 的所有出口(webview.start 抛错/就绪超时/正常退出)与 finally 恒 `_stop_server`(评审 P2-7:不留僵尸线程)。
 - `verify_data_integrity()`:`_manifest_errors()` 直传——doctor 校验段(manifest.sha256 逐项核对)自 `_cmd_doctor` 抽出为共享函数(cli 与窗口壳两处消费);非空 → 消息框(`ctypes.windll.user32.MessageBoxW` 或 print+exit 兜底)+return 2。
 - `wait_server_ready(port, timeout)`:0.1s 间隔轮询 `http.client.HTTPConnection("127.0.0.1", port, timeout=0.5).request("GET", "/api/config")` 至 200;超时 False(评审 v3 P2-5:host/port/timeout 三参显式——HTTPConnection 首位形参是 host)。
-- `main`:①`verify_data_integrity()` 非空 → return 2;②`import webview`(函数内,未安装→ImportError 捕获→打印「未安装 pywebview,已回退浏览器模式: pip install pywebview / 或使用 mcmig gui」→ **函数内 lazy** `from ..cli import _cmd_gui` 转发浏览器启动,返回其退出码);③`selected_renderer("edgechromium")` ≠ "edgechromium" → 记日志+提示「安装 WebView2 运行时: https://developer.microsoft.com/microsoft-edge/webview2/ 或改用 mcmig gui」→ lazy `_cmd_gui` 降级(**不起服务线程**,评审 v3 P2-4);④`app = create_app()` → `store = app.state.jobs` → `pick_free_port()` → `_start_server_thread(app, port)` → `wait_server_ready(port)` 超时 → 停线程+return 2;⑤就绪后 `window = webview.create_window("mcmig 迁移向导", build_url(port))`;`window.events.closing += lambda: not should_block_close(store)[0]`(返回 False 阻止关闭;阻止时以 JS 求值提示 `window.evaluate_js(...)` 或标题提示,最简实现即可);⑥停机轮询线程 0.5s 检查 `app.state.shutdown_requested` → `window.destroy()`;⑦`webview.start(gui="edgechromium")`(渲染器预检已过,此为显式声明+EdgeChrome 初始化失败的**二道防线**)抛错 → 记日志+提示(同③链接)→ `_stop_server` → lazy `_cmd_gui` 降级浏览器模式;⑧正常路径 `webview.start()` 返回后停 uvicorn+join,return 0。
+- `main`:①`verify_data_integrity()` 非空 → return 2;②`import webview`(函数内,未安装→ImportError 捕获→打印「未安装 pywebview,已回退浏览器模式: pip install pywebview / 或使用 mcmig gui」→ **函数内 lazy** `from ..cli import _cmd_gui` 转发浏览器启动,返回其退出码);③`try: selected_renderer("edgechromium") except Exception:` 或返回值 ≠ "edgechromium" → 记日志+提示「安装 WebView2 运行时: https://developer.microsoft.com/microsoft-edge/webview2/ 或改用 mcmig gui」→ lazy `_cmd_gui` 降级(**不起服务线程**,评审 v3 P2-4+v4 P1:预检自身抛错同降级);④`app = create_app()` → `store = app.state.jobs` → `pick_free_port()` → `_start_server_thread(app, port)` → `wait_server_ready(port)` 超时 → 停线程+return 2;⑤就绪后 `window = webview.create_window("mcmig 迁移向导", build_url(port))`;`window.events.closing += lambda: not should_block_close(store)[0]`(返回 False 阻止关闭;阻止时以 JS 求值提示 `window.evaluate_js(...)` 或标题提示,最简实现即可);⑥停机轮询线程 0.5s 检查 `app.state.shutdown_requested` → `window.destroy()`;⑦`webview.start(gui="edgechromium")`(渲染器预检已过,此为显式声明+EdgeChrome 初始化失败的**二道防线**)抛错 → 记日志+提示(同③链接)→ `_stop_server` → lazy `_cmd_gui` 降级浏览器模式;⑧正常路径 `webview.start()` 返回后停 uvicorn+join,return 0。
 - pyproject:`dependencies` 追加 `"pywebview>=5.0"`;scripts 追加 mcmig-gui;**注意** `pip install -e ".[dev]"` 后本地补装 `pip install pywebview`(dev 组不加——测试零依赖它)。
 - `_cmd_gui` 增 `--window` 参数→ `from .gui.app import main as window_main; return window_main()`。
 
@@ -2247,11 +2444,11 @@ git commit -m "docs(w3): README 双语 W3 能力+手测清单增补+版本 0.12.
 
 ---
 
-## 计划自审记录(v3)
+## 计划自审记录(v4)
 
-1. **Spec 覆盖**: §5.1(T6,含③结束页备份位置与恢复指引、顶部摘要五要素含将覆盖数)/§5.2(T7+T8,含逐 jar 取消——spec §4.3「取消检查点覆盖 swap 装包」、链式重扫+规划、`/api/swap/apply` 端点名与 spec 逐字一致)/§5.3(T9,含 WebView2/启动失败/就绪开窗/清单自检)/§5.4(滑移 W4 T15,处置表 #28)→ W3 四项全落;§4.1 沿挂(衔接协议页面侧=T5,GET 完整结果载荷=T2——spec「results 含计划摘要、备份位置、失败明细,非仅计数」自此字面成立)/§4.3 沿挂(中断模型=T3)随行收口;吸收清单 28 项全部显式处置(26 修+1 接受强化+1 撤销过时);**计划评审两轮(2 P1+6 P2+3 建议 / 1 P1+5 P2+2 契约)全部收编(见修订记录 v2/v3)**;spec §3.3「检测范围向用户说明」在 T6 STRINGS 固定文案兑现;「两态展示」为 W4 更新面板条目(spec §5.1 明注「用于更新面板」),不入本波。
-2. **占位符扫描**: 无 TBD;**v3 复扫 0 空壳测试**(v2 评审指出 8~9 个 docstring/省略号空体——3 executor+6 swap 全部补可执行体,含「旧包 jar 不回迁」「装包中断 journal」「CLI 对拍」核心验收;node harness 输出通道改 `emit()`(console.log 已被桩空,评审实测空 stdout);`_start_holder/_holder_script` 显式定义且 HELD 单次消费;`test_pick_free_port_bindable` 补断言);T3 Step1 其余用例以夹具+注入点文字说明,与 W1W2 计划同粒度;所有步骤含可运行命令与预期输出。
-3. **类型一致性**: `PrecheckOutcome`(T1)字段与 CLI/GUI 消费一致;`_Sub.dropped`/`_pump_sub(job, sub, *, reset, replay)`(T2)在 emit/泵送/退订三处一致;`_done_payload`→snapshot `"done"` 键在 T2 产出、T5 applyStatus 消费、T8 swap done 载荷复用同形;`JobJournal(journal_dir, job_id, kind, *, src, dst, game_root)`(T3)在 executor 挂点/CLI migrate/server migrate/swap_install/scan_interrupted/dismiss 六处一致;`_journal_owner_alive`(T3)为 scan 与 dismiss 共用单点;`SwapPreflightOutcome/SwapInstallOutcome/SwapRunOutcome`(含 cancelled/should_cancel;v3 契约A)在 run_swap 与 CLI 薄壳/GUI 两端点一致;`_swap_fingerprint(game_root, src, dst, new_pack, dst_mods, new_mods)` 的六参与 T7 预检/apply 重验两调用点一致;`job.cancel_closed` 在 T7 产出的关窗/409 与 T8 页面隐藏两处同源;`newJob/ownsCurrent/beginRequest/requestAlive/applyEvent/applyStatus`(T5)在契约测/行为测/实现三处同名同语义(请求归属与任务归属双轨,v3 P1);`JobStore.begin_shutdown()/draining`(T9)在窗口壳/端点 503 两处一致;`selected_renderer/_start_server_thread(app, port)`(T9)与 main 序列/失败路径测试对得上;`should_block_close(store)`(T9)与 main 的 closing 接线一致;T1 `_legacy_layout` 解包 3 元组、T6 升 4 元组时该 helper 在机械更新清单内。
-4. **Review Focus ↔ 测试归属**: 六条分别锚定 T2×2/T1/T3/T7/T6 各失败测试,无空挂;T5 的页面接缝由 8 条源码契约测+7 条 node 行为测双钉(W1W2 教训①:UI 接缝是评审盲区;v2 建议 A 收窄落地,v3 增请求代际 2 用例)。
+1. **Spec 覆盖**: §5.1(T6,含③结束页备份位置与恢复指引、顶部摘要五要素含将覆盖数)/§5.2(T7+T8,含逐 jar 取消——spec §4.3「取消检查点覆盖 swap 装包」、链式重扫+规划、`/api/swap/apply` 端点名与 spec 逐字一致)/§5.3(T9,含 WebView2/启动失败/就绪开窗/清单自检)/§5.4(滑移 W4 T15,处置表 #28)→ W3 四项全落;§4.1 沿挂(衔接协议页面侧=T5,GET 完整结果载荷=T2)/§4.3 沿挂(中断模型=T3)随行收口;吸收清单 28 项全部显式处置(26 修+1 接受强化+1 撤销过时);**计划评审三轮(2P1+6P2+3建议 / 1P1+5P2+2契约 / 1P1+3P2+2建议)全部收编(见修订记录 v2/v3/v4)**;spec §3.3「检测范围向用户说明」在 T6 STRINGS 固定文案兑现;「两态展示」为 W4 更新面板条目,不入本波。
+2. **占位符扫描**: 无 TBD;v3 复扫 0 空壳测试;**v4 复修 4 处测试贴合真实接口**(评审指出:victim.jar 须预检前双侧创建否则先触发指纹失配/done.plan 为 _group_actions 分组无扁平 actions 键/切根夹具须完整版本对否则 422 先挡/假 create_window 返回 None 在 closing 接线即炸——全部改为可验证预期分支);**v4 新增 5 测试**(restoreSavedJob 行为测、startMigrate 接线契约测、预检异常降级测、drain-then-start 交错测、取消窗白盒测);所有步骤含可运行命令与预期输出。
+3. **类型一致性**: `PrecheckOutcome`(T1)字段与 CLI/GUI 消费一致;`_Sub.dropped`/`_pump_sub`(T2)三处一致;`_done_payload`→snapshot `"done"` 键在 T2 产出、T5 applyStatus/restoreSavedJob 消费、T8 swap done 复用同形;`JobJournal(..., *, src, dst, game_root)`(T3)六处一致;`_journal_owner_alive`(T3)为 scan 与 dismiss 共用单点;`SwapPreflightOutcome/SwapInstallOutcome/SwapRunOutcome` 在 run_swap 与 CLI 薄壳/GUI 两端点一致;`_swap_fingerprint` 六参与预检/重验两调用点一致;`job.cancel_closed` 在 T7 关窗(锁内置位)/取消端点(锁内重检→409)/T8 页面(隐藏入口)三处同源;`newJob/ownsCurrent/beginRequest/requestAlive/applyEvent/applyStatus/restoreSavedJob`(T5)在契约测/行为测/实现三处同名同语义;`JobStore.begin_shutdown()/StoreDraining`(T9)在窗口壳/`start()` 临界区/端点 503 三处一致(白名单⑪);`selected_renderer` 的导入形态(`from webview.guilib import initialize`)在 Produces/Step3/测试假件(`sys.modules["webview.guilib"]` 注入,不设包属性)三处一致;`_start_server_thread(app, port)`/`app.state.jobs`(T9 单源,T7 先行暴露)与 main 序列/失败路径测试对得上;T1 `_legacy_layout` 解包 3 元组、T6 升 4 元组时在机械更新清单内。
+4. **Review Focus ↔ 测试归属**: 六条分别锚定 T2×2/T1/T3/T7/T6 各失败测试,无空挂;T5 的页面接缝由 10 条源码契约测+8 条 node 行为测双钉(v4 增接线契约与恢复行为各 1)。
 5. **顺序依赖**: T1→(T2,T3 可并行)→T5→T6→T7→T8→T9→T10;T4 独立(仅 instlock),可穿插;T2 的终态载荷/overflow/reset 契约是 T5 页面处理的前提(done 载荷也是 T5 恢复与 T8 swap done 的地基),T3 的 dismiss/unknown_progress 是 T5 横幅与 T10 手测的前提——已按此排列任务序。
-6. **跨任务一致性复核(v2+v3)**: P1-2 链式重规划在 T7(服务端)/T8(页面消费)/T10(手测⑤)三处口径一致(旧包 jar 不回迁;链式段 scan src+dst 与 plan job 同型);游标优先级 v3 改**头优先**后,T2 端点与 T5 规则①②互补不矛盾(query 仅首请求;既有 query-only/header-only 用例不受翻转影响);P2-6+v3 P1 回调双轨在 T5(定义/测试)/T8(swap 流接线)两处一致;P2-3 取消窗在 T7(关窗+409)/T8(隐藏入口)/T10(手测⑤)三处闭合;SwapRunOutcome 在 T7 产出、CLI 薄壳与 replan 失败分支消费,GUI error 载荷带 install+backup_dir 同源;P2-7+v3 P2-4/P2-5 的窗口壳:`selected_renderer` 预检先于服务线程、`_start_server_thread(app, port)` 单源、begin_shutdown 原子排空,失败路径测试(mshtml/start 抛错/降级)与 main 序列逐步对得上;P2-8 的 409 语义与 T3 探针单点复用无循环依赖(journal→instlock 单向)。
+6. **跨任务一致性复核(v2+v3+v4)**: P1-2 链式重规划在 T7(服务端)/T8(页面消费)/T10(手测⑤)三处口径一致(旧包 jar 不回迁;链式段 scan src+dst 与 plan job 同型);游标优先级=「有效头>query>0」在 T2 端点与 T5 规则①②互补不矛盾;回调双轨在 T5(定义/测试/restoreSavedJob)/T8(swap 流接线)一致;P2-3 取消窗在 T7(锁内关窗+端点锁内重检 409/白盒+屏障双测)/T8(隐藏入口)/T10(手测⑤)闭合——**迟到取消的锁外读路径已消除**(v4 P2-3);SwapRunOutcome 在 T7 产出、CLI 薄壳与 replan 失败分支消费,GUI error 载荷带 install+backup_dir 同源;窗口壳:`selected_renderer` 预检先于服务线程且自身异常同降级(v4 P1)、`_start_server_thread(app, port)` 单源、begin_shutdown 与 start() 同锁排空(v4 P2-2),三条失败路径(缺包/缺运行时/启动异常)各有独立测试且断言降级与线程回收确实发生;P2-8 的 409 语义与 T3 探针单点复用无循环依赖(journal→instlock 单向)。
