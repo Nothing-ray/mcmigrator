@@ -53,3 +53,8 @@ jobs:
           body: |
             更新方式(基础档):下载 → SHA256 校验(见 SHA256SUMS.txt)→ 手动替换。
             自动应用更新随后续版本提供,当前为下载-校验-手动替换。
+
+            用法:onedir 绿色包解压到可写文件夹,双击 `mcmig-gui.exe` 打开向导(首次填写整合包根目录);
+            命令行用 `mcmig.exe`(scan / diff / plan / migrate / swap / doctor / update)。
+            行为约定:工具不会自动运行下载的文件。
+            文档:[中文](https://github.com/Nothing-ray/mcmigrator/blob/main/README.zh-CN.md) · [English](https://github.com/Nothing-ray/mcmigrator/blob/main/README.en.md)
