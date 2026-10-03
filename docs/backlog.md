@@ -2,7 +2,7 @@
 
 > 来源:W3 终审 44 项可名表者 / 0.12.0 复审第④阶段 / W4 中途评审 Minor / W4 评审④(试发前)/ W4 评审⑤(试发前)/ 试发实跑观察 / W4 spec 滑移决策。
 > 落账纪律:每项一句「是什么+为何递延+何时捡起」;捡起时移入当批 spec。
-> 最后更新:2026-10-04(两连发试发完成;K 组手测待做)
+> 最后更新:2026-10-04(K 组手测 4/5 过并两处收口 142db92;K5 待 GitHub 限额恢复)
 
 > 记录:2026-10-03 评审④(试发前 fresh review)7 项(1×P1+6×P2)已全部修复——
 > P1 检查更新废止下载回执、P2-2 形态化替换指引、P2-3 入口 argv、P2-4 降级路径
@@ -24,6 +24,15 @@
 > 二进制检查发现 0.13.1→下载→SHA256 校验→暂存,暂存物与官方 SUMS 一致;
 > 离线路径 rc2+三段式。K 组手测(真实 WebView2/无控制台三路径/只读目录/
 > 打开位置)与 1.0.0 待做。
+
+> 记录:2026-10-04 K 组真机手测 4/5 过——K1 官方包解压即用(doctor 全绿)、
+> K2 只读目录(C:\Program Files)弹消息框、K3 坏代理离线三段式(CLI+GUI 双
+> 路径)与 403 限流文案、K4 真实 WebView2 独立窗口可开可跑;K5(打开暂存
+> 位置)因 GitHub 匿名限额(60 次/小时·每来源 IP)耗尽暂缓,待限额恢复补测。
+> 手测揪出两处并收口(142db92):①只读目录消息框「软件目录不可写:
+> 软件目录不可写,…」复读——WorkdirError.why 收敛为纯指引,doctor 行改为
+> what;why 并陈;②CLI 输出混入 httpx「HTTP Request: GET …」INFO 行——
+> _setup_logging 对 httpx 提级 WARNING。
 
 ## 更新事务档(批次J,spec §6)
 
@@ -55,7 +64,9 @@
 
 ## 试发观察(2026-10-04,两连发实跑发现,不阻塞)
 
-- `mcmig update [--check]` 输出混入 httpx 的 INFO 日志行(「HTTP Request: GET … 200 OK」):第三方 logger 未静音,命令行用户可见噪声;修法=logging 配置处对 httpx 提级 WARNING(源码与冻结产物同现,真机实跑发现)。
+> 已关闭(K 组手测修复波 142db92):`mcmig update [--check]` 的 httpx INFO
+> 噪声行(「HTTP Request: GET …」)——`cli._setup_logging` 对 httpx 提级
+> WARNING;K3 真机输出复核干净(修前/修后子进程探针同路径对照)。
 
 ## 页面/UX 打磨(历史递延)
 
@@ -75,3 +86,6 @@
 - GitHub 匿名限额 60/h·每来源 IP:玩家量级上来再评 token/镜像源。
 - J6 真实 WebView2 手测:源码环境 `pip install pywebview` 后执行,用户放行后安排。
 - W3 终审 44 项中未名表者(措辞/测试深度类)随对应模块下次改动顺带清理,不再单列。
+- `test_swap_cancel_window_closes_before_replan` 全量下偶发一次(单独跑、
+  gui_server 连跑×3、后续两轮全量均绿;疑首跑冷缓存负载下线程/SSE 时序):
+  若再现,捕获断言详情再定位。
