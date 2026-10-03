@@ -132,14 +132,15 @@ def run_doctor(workdir: WorkDir | None = None) -> tuple[bool, list[str]]:
     findings = verify_data_manifest()
     add(not findings, "数据文件完整性", "清单校验通过" if not findings else ";".join(findings))
 
-    # 解析工作目录:显式传入优先;自动解析失败(frozen 未配置/目录不可写)报 ❌ 并结束
+    # 解析工作目录:显式传入优先;自动解析失败(目录不可写)报 ❌ 并结束
     if workdir is not None:
         wd = workdir
     else:
         try:
             wd = resolve_workdir()
         except WorkdirError as e:
-            add(False, "工作目录", e.why)
+            # why 收敛为纯指引(供「what:why」组合展示),本行独立展示须并陈问题
+            add(False, "工作目录", f"{e.what};{e.why}")
             return ok, lines
 
     # ② game_root 已配置且存在

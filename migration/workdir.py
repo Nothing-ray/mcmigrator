@@ -187,7 +187,9 @@ def _resolve_green(game_root: Path | None) -> WorkDir:
     except OSError as e:
         raise WorkdirError(
             what="软件目录不可写",
-            why="软件目录不可写,请把 mcmig 移动到可写的文件夹后重试",
+            # why 只写可行动指引:展示端按「what:why」组合(消息框/终端/页面),
+            # 复读 what 会得到「软件目录不可写:软件目录不可写,…」(K2 真机手测收口)
+            why="请把 mcmig 移动到可写的文件夹后重试",
         ) from e
     if game_root is None:
         game_root = _load_game_root_toml(root / "config.toml")

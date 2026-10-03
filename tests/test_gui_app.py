@@ -368,20 +368,24 @@ def _record_boxes(monkeypatch) -> list[tuple[str, str]]:
 
 
 def test_fatal_workdir_error_shows_message_box(monkeypatch):
-    """软件目录不可写(WorkdirError)→ 消息框+退出码 2,不得只打印。"""
+    """软件目录不可写(WorkdirError)→ 消息框+退出码 2,不得只打印。
+
+    消息框按「what:why」组合:what/why 配对须去重(K2 真机手测收口)。
+    """
     from migration.workdir import WorkdirError
 
     boxes = _record_boxes(monkeypatch)
     _fake_webview_ok(monkeypatch)
 
     def _boom():
-        raise WorkdirError("软件目录不可写", "软件目录不可写,请把 mcmig 移动到可写的文件夹后重试")
+        raise WorkdirError("软件目录不可写", "请把 mcmig 移动到可写的文件夹后重试")
 
     monkeypatch.setattr(gui_app, "create_app", _boom)
     rc = gui_app.main([])
     assert rc == 2
     assert boxes, "致命路径必须弹消息框(noconsole 形态 print 不可见)"
     assert "可写" in boxes[0][1]
+    assert boxes[0][1].count("软件目录不可写") == 1  # 「what:why」组合不复读
 
 
 def test_fatal_service_start_failure_shows_message_box(monkeypatch):
@@ -445,7 +449,7 @@ def test_fallback_browser_boxes_real_fatal_reason(monkeypatch):
     boxes = _record_boxes(monkeypatch)
 
     def _boom():
-        raise WorkdirError("软件目录不可写", "软件目录不可写,请把 mcmig 移动到可写的文件夹后重试")
+        raise WorkdirError("软件目录不可写", "请把 mcmig 移动到可写的文件夹后重试")
 
     monkeypatch.setattr("migration.cli.resolve_workdir", _boom)
     rc = gui_app._fallback_browser(["--no-browser"])

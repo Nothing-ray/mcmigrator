@@ -71,6 +71,25 @@ def test_run_doctor_compat_mode_without_config(tmp_path, monkeypatch):
     assert len(lines) >= 4
 
 
+def test_run_doctor_unwritable_workdir_reports_problem_and_fix(monkeypatch):
+    """只读目录(K2 真机手测):「工作目录」行须问题与指引并陈。
+
+    WorkdirError.why 收敛为纯指引(展示端组合「what:why」),doctor 直接展示
+    该行时必须自己补回问题陈述,不得只剩「请把 mcmig 移动到…」。
+    """
+    from migration.workdir import WorkdirError
+
+    def _boom() -> None:
+        raise WorkdirError("软件目录不可写", "请把 mcmig 移动到可写的文件夹后重试")
+
+    monkeypatch.setattr("migration.doctor.resolve_workdir", _boom)
+    ok, lines = doctor.run_doctor()
+    assert ok is False
+    line = next(ln for ln in lines if "工作目录" in ln)
+    assert "软件目录不可写" in line
+    assert "移动到可写的文件夹" in line
+
+
 def test_cli_doctor_green_exits_zero(tmp_path, monkeypatch, capsys):
     """CLI doctor:全绿退出 0(绿色模式,game_root 已配置且存在)。"""
     import migration.workdir as wd

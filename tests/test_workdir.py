@@ -103,6 +103,11 @@ def test_green_legacy_slug_fallback_recorded(tmp_path, monkeypatch):
 
 
 def test_unwritable_exe_dir_raises(tmp_path, monkeypatch):
+    """只读目录:what/why 配对契约(K2 真机手测收口)。
+
+    展示端按「what:why」组合(消息框/终端/页面错误事件),故 why 只写可行动
+    指引,不得复读 what——否则用户看到「软件目录不可写:软件目录不可写,…」。
+    """
     import sys  # noqa: F401 — brief 原文测试保留(未直接引用)
     monkeypatch.setattr("migration.workdir._is_frozen", lambda: True)
     monkeypatch.setattr("migration.workdir._exe_dir", lambda: tmp_path)
@@ -110,4 +115,6 @@ def test_unwritable_exe_dir_raises(tmp_path, monkeypatch):
                         lambda p: (_ for _ in ()).throw(OSError(13, "denied")))
     with pytest.raises(WorkdirError) as ei:
         resolve_workdir(game_root=tmp_path / "game")
-    assert "不可写" in ei.value.why
+    assert ei.value.what == "软件目录不可写"
+    assert "移动到可写的文件夹" in ei.value.why
+    assert ei.value.what not in ei.value.why  # 「what:why」组合不得复读

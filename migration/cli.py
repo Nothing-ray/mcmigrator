@@ -156,7 +156,13 @@ def _safe_reconfigure_streams() -> None:
 
 
 def _setup_logging(quiet: bool) -> None:
+    """配置根日志级别,并静音第三方库的请求日志。
+
+    httpx 在 INFO 级记录每次 HTTP 请求(「HTTP Request: GET … 403」英文行),
+    对玩家是噪声;失败原因由 updater 的中文三段式文案呈现(K3 真机手测收口)。
+    """
     logging.basicConfig(level=logging.WARNING if quiet else logging.INFO, format="%(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _try_resolve_game_root(args: argparse.Namespace) -> Path | None:
@@ -939,7 +945,7 @@ def _cmd_gui(args: argparse.Namespace,
         if on_fatal is not None:
             on_fatal(e.what, e.why)
         _print(f"[错误] {e.what}:{e.why}")
-        _print("未配置游戏根目录时按上一行指引设置即可;目录不可写等其他环境问题可运行 mcmig doctor 逐项体检。")
+        _print("环境类问题可运行 mcmig doctor 逐项体检。")
         return 2
     findings = doctor.verify_data_manifest()
     if findings:

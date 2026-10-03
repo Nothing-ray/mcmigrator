@@ -1951,6 +1951,24 @@ def test_update_check_proxy_html_no_traceback(capsys, monkeypatch):
     assert rc == 2 and "[错误]" in out and "Traceback" not in out
 
 
+def test_setup_logging_silences_httpx_info():
+    """K3 真机手测:httpx 每次请求的 INFO 日志(「HTTP Request: GET …」)不得
+    混入玩家输出——CLI 根日志为 INFO 时,httpx 仍须保持 WARNING。"""
+    import logging
+
+    root = logging.getLogger()
+    httpx_logger = logging.getLogger("httpx")
+    old_root, old_httpx = root.level, httpx_logger.level
+    try:
+        root.setLevel(logging.INFO)          # 模拟 CLI 默认(会放行 httpx 的 INFO)
+        httpx_logger.setLevel(logging.NOTSET)
+        cli._setup_logging(quiet=False)
+        assert httpx_logger.getEffectiveLevel() >= logging.WARNING
+    finally:
+        root.setLevel(old_root)
+        httpx_logger.setLevel(old_httpx)
+
+
 def test_cmd_gui_fatal_callback_reports_workdir_reason(monkeypatch):
     """评审④ P2-4:_cmd_gui 致命分支经 on_fatal 回调结构化 what/why——
     降级壳据此弹真实原因(只读目录→移动指引),而非通用 doctor 文案。"""
@@ -1959,13 +1977,13 @@ def test_cmd_gui_fatal_callback_reports_workdir_reason(monkeypatch):
     ns = cli.build_parser().parse_args(["gui"])
 
     def _boom():
-        raise WorkdirError("软件目录不可写", "软件目录不可写,请把 mcmig 移动到可写的文件夹后重试")
+        raise WorkdirError("软件目录不可写", "请把 mcmig 移动到可写的文件夹后重试")
 
     monkeypatch.setattr(cli, "resolve_workdir", _boom)
     seen: list[tuple[str, str]] = []
     rc = cli._cmd_gui(ns, on_fatal=lambda w, y: seen.append((w, y)))
     assert rc == 2
-    assert seen == [("软件目录不可写", "软件目录不可写,请把 mcmig 移动到可写的文件夹后重试")]
+    assert seen == [("软件目录不可写", "请把 mcmig 移动到可写的文件夹后重试")]
 
 
 def test_update_failure_exit_2(capsys, monkeypatch):
