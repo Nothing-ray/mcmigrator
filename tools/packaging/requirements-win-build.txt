@@ -1,0 +1,42 @@
+# mcmigrator Windows 发行构建锁定文件(spec 4.1.2/D5)
+# 再生成: .venv-build 内 pip install -e ".[gui]" pyinstaller pyinstaller-hooks-contrib 后
+#           python -m pip freeze 覆盖正文(保留本头注释,剔除 -e 自包行);升级后必须重跑本地冒烟
+# 使用: pip install -r 本文件 —— 只装依赖,绝不安装本包(可编辑安装的查找器
+#       会遮蔽 .build-work 工作副本的 _form 标记,导致产物固化错误形态)
+altgraph==0.17.5
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+bottle==0.13.4
+certifi==2026.7.22
+cffi==2.1.1
+click==8.5.0
+clr_loader==0.3.1
+fastapi==0.142.2
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+markdown-it-py==4.2.0
+mdurl==0.1.2
+opentelemetry-api==1.45.0
+packaging==26.3
+pathspec==1.1.1
+pefile==2024.8.26
+proxy_tools==0.1.0
+pycparser==3.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+Pygments==2.21.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+pythonnet==3.2.0
+pywebview==6.2.1
+pywin32-ctypes==0.2.3
+PyYAML==6.0.3
+rich==15.0.0
+setuptools==84.0.0
+starlette==1.7.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.54.0

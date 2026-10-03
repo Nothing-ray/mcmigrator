@@ -471,7 +471,12 @@ def _w25_journal_setup(tmp_path: Path, monkeypatch, capsys) -> Path:
 
 
 def test_migrate_writes_finished_journal(tmp_path: Path, monkeypatch, capsys):
-    """W2.5 复审 B7:成功迁移落 journal 于 <game_root>/.mcmig/jobs/,收尾且不入中断清单。"""
+    """W2.5 复审 B7:成功迁移落 journal 于 <game_root>/.mcmig/jobs/,收尾且不入中断清单。
+
+    批次I-W3 T3 机械更新:存储改 JSONL 追加(首行 start 携身份),断言改为
+    逐行折叠(不再解全量 JSON 对象);start 行携带 src/dst/game_root 身份
+    (scan/dismiss 锁探针判活依据)。
+    """
     import json as _json
 
     from migration import cli
@@ -480,12 +485,15 @@ def test_migrate_writes_finished_journal(tmp_path: Path, monkeypatch, capsys):
     game_root = _w25_journal_setup(tmp_path, monkeypatch, capsys)
     assert cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"]) == 0
     out = capsys.readouterr().out
-    jobs = list((game_root / ".mcmig" / "jobs").glob("cli-*.json"))
+    jobs = list((game_root / ".mcmig" / "jobs").glob("cli-*.jsonl"))
     assert len(jobs) == 1  # job_id 形如 cli-<UTC时间戳>-<pid>(升序=时间序)
-    doc = _json.loads(jobs[0].read_text(encoding="utf-8"))
-    assert doc["kind"] == "migrate" and doc["finished"] is True
-    assert doc["entries"]["options.txt"]["completed"] is True  # 三段序收口
-    assert scan_interrupted(game_root / ".mcmig" / "jobs") == []
+    rows = [_json.loads(line) for line
+            in jobs[0].read_text(encoding="utf-8").splitlines() if line]
+    assert rows[0]["op"] == "start" and rows[0]["kind"] == "migrate"
+    assert rows[0]["src"] == "src" and rows[0]["dst"] == "dst"  # start 行携身份
+    assert rows[-1]["op"] == "finish"
+    assert any(r["op"] == "completion" and r["rel"] == "options.txt" for r in rows)
+    assert scan_interrupted(game_root / ".mcmig" / "jobs") == []  # finished 清扫后为空
     assert "迁移完成" in out  # 正常成功路径不受 journal 接线影响
 
 
@@ -505,25 +513,28 @@ def test_migrate_journal_write_failure_not_locked_as_executed(
 ):
     """W2.5 复审 B7:journal 写失败 → 中止呈现退 2、executed_at 不回写、意图留待核对。
 
-    注入点:migration.journal 命名空间的 write_json_atomic——首条 intent 落盘
-    后失败,撑开「操作已发生/完成记录未写」的崩溃窗口(与 GUI 同型注入)。
+    注入点(批次I-W3 T3 机械更新):``JobJournal._append``——JSONL 追加原语,
+    替代旧版全量重写锚点 write_json_atomic;start 行不计次(构造期追加),
+    首条 intent 落盘后失败,撑开「操作已发生/完成记录未写」的崩溃窗口
+    (与 GUI 同型注入)。
     """
     from migration import cli
-    from migration import journal as journal_ns
-    from migration.journal import scan_interrupted
+    from migration.journal import JobJournal, JournalError, scan_interrupted
     from migration.plan import MigrationPlan
 
     game_root = _w25_journal_setup(tmp_path, monkeypatch, capsys)
-    orig = journal_ns.write_json_atomic
     calls = {"n": 0}
+    real_append = JobJournal._append
 
-    def _flaky(path, payload):
-        calls["n"] += 1
+    def _flaky(self, line: dict) -> None:
+        if line.get("op") != "start":  # start 行不计次(构造期追加,非记录)
+            calls["n"] += 1
         if calls["n"] > 1:  # 首条 intent 落盘后失败
-            raise OSError("disk full (injected)")
-        return orig(path, payload)
+            self.write_failed = True  # 模拟真实 _append 的 OSError 留痕语义
+            raise JournalError("journal 写入失败: disk full (injected)")
+        real_append(self, line)
 
-    monkeypatch.setattr(journal_ns, "write_json_atomic", _flaky)
+    monkeypatch.setattr(JobJournal, "_append", _flaky)
     rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
     captured = capsys.readouterr()
     assert rc == 2
@@ -538,11 +549,67 @@ def test_migrate_journal_write_failure_not_locked_as_executed(
     assert items[0]["entries"][0]["rel"] == "options.txt"
 
 
+def test_migrate_journal_finish_failure_friendly(tmp_path: Path, monkeypatch, capsys):
+    """修复 A4:journal 收尾(finish)写失败不再裸穿 traceback——中文引导退 2;
+    迁移文件操作属实已完成(进度未丢),仅收尾记录缺失(该记录留待核对)。"""
+    from migration import cli
+    from migration.journal import JobJournal, JournalError, scan_interrupted
+
+    game_root = _w25_journal_setup(tmp_path, monkeypatch, capsys)
+    real_append = JobJournal._append
+
+    def _finish_flaky(self, line: dict) -> None:
+        if line.get("op") == "finish":
+            self.write_failed = True  # 模拟真实 _append 的 OSError 留痕语义
+            raise JournalError("journal 写入失败: disk full (injected)")
+        real_append(self, line)
+
+    monkeypatch.setattr(JobJournal, "_append", _finish_flaky)
+    rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "journal 收尾写入失败" in captured.err
+    assert "待核对" in captured.err
+    assert "迁移完成" not in captured.out
+    # 迁移本身已执行(options.txt 已复制到目标)
+    assert (game_root / "versions" / "dst" / "options.txt").read_text(
+        encoding="utf-8") == "fps:120\n"
+    # 盘上无 finish 行 → 该记录仍待核对(引导文案属实)
+    items = scan_interrupted(game_root / ".mcmig" / "jobs")
+    assert items and items[0]["kind"] == "migrate"
+
+
+def test_migrate_plan_save_failure_friendly(tmp_path: Path, monkeypatch, capsys):
+    """修复 A4:迁移完成后计划回写失败 → 中文引导退 2(不再 traceback);
+    迁移文件已完成、executed_at 未回写。"""
+    from migration import cli
+    from migration.fsops import FsOpsError
+    from migration.plan import MigrationPlan
+
+    game_root = _w25_journal_setup(tmp_path, monkeypatch, capsys)
+
+    def _boom(self, path: Path) -> None:
+        raise FsOpsError(str(path), "磁盘空间不足(注入)")
+
+    monkeypatch.setattr(MigrationPlan, "save", _boom)
+    rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "计划文件回写失败" in captured.err and "磁盘空间不足(注入)" in captured.err
+    assert "迁移文件已完成" in captured.err
+    # 文件确实已迁移(回写失败只影响「已执行」标记)
+    assert (game_root / "versions" / "dst" / "options.txt").read_text(
+        encoding="utf-8") == "fps:120\n"
+
+
 def test_migrate_force_maps_three_decisions(tmp_path, monkeypatch, capsys):
     """--force = 三项显式决策(白名单③):已执行/快照过期/疑似占用均放行,目录缺失仍拒。
 
     三项全中构造:首跑回写 executed_at(已执行)→ 重扫 src(快照 mtime 变新,过期)
     → 独占句柄持有 dst/usercache.json(疑似占用,真独占句柄见 conftest.hold_exclusive)。
+    批次I-W3 T1:前置检查经 precheck_execution 单点后,多阻断并存时全部逐条
+    呈现且首错序统一为「守卫→预检→状态校验」(本用例重扫 src 先触发守卫
+    snapshot_changed 居首;「已执行」文案仍在输出中,断言不依赖顺序)。
     """
     import shutil as _shutil
 
@@ -567,7 +634,8 @@ def test_migrate_force_maps_three_decisions(tmp_path, monkeypatch, capsys):
     assert cli.main(["scan", "src", "--game-root", str(game_root)]) == 0
     capsys.readouterr()
     with hold_exclusive(dst_dir / "usercache.json"):
-        # 不加 --force:阻断取首条(已执行),文案逐字不变
+        # 不加 --force:多阻断并存全部逐条呈现(批次I-W3 T1,守卫 snapshot_changed
+        # 居首),「已执行」文案逐字不变
         rc = cli.main(["migrate", "src", "dst", "--game-root", str(game_root), "-y"])
         out = capsys.readouterr().out
         assert rc == 2 and "该计划已执行" in out
@@ -1534,3 +1602,422 @@ def test_lock_error_exits_2_with_stderr(tmp_path: Path, monkeypatch, capsys):
     assert captured.out == ""  # stdout 零污染(--json 机器可读输出不受影响)
     assert "[错误] 实例锁(" in captured.err
     assert "另一 mcmig 进程" in captured.err
+
+
+# ---- 批次I-W3 T7:swap 覆盖备份位置输出(白名单⑥) ----
+
+
+def test_cli_swap_prints_backup_location(tmp_path: Path, monkeypatch, capsys):
+    """T7/spec §5.2:覆盖发生时,装包统计后输出备份位置行(backups/swap/<时间戳>)。
+
+    Windows 下 str(Path) 用反斜杠,断言按正斜杠归一(路径语义等价)。
+    """
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    dst_dir = game_root / "versions" / "dst"
+    dst_dir.mkdir()
+    (dst_dir / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
+    (dst_dir / "mods").mkdir()
+    (dst_dir / "mods" / "victim-1.0.jar").write_bytes(b"OLD")
+    pack_mods = tmp_path / "newpack" / "mods"
+    pack_mods.mkdir(parents=True)
+    (pack_mods / "victim-1.0.jar").write_bytes(b"NEW")   # 同名不同内容→覆盖+备份
+    (pack_mods / "fresh-1.0.jar").write_bytes(b"F")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["scan", "src", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    # 冲突决策一律覆盖(绕开交互),覆盖前旧件进备份目录
+    monkeypatch.setattr(cli.Confirm, "ask", lambda *a, **k: True)
+    assert cli.main(["swap", "src", "dst", str(pack_mods.parent),
+                     "--game-root", str(game_root)]) == 0
+    out = capsys.readouterr().out
+    assert "backups/swap/" in out.replace("\\", "/")
+    assert (dst_dir / "mods" / "victim-1.0.jar").read_bytes() == b"NEW"
+    backup_dirs = list((game_root / ".mcmig" / "backups" / "swap").iterdir())
+    assert backup_dirs and (backup_dirs[0] / "victim-1.0.jar").read_bytes() == b"OLD"
+
+
+def test_cli_swap_journal_write_failure_friendly(tmp_path: Path, monkeypatch, capsys):
+    """终审I-1:swap journal 写失败 → 不 traceback、退 2、stderr 两行中文引导。
+
+    注入点与 migrate 的 journal 失败用例同型(``JobJournal._append``,start 行
+    不计次):首条 intent 落盘后失败,撑开「jar 已装/完成记录未写」窗口——
+    swap_install 挂点不吞 JournalError(与 executor 不同),run_swap 裸调若无
+    CLI 层防护即以 traceback 逃逸(本用例将直接报错而非断言失败)。
+    """
+    from migration import cli
+    from migration.journal import JobJournal, JournalError
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    dst_dir = game_root / "versions" / "dst"
+    dst_dir.mkdir()
+    (dst_dir / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
+    (dst_dir / "mods").mkdir()
+    pack_mods = tmp_path / "newpack" / "mods"
+    pack_mods.mkdir(parents=True)
+    (pack_mods / "fresh-1.0.jar").write_bytes(b"F")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["scan", "src", "--game-root", str(game_root)]) == 0
+    capsys.readouterr()
+    monkeypatch.setattr(cli.Confirm, "ask", lambda *a, **k: True)
+    calls = {"n": 0}
+    real_append = JobJournal._append
+
+    def _flaky(self, line: dict) -> None:
+        if line.get("op") != "start":  # start 行不计次(构造期追加,非记录)
+            calls["n"] += 1
+        if calls["n"] > 1:  # 首条 intent 落盘后失败(复制完成、完成记录未写)
+            self.write_failed = True  # 模拟真实 _append 的 OSError 留痕语义
+            raise JournalError("journal 写入失败: disk full (injected)")
+        real_append(self, line)
+
+    monkeypatch.setattr(JobJournal, "_append", _flaky)
+    rc = cli.main(["swap", "src", "dst", str(pack_mods.parent),
+                   "--game-root", str(game_root)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    # 0.12.0 复审#5:装包段内的 journal 失败收敛进 outcome.error——部分结果
+    # (已复制 1)随「装包未完成」呈现,不再笼统报「进度未知」
+    assert "装包未完成" in captured.out
+    assert "已复制 1 个 jar" in captured.out
+    assert "journal 写入失败" in captured.out
+    assert (dst_dir / "mods" / "fresh-1.0.jar").exists()  # jar 已装属实
+    assert "Traceback" not in captured.err                # 无 traceback
+
+    # 构造期失败(start 行即失败,零装包):仍走 CLI 层 JournalError 引导
+    def _fail_start(self: JobJournal, line: dict) -> None:
+        if line.get("op") == "start":
+            raise JournalError("journal 写入失败: disk full (start 注入)")
+        real_append(self, line)
+
+    monkeypatch.setattr(JobJournal, "_append", _fail_start)
+    for old in (game_root / ".mcmig" / "jobs").glob("*.jsonl"):
+        old.unlink()   # 清档:构造期走「新建 start」路径,注入才会命中
+    (dst_dir / "mods" / "fresh-1.0.jar").unlink()         # 清场重装
+    rc2 = cli.main(["swap", "src", "dst", str(pack_mods.parent),
+                    "--game-root", str(game_root)])
+    captured2 = capsys.readouterr()
+    assert rc2 == 2
+    assert "journal 写入失败,装包中止" in captured2.err   # 两行式引导仍在
+    assert "重新运行 mcmig swap" in captured2.err
+    assert not (dst_dir / "mods" / "fresh-1.0.jar").exists()  # 零装包
+
+
+def test_cli_swap_fsops_error_friendly(tmp_path: Path, monkeypatch, capsys):
+    """修复 A4:swap 装包段 FsOpsError(磁盘不足/目标被占用)→ 中文引导退 2,
+    不再 traceback(与 GUI 同路径的三段式防护对称)。"""
+    from migration import cli
+    from migration.fsops import FsOpsError
+
+    game_root = tmp_path / "game"
+    src_dir = game_root / "versions" / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    dst_dir = game_root / "versions" / "dst"
+    dst_dir.mkdir()
+    (dst_dir / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
+    (dst_dir / "mods").mkdir()
+    pack_mods = tmp_path / "newpack" / "mods"
+    pack_mods.mkdir(parents=True)
+    (pack_mods / "fresh-1.0.jar").write_bytes(b"F")
+    monkeypatch.chdir(tmp_path)
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise FsOpsError("mods/fresh-1.0.jar", "目标文件被占用(注入)")
+
+    monkeypatch.setattr(cli, "run_swap", _boom)
+    rc = cli.main(["swap", "src", "dst", str(pack_mods.parent),
+                   "--game-root", str(game_root)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "装包文件操作失败" in captured.err
+    assert "目标文件被占用(注入)" in captured.err
+    assert "重新运行 mcmig swap" in captured.err
+
+
+def test_serve_until_shutdown_stops_on_flag() -> None:
+    """修复 A5:浏览器模式主循环消费 shutdown_requested——页面「退出服务」
+    置位后引导 uvicorn 停机(should_exit)并等线程收尾;线程自然结束也返回。"""
+    import threading
+    import time
+
+    from migration import cli
+
+    class _State:
+        def __init__(self) -> None:
+            self.shutdown_requested = False
+
+    class _App:
+        def __init__(self) -> None:
+            self.state = _State()
+
+    class _Server:
+        def __init__(self) -> None:
+            self.should_exit = False
+
+    app, server = _App(), _Server()
+
+    def _run() -> None:
+        # 模拟 uvicorn 服务循环:should_exit 置位即收尾
+        while not server.should_exit:
+            time.sleep(0.02)
+
+    worker = threading.Thread(target=_run)
+    worker.start()
+    app.state.shutdown_requested = True       # 页面已点「退出服务」
+    cli._serve_until_shutdown(app, server, worker)
+    assert server.should_exit is True
+    assert not worker.is_alive()
+
+    # 线程自然结束(未置位)也立即返回,不空转
+    app2, server2 = _App(), _Server()
+    finished = threading.Thread(target=lambda: None)
+    finished.start()
+    finished.join()
+    cli._serve_until_shutdown(app2, server2, finished)
+    assert server2.should_exit is False
+
+
+def test_cmd_gui_reports_server_startup_failure(tmp_path, monkeypatch, capsys):
+    """评审 I2:服务线程内 uvicorn 启动失败(以 sys.exit 报告,如端口占用)会被
+    threading 静默吞掉——不捕获则 _cmd_gui 返回 0 谎报成功(修复前主线程
+    uvicorn.run 会以 3 退出);现捕获后打印中文错误退 2。"""
+    import sys as _sys
+    import types as _types
+
+    import migration.workdir as wd
+
+    from migration import cli
+
+    monkeypatch.setattr(wd, "_is_frozen", lambda: False)
+    monkeypatch.chdir(tmp_path)
+    game = tmp_path / "game"
+    (game / "versions").mkdir(parents=True)
+    w = wd.resolve_workdir(game_root=game)
+    w.save_game_root(game)
+    monkeypatch.setattr(cli.doctor, "verify_data_manifest", lambda: [])
+
+    class _FakeServer:
+        """替身:uvicorn.Server 的启动失败形态(STARTUP_FAILURE=sys.exit(3))。"""
+
+        def __init__(self, _config: object) -> None:
+            self.should_exit = False
+
+        def run(self) -> None:
+            raise SystemExit(3)
+
+    fake_uvicorn = _types.SimpleNamespace(
+        Server=_FakeServer, Config=lambda app, **kw: kw)
+    monkeypatch.setitem(_sys.modules, "uvicorn", fake_uvicorn)
+
+    rc = cli.main(["gui", "--no-browser", "--port", "0"])
+    captured = capsys.readouterr()
+    assert rc == 2                                            # 修复前:0(谎报成功)
+    assert "本地服务异常退出" in captured.err
+    assert "端口" in captured.err
+
+
+# ---- Task 8:mcmig update [--check](spec §4.3.3) ----
+
+
+def _fake_release(tag: str):
+    """最小 ReleaseInfo(无资产;--check 分支不消费资产)。"""
+    from migration import updater
+
+    return updater.ReleaseInfo(tag, ())
+
+
+def test_update_check_reports_newer(capsys, monkeypatch):
+    """--check:发现新版打印版本并退 0(不下载)。"""
+    from migration import updater
+
+    monkeypatch.setattr(updater, "fetch_latest_release", lambda: _fake_release("v0.13.1"))
+    import migration
+
+    monkeypatch.setattr(migration, "__version__", "0.12.0")
+    rc = cli.main(["update", "--check"])
+    assert rc == 0 and "0.13.1" in capsys.readouterr().out
+
+
+def test_update_check_latest(capsys, monkeypatch):
+    from migration import updater
+
+    monkeypatch.setattr(updater, "fetch_latest_release", lambda: _fake_release("v0.12.0"))
+    import migration
+
+    monkeypatch.setattr(migration, "__version__", "0.12.0")
+    rc = cli.main(["update", "--check"])
+    assert rc == 0 and "已是最新" in capsys.readouterr().out
+
+
+def test_update_source_mode_download_gives_git_pull(capsys, monkeypatch):
+    """源码模式:--check 可用;不带 --check 时给 git pull 指引而非下载(退 0)。"""
+    from migration import _form, updater
+
+    monkeypatch.setattr(_form, "FORM", "source")
+    monkeypatch.setattr(updater, "fetch_latest_release", lambda: _fake_release("v9.9.9"))
+    import migration
+
+    monkeypatch.setattr(migration, "__version__", "0.12.0")
+    rc = cli.main(["update"])
+    assert rc == 0 and "git pull" in capsys.readouterr().out
+
+
+def test_update_frozen_download_flow(capsys, monkeypatch, tmp_path):
+    """冻结 onefile 全流程:暂存落 exe/data/update-staging/<uuid>/,输出三步替换指引。"""
+    import sys
+
+    from migration import _form, updater
+
+    monkeypatch.setattr(_form, "FORM", "onefile")
+    exe = tmp_path / "app" / "mcmig.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+    payload = b"new-binary"
+
+    def _fake_plan(root, *, progress_cb=None, should_cancel=None):
+        sub = root / "uuid-1"
+        sub.mkdir(parents=True)
+        p = sub / "mcmig-gui-0.13.1-win-x64.exe"
+        p.write_bytes(payload)
+        return updater.UpdatePlan("0.13.1", p.name, p, len(payload), "ab" * 32)
+
+    monkeypatch.setattr(updater, "plan_update", _fake_plan)
+    rc = cli.main(["update"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    staged = exe.parent / "data" / "update-staging" / "uuid-1" / "mcmig-gui-0.13.1-win-x64.exe"
+    assert staged.read_bytes() == payload
+    assert "替换" in out and "重新启动" in out   # 三步指引要素
+    assert "mcmig-gui" in out or ".exe" in out   # 评审④ P2-2:onefile 指引明确替换现有 exe
+
+
+def test_update_onedir_steps_mention_unzip(capsys, monkeypatch, tmp_path):
+    """评审④ P2-2:onedir 指引必须给「解压覆盖」——下载物是含顶层 mcmig/ 的
+    zip,「替换到 mcmig 所在目录」不足以完成更新(旧指引照做只是放入 zip)。"""
+    import sys
+
+    from migration import _form, updater
+
+    monkeypatch.setattr(_form, "FORM", "onedir")
+    exe = tmp_path / "app" / "mcmig.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+
+    def _fake_plan(root, *, progress_cb=None, should_cancel=None):
+        sub = root / "uuid-1"
+        sub.mkdir(parents=True)
+        p = sub / "mcmig-0.13.1-win-x64.zip"
+        p.write_bytes(b"zip")
+        return updater.UpdatePlan("0.13.1", p.name, p, 3, "ab" * 32)
+
+    monkeypatch.setattr(updater, "plan_update", _fake_plan)
+    rc = cli.main(["update"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "解压" in out and "config.toml" in out and "重新启动" in out
+
+
+def test_update_check_proxy_html_no_traceback(capsys, monkeypatch):
+    """评审④ P2-6:代理返回 HTML(200)→ 三段式 rc2,不裸 traceback。"""
+    import httpx
+
+    from migration import updater
+
+    monkeypatch.setattr(
+        updater, "_open_client",
+        lambda: httpx.Client(
+            transport=httpx.MockTransport(
+                lambda req: httpx.Response(200, content=b"<html>login</html>",
+                                           headers={"content-type": "text/html"})),
+            follow_redirects=True))
+    rc = cli.main(["update", "--check"])
+    out = capsys.readouterr().out
+    assert rc == 2 and "[错误]" in out and "Traceback" not in out
+
+
+def test_cmd_gui_fatal_callback_reports_workdir_reason(monkeypatch):
+    """评审④ P2-4:_cmd_gui 致命分支经 on_fatal 回调结构化 what/why——
+    降级壳据此弹真实原因(只读目录→移动指引),而非通用 doctor 文案。"""
+    from migration.workdir import WorkdirError
+
+    ns = cli.build_parser().parse_args(["gui"])
+
+    def _boom():
+        raise WorkdirError("软件目录不可写", "软件目录不可写,请把 mcmig 移动到可写的文件夹后重试")
+
+    monkeypatch.setattr(cli, "resolve_workdir", _boom)
+    seen: list[tuple[str, str]] = []
+    rc = cli._cmd_gui(ns, on_fatal=lambda w, y: seen.append((w, y)))
+    assert rc == 2
+    assert seen == [("软件目录不可写", "软件目录不可写,请把 mcmig 移动到可写的文件夹后重试")]
+
+
+def test_update_failure_exit_2(capsys, monkeypatch):
+    from migration import updater
+
+    def _boom():
+        raise updater.UpdateError("更新检查失败", "网络不可达")
+
+    monkeypatch.setattr(updater, "fetch_latest_release", _boom)
+    rc = cli.main(["update", "--check"])
+    assert rc == 2 and "网络不可达" in capsys.readouterr().out
+
+
+def test_cmd_swap_passes_progress_cb_unless_dry_run(tmp_path, monkeypatch, capsys):
+    """T13.5:装包进度回调接线——非 dry-run 传 callable,dry-run 传 None。"""
+    from migration.fsops import FsOpsError
+
+    game_root = tmp_path / "game"
+    dst_dir = game_root / "versions" / "dst"
+    dst_dir.mkdir(parents=True)
+    (dst_dir / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
+    (dst_dir / "mods").mkdir()
+    src_dir = game_root / "versions" / "src"
+    src_dir.mkdir(parents=True)
+    pack_mods = tmp_path / "newpack" / "mods"
+    pack_mods.mkdir(parents=True)
+    (pack_mods / "fresh-1.0.jar").write_bytes(b"F")
+    monkeypatch.chdir(tmp_path)
+    captured: dict = {}
+
+    def _capture(*_a: object, **k: object) -> None:
+        captured.update(k)
+        raise FsOpsError("mods/fresh-1.0.jar", "注入中止")
+
+    monkeypatch.setattr(cli, "run_swap", _capture)
+    rc = cli.main(["swap", "src", "dst", str(pack_mods.parent),
+                   "--game-root", str(game_root)])
+    assert rc == 2 and callable(captured.get("progress_cb"))
+    captured.clear()
+    rc = cli.main(["swap", "src", "dst", str(pack_mods.parent),
+                   "--game-root", str(game_root), "--dry-run"])
+    assert rc == 2 and captured.get("progress_cb") is None
+
+
+def test_gui_window_forwards_port_and_no_browser(monkeypatch):
+    """T13.5-5:--window 不得丢 --port/--no-browser(此前 window_main() 裸调)。"""
+    seen: dict = {}
+    import migration.gui.app as gui_app
+
+    monkeypatch.setattr(gui_app, "main", lambda argv: seen.update(argv=argv) or 0)
+    rc = cli.main(["gui", "--window", "--port", "8123", "--no-browser"])
+    assert rc == 0
+    assert "--port" in seen["argv"] and "8123" in seen["argv"] and "--no-browser" in seen["argv"]

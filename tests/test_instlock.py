@@ -128,6 +128,10 @@ def test_junction_alias_same_key(tmp_path):
         _stop_holder(p)
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="abandoned 仅 Windows named mutex 路径存在(flock 化后 POSIX 恒空)",
+)
 def test_abandoned_mutex_flagged(tmp_path):
     """持有者异常退出→等待方获取成功且 abandoned 标记(不当干净任务)。
 
@@ -136,7 +140,10 @@ def test_abandoned_mutex_flagged(tmp_path):
     只在「他方等待中」可观测(等待方已持开句柄,持有者死亡 → 其等待返回
     WAIT_ABANDONED)。故本用例让等待方先进入等待再 kill 持有者——这正是
     spec §4.2 关心的真实场景(乙在等甲,甲崩了,乙不得当干净任务)。
-    POSIX 回退同构:等待方轮询中发现持有者 pid 已死 → 陈旧锁接管并标记。
+    T4 注记:Windows named mutex 路径的 abandoned 语义不变;POSIX 后端
+    flock 化后无此语义(持有者死亡由内核即刻释放、等待方干净获取、abandoned
+    恒空,中断证据归 journal——见
+    test_posix_flock_released_on_process_death_no_abandoned),故仅 win32 运行。
     """
     p = _start_holder(_holder_script(tmp_path, ("A",), 30.0))
     result: dict[str, object] = {}
@@ -151,10 +158,70 @@ def test_abandoned_mutex_flagged(tmp_path):
     t = threading.Thread(target=_acquirer)
     t.start()
     try:
-        time.sleep(0.5)  # 等待方已进入 WaitForSingleObject/锁文件轮询
+        # 同步窗注记(#4a):等待方进入 WaitForSingleObject 前持有者必须仍持有
+        # 锁,0.5s 为实测下界——kill 太早则持有者已先退出、互斥体随末个句柄
+        # 销毁后重建,等待方干净获取、abandoned 无从标记;此为并发等待形态的
+        # 固有同步窗(named mutex 并发等待才是真 abandoned 测法,W1W2 教训)。
+        time.sleep(0.5)
         _stop_holder(p)  # 持有者不释放退出(kill 模拟崩溃)
     finally:
         t.join(timeout=5.0)
     assert "error" not in result
     abandoned = result.get("abandoned")
     assert abandoned  # 键为 resolve 后路径,非空即已标记
+
+
+# ---- 批次I-W3 T4:POSIX 后端 fcntl.flock 化(消 _stale_unlink TOCTOU,B1/P1 双确认) ----
+
+
+def test_posix_backend_uses_flock_no_stale_unlink():
+    """#19/B1 双确认:POSIX 后端必须以 fcntl.flock 为互斥真源,_stale_unlink 的
+    「读 pid→unlink」TOCTOU 模式不得存在(窗口内可互删他方活锁,两轮复审独立指出)。"""
+    import inspect
+
+    import migration.instlock as il
+
+    src = inspect.getsource(il)
+    assert "fcntl.flock" in src
+    assert not hasattr(il, "_stale_unlink")  # 陈旧摘除逻辑整体消失(评审:删除空断言)
+    assert not hasattr(il, "_pid_alive")  # pid 判定随陈旧接管一并消失
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX 回退后端专属")
+def test_posix_flock_two_process_exclusive(tmp_path):
+    """flock 互斥:子进程持锁期间主进程获取失败(超时报 InstanceLockError)。"""
+    p = _start_holder(_holder_script(tmp_path, ("A",), 3.0))  # HELD 已由 helper 消费
+    try:
+        with pytest.raises(InstanceLockError):
+            with instance_locks(tmp_path, "A", timeout=0.5):
+                pass
+    finally:
+        _stop_holder(p)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX 回退后端专属")
+def test_posix_flock_released_on_process_death_no_abandoned(tmp_path):
+    """持有者死亡→内核释放 flock→等待方干净获取且 abandoned 恒空(语义变更:
+    POSIX 侧中断证据只来自 journal,不再有陈旧接管标记)。"""
+    p = _start_holder(_holder_script(tmp_path, ("A",), 30.0))  # HELD 已由 helper 消费
+    _stop_holder(p)  # kill 模拟崩溃(内核即刻回收 flock)后 wait+关管道
+    with instance_locks(tmp_path, "A", timeout=2.0) as info:
+        assert info["abandoned"] == []
+
+
+def test_windows_release_allows_cross_process_reacquire(tmp_path):
+    """P1-1 回归:Windows 获取→正常释放→另一进程可再次获取(abandoned 空)——
+    分派若误入 fcntl 路径,此用例在 win32 上即失败。"""
+    p = _start_holder(_holder_script(tmp_path, ("A",), 0.3))  # 短持有后正常退出(释放)
+    try:
+        p.wait(timeout=5.0)
+    finally:
+        if p.stdout is not None:  # 正常退出不能走 _stop_holder(kill 已死进程会抛)
+            p.stdout.close()
+    with instance_locks(tmp_path, "A", timeout=2.0) as info:
+        assert info["abandoned"] == []  # 正常释放≠abandoned
+    # 主进程自身获取-释放-再获取(同进程路径)
+    with instance_locks(tmp_path, "A", timeout=1.0):
+        pass
+    with instance_locks(tmp_path, "A", timeout=1.0):
+        pass

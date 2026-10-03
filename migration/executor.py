@@ -8,7 +8,11 @@
 - 逐文件容错:捕获 FsOpsError,单文件失败不中断整个计划;绝不删除任何文件
 - 取消检查点+journal 三段序挂点(批次I-T6,spec §4.3):should_cancel 在动作间
   检查(当前动作单元完成后才停,安全边界内绝无半途文件);before/after_action
-  包住每个动手动作(①意图 write-ahead → ②操作 → ③完成)
+  包住每个动手动作(①意图 write-ahead → ②操作 → ③完成)。批次I-W3 T3 收口
+  (#4b/#5):结果先入列/上报再写完成记录(after_action 异常不丢结果,分发
+  计数不失真);after_action 仅对有意向的动作(COPY/ASK)回调且不再排除
+  asked_no(结局已知即收口),SKIP 无意图不触发(不再产生无效 journal 重写);
+  其 JournalError → journal_failed=True 停发(与取消同型安全停止)
 """
 
 from __future__ import annotations
@@ -124,8 +128,12 @@ class Executor:
             before_action: 动手动作(COPY/ASK)执行前的回调——①意图持久化锚点
                 (write-ahead);抛 ``JournalError`` → ``self.journal_failed = True``
                 并停止分发(写失败停发,与取消同型安全停止)。
-            after_action: 动作完成后的回调——③完成持久化锚点;asked_no(用户
-                未确认,零写盘)不触发;失败动作同样触发(结局已知即收口)。
+            after_action: 有意向动作(COPY/ASK)完成后的回调——③完成持久化
+                锚点;asked_no(用户未确认,零写盘)同样触发(结局已知即收口,
+                批次I-W3 T3);SKIP 无意图不触发;失败动作同样触发。结果先入列
+                (``results``/progress_cb)再调本回调——其抛 ``JournalError`` →
+                ``self.journal_failed = True`` 并停止分发,该文件结果已入列,
+                分发计数不失真(#4b)。
 
         Returns:
             逐文件执行结果;取消/journal 停发时为部分结果(按已分发顺序)。
@@ -152,14 +160,21 @@ class Executor:
             if action.behavior == Behavior.COPY:
                 result = self._copy_one(action.path, dry_run)  # ②操作
             elif action.behavior == Behavior.ASK:
-                if self.ask_handler(action):
-                    result = self._copy_one(action.path, dry_run)  # ②操作
-                else:
-                    result = FileResult(action.path, "asked_no")
+                result = (self._copy_one(action.path, dry_run)  # ②操作(确认后动手)
+                          if self.ask_handler(action)
+                          else FileResult(action.path, "asked_no"))
             else:
                 result = FileResult(action.path, "skipped")
-            if after_action is not None and result.status != "asked_no":
-                after_action(action, result)  # ③完成
             results.append(result)
-            cb(result)  # 实时回调:单文件完成即上报,而非执行完批量回放
+            cb(result)  # 结果先入列/上报,完成记录随后(写失败不失计数,#4b)
+            if (action.behavior in (Behavior.COPY, Behavior.ASK)
+                    and after_action is not None):
+                try:
+                    after_action(action, result)  # ③完成(asked_no 结局已知同样收口)
+                except JournalError as e:
+                    # 完成记录写失败:后续动作不再分发;本文件结果已入列,
+                    # 分发计数不失真(批次I-W3 T3,#4b)
+                    self.journal_failed = True
+                    log.error("journal 完成记录写入失败,停止分发后续动作: %s", e)
+                    break
         return results

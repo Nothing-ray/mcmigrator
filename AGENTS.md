@@ -35,6 +35,8 @@
 - **选型理由**: 语义模型需 TOML/JSON/NBT 解析 + 规则引擎 + mod 元数据读取，Python 生态完备且跨平台；PowerShell 仅够傻瓜复制（迟早漏，见 `Reference/discussions/chat.md`）。v0 设计详见 `Reference/specs/`、子系统设计见 `Reference/design/`
 
 ## 客户端环境定义
+> ⚠️ **本节为 modpack 侧历史资料,已过时**(2026-10 客户端目录已重排,见记忆「客户端清理结果」);工具开发**以实测 `versions/` 目录为准**,勿据本节臆测。
+
 以下均为**实测**事实（来自启动器配置与版本 json），是迁移工具的边界条件，勿臆测：
 
 | 项 | 值 | 来源 |
@@ -161,8 +163,10 @@ NeoForge 配置在玩家游戏内改动时，会自动生成 `.bak` 备份（命
 - 运行测试: `pytest tests/`
 - 代码检查: `ruff check .`
 - 类型检查(可选): `mypy migration/`
-- 打包 exe: `pyinstaller --onefile migration/__main__.py`
-- 发版(GitHub Actions): `git tag v0.1.0 && git push --tags` → 自动构建 Release（见「分发策略」）
+- 构建发行物(在独立 `.venv-build` 内,锁定文件见下): `python tools/packaging/build.py --form onefile|onedir`(产物落 `dist-release/`)
+- 生成校验清单: `python tools/packaging/build.py --sums dist-release`
+- 发布守卫(发 tag 前自检): `python tools/packaging/check_release.py v<版本>`(tag==pyproject==`__version__` 三处一致)
+- 发版(GitHub Actions): `git tag v<版本> && git push origin v<版本>` → release.yml 全检+锁定构建+SUMS+自动建 Release（见「分发策略」;推送/tag 须用户放行）
 
 ## 编码规范
 - **文件一律 UTF-8 无 BOM**（版本 json/options.txt 等均为 UTF-8）
@@ -251,17 +255,18 @@ NeoForge 配置在玩家游戏内改动时，会自动生成 `.bak` 备份（命
 > 四层识别（80/20）：通用规则(80%) / 内容特征(15%) / Mod Profile(4%) / 用户学习(1%)。
 
 ## 分发策略
-- **面向无 Python 环境的玩家**：用 **PyInstaller** 打成单文件 `mcmig.exe`
-- **CI/发布**：**GitHub Actions** 在 `git tag v*` 时自动起 Windows runner → pip install → PyInstaller → 上传 Release（含 exe + SHA256）
-- **项目布局**（工作目录下新建 `migration/`）：
+- **面向无 Python 环境的玩家**：PyInstaller **双形态**——onedir 绿色 zip(`mcmig-<ver>-win-x64.zip`,含 CLI+GUI 双 exe,推荐)与 onefile GUI 单文件(`mcmig-gui-<ver>-win-x64.exe`,尝鲜)
+- **CI/发布**：GitHub Actions——`build.yml`(push/PR/dispatch:Windows 测试+构建 / Linux 测试,flock 用例真跑)与 `release.yml`(`v*` tag:发布守卫→全检→锁定构建→`SHA256SUMS.txt`→自动建 Release);试发协议(0.13.0→0.13.1 两连发)见 `Reference/specs/2026-10-03-batch-i-w4-distribution-design.md` §5
+- **更新基础档**：`mcmig update [--check]` 与向导「关于/更新」面板(检查→下载→SHA256 校验→暂存→**手动替换**;工具不自动运行下载物);事务档(自动应用)滑移批次J,见 `docs/backlog.md`
+- **实际项目布局**(本仓):
 ```
-migration/
+mcmigrator/
 ├── pyproject.toml
-├── requirements.txt
-├── migration/        # 核心代码（scanner/manifest/planner/executor...）
-├── rules/            # 通用规则库（YAML，演进阶段）
-├── profiles/         # Mod Profile（YAML，演进阶段）
-├── tests/
+├── migration/        # 核心代码(scanner/planner/executor/pipeline/updater/gui...)
+├── migration/data/   # 规则/白名单/清单(包资源,doctor 校验)
+├── tools/packaging/  # build.py / spec×2 / 锁定文件 / 发布守卫
+├── tests/            # pytest(含 node 页面行为测)
+├── docs/             # backlog.md(递延账本)+ SDD 计划留档
 └── .github/workflows/{build.yml, release.yml}
 ```
 
@@ -276,11 +281,13 @@ migration/
 - 版本 json（`<ver>.json`）是**版本清单的唯一事实来源**（NeoForge/FML/MC 版本、库、启动参数），需要版本元信息时读它而非猜测
 
 ## 迁移工具脚本参考
-> **待定**（尚无脚本）。工具落地后在此用表格列出各脚本用途，类比：
->
-> | 脚本 | 用途 | 关键特性 |
-> |------|------|---------|
-> | （待补充） | | |
+
+| 脚本 | 用途 | 关键特性 |
+|------|------|---------|
+| `tools/packaging/build.py` | 双形态发行构建编排 | 独立工作副本改写 `_form`(源码树零污染)+onedir 产物内 PYZ 真值后验+filelist/SHA256SUMS |
+| `tools/packaging/check_release.py` | 发布守卫 | tag==pyproject.version==`migration.__version__` 三处一致,任一不符即拒 |
+| `tools/packaging/requirements-win-build.txt` | Windows 构建锁定文件 | Python 3.13 + 全运行依赖 + PyInstaller 钉版;**只装依赖不装本包**(防遮蔽工作副本);升级后重生成并重跑冒烟 |
+| `tools/gen_manifest.py` | 数据完整性清单 | 改 `migration/data/*.yaml` 后必须重跑并提交 `manifest.sha256` |
 
 ## Skills 参考
 > **待定**（目前无 skills 目录）。后续如沉淀出「迁移流程」「config 合并规则」等可复用 skill，在此登记。

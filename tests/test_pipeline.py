@@ -5,7 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from migration.pipeline import build_plan, execute_migration, scan_version
+import pytest
+
+from migration.journal import JobJournal, scan_interrupted
+from migration.pipeline import (
+    _swap_fingerprint,
+    build_plan,
+    execute_migration,
+    run_swap,
+    scan_version,
+    swap_install,
+)
 from migration.plan import ActionRecord, Behavior, MigrationPlan, Origin
 from migration.snapshot import Snapshot
 
@@ -93,7 +103,7 @@ def test_build_plan_returns_plan_and_saves(tmp_path):
     scan_version(game, "dst", snaps)
     plans_dir = tmp_path / "plans"
     plans_dir.mkdir()
-    plan, warns, _pairs = build_plan(
+    plan, warns, _pairs, _extras = build_plan(
         tmp_path, game, "src", "dst",
         mcmig_dir=tmp_path, plans_dir=plans_dir,
     )
@@ -103,12 +113,35 @@ def test_build_plan_returns_plan_and_saves(tmp_path):
     assert warns == []
 
 
+def test_build_plan_returns_review_extras(tmp_path):
+    """白名单⑦:4 元组第 4 位=extras(buckets/total_bytes/ask_count/
+    overwrite_count/client_only/world_notices)。"""
+    game = tmp_path / "game"
+    _mk_version(game, "src", "fps:120\n")
+    _mk_version(game, "dst")
+    scan_version(game, "src", tmp_path / "snapshots")
+    scan_version(game, "dst", tmp_path / "snapshots")
+    plans_dir = tmp_path / "plans"
+    plans_dir.mkdir()
+    plan, compat, pairs, extras = build_plan(
+        tmp_path, game, "src", "dst",
+        mcmig_dir=tmp_path, plans_dir=plans_dir,
+    )
+    assert compat == [] and pairs == []
+    assert set(extras) >= {"buckets", "total_bytes", "ask_count", "overwrite_count",
+                           "client_only", "world_notices"}
+    assert extras["buckets"] == plan.summary()
+    assert extras["total_bytes"] > 0      # options.txt 至少在 COPY 口径内
+    assert extras["ask_count"] == 0       # 最小夹具无 needs_review 条目
+    assert isinstance(extras["client_only"], list)
+    assert isinstance(extras["world_notices"], list)
+
+
 def test_build_plan_missing_src_snapshot_raises(tmp_path):
     """src 快照缺失 → FileNotFoundError(mcmig_dir/snapshots 下找不到)。"""
     game = tmp_path / "game"
     _mk_version(game, "src", "fps:120\n")
     _mk_version(game, "dst")
-    import pytest
 
     with pytest.raises(FileNotFoundError):
         build_plan(
@@ -160,7 +193,7 @@ def test_build_plan_data_dir_reads_anchored_and_falls_back(tmp_path, caplog) -> 
     # 1) 快照放 data_dir/snapshots → build_plan(data_dir=data) 成功
     scan_version(game, "src", data / "snapshots")
     scan_version(game, "dst", data / "snapshots")
-    plan, _, _pairs = build_plan(
+    plan, _, _pairs, _extras = build_plan(
         tmp_path, game, "src", "dst",
         mcmig_dir=mcmig, plans_dir=plans_dir, data_dir=data,
     )
@@ -175,7 +208,7 @@ def test_build_plan_data_dir_reads_anchored_and_falls_back(tmp_path, caplog) -> 
     scan_version(game, "dst", mcmig / "snapshots")
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="migration.pipeline"):
-        plan, _, _pairs = build_plan(
+        plan, _, _pairs, _extras = build_plan(
             tmp_path, game, "src", "dst",
             mcmig_dir=mcmig, plans_dir=plans_dir, data_dir=data,
         )
@@ -215,7 +248,6 @@ def test_execute_migration_cleans_tmp_and_checks_disk(tmp_path, monkeypatch):
     磁盘预检用注入法:monkeypatch 模块级 check_disk_space(实现须调用模块级名,
     不可 from-import 后改本地别名调用,否则 monkeypatch 拦不到)。
     """
-    import pytest
 
     from migration import pipeline as pl
     from migration.fsops import DiskSpaceError
@@ -255,7 +287,6 @@ def test_disk_check_counts_confirmed_ask(tmp_path, monkeypatch):
     from dataclasses import replace
     from types import SimpleNamespace
 
-    import pytest
 
     from migration.fsops import DiskSpaceError
 
@@ -627,7 +658,6 @@ def test_run_diff_outcome_and_notices(tmp_path: Path) -> None:
 
 def test_run_diff_missing_snapshot_raises(tmp_path: Path) -> None:
     """缺快照 → FileNotFoundError(消息含版本名),CLI 层保持既有退出码 2 文案。"""
-    import pytest
 
     from migration.pipeline import run_diff
 
@@ -841,7 +871,6 @@ def test_build_plan_issues_review(built_plan_layout) -> None:
 
 def test_build_plan_save_failure_raises(built_plan_layout, monkeypatch) -> None:
     """② 白名单:保存失败上抛 PlanPersistError 不再吞(封死「审新执旧」,spec §3.3)。"""
-    import pytest
 
     from migration import pipeline
     from migration.plan import MigrationPlan, PlanPersistError
@@ -865,7 +894,6 @@ def test_rerun_skips_target_state_check(built_plan_layout) -> None:
     Review Focus 3:首跑改写目标后状态必然失配——不加豁免必被 ReviewStateError
     拦截;豁免是重跑决策的特权,依赖 identical 短路与 job journal(spec §3.3 v4 补注)。
     """
-    import pytest
 
     from migration.review import ReviewStateError
 
@@ -912,7 +940,6 @@ def test_execute_guard_snapshots_fallback_to_legacy_dir(built_plan_layout) -> No
     「计划签发后改目标 options.txt,无 --force 仍被静默覆盖」。修复后执行侧
     与 find_snapshot 同一命中位(锚定优先+旧布局回退),漂移照常拦截。
     """
-    import pytest
 
     from migration.review import ReviewStateError
 
@@ -948,7 +975,6 @@ def test_execute_guard_snapshots_missing_fails_closed(built_plan_layout) -> None
     (不可校验≠可执行);review=None 的合成计划保留降级跳过语义
     (test_execute_migration_without_snapshots_skips_state_check 继续覆盖)。
     """
-    import pytest
 
     from migration.review import ReviewStateError
 
@@ -964,7 +990,6 @@ def test_execute_guard_snapshots_missing_fails_closed(built_plan_layout) -> None
 
 def test_execute_guard_snapshot_corrupt_fails_closed(built_plan_layout) -> None:
     """W2.6 复审 P1-1:守卫快照损坏(不可读)与缺失同型——有守卫即阻断,不降级跳过。"""
-    import pytest
 
     from migration.review import ReviewStateError
 
@@ -992,7 +1017,7 @@ def test_build_plan_review_includes_extra_rule_files(tmp_path) -> None:
     scan_version(game, "dst", data / "snapshots")
     extra = tmp_path / "extra.yaml"
     extra.write_text("version: 1\nrules: []\n", encoding="utf-8")
-    plan, _compat, _pairs = build_plan(
+    plan, _compat, _pairs, _extras = build_plan(
         tmp_path, game, "src", "dst",
         mcmig_dir=data, plans_dir=data / "plans", data_dir=data,
         rule_files=[extra],
@@ -1015,3 +1040,319 @@ def test_build_plan_review_includes_extra_rule_files(tmp_path) -> None:
     )
     blockers = validate_review(plan, **kw)
     assert [b.code for b in blockers] == ["rules_changed"]
+
+
+# ---- 批次I-W3 T1:执行前置检查单点 precheck_execution + mtime 闸门统一 ----
+
+
+def _legacy_layout(tmp_path):
+    """旧布局夹具:双侧快照仅存 cwd/.mcmig/snapshots(rename 保留 mtime,不触发
+    snapshot_stale),锚定目录为空;plan 经 build_plan(legacy 载入)签发——与
+    tests/test_cli.py::test_migrate_legacy_snapshot_state_change_blocked 同构。
+
+    Returns:
+        (game_root, plan, legacy_dir)。
+    """
+    game = tmp_path / "game"
+    for name, text in (("src", "fps:120\n"), ("dst", "fps:60\n")):
+        d = game / "versions" / name
+        d.mkdir(parents=True)
+        (d / "options.txt").write_text(text, encoding="utf-8")
+    anchored = game / ".mcmig" / "snapshots"
+    anchored.mkdir(parents=True)
+    scan_version(game, "src", anchored)
+    scan_version(game, "dst", anchored)
+    legacy = tmp_path / ".mcmig" / "snapshots"
+    legacy.mkdir(parents=True)
+    for ver in ("src", "dst"):
+        (anchored / f"{ver}.snapshot.json").rename(legacy / f"{ver}.snapshot.json")
+    plan, _compat, _pairs, _extras = build_plan(
+        tmp_path, game, "src", "dst",
+        mcmig_dir=tmp_path / ".mcmig", plans_dir=game / ".mcmig" / "plans",
+        data_dir=game / ".mcmig")
+    return game, plan, tmp_path / ".mcmig"
+
+
+def test_precheck_execution_guards_then_preflight_then_state(tmp_path):
+    """precheck_execution 三段合一:未漂移布局零阻断;目标漂移产状态阻断。"""
+    from migration.pipeline import precheck_execution
+
+    game, plan, legacy = _legacy_layout(tmp_path)
+    outcome = precheck_execution(plan, game, "src", "dst", legacy_dir=legacy)
+    assert outcome.blockers == [] and not outcome.review_missing
+    (game / "versions" / "dst" / "options.txt").write_text("篡改\n", encoding="utf-8")
+    outcome2 = precheck_execution(plan, game, "src", "dst", legacy_dir=legacy)
+    assert "target_state_changed" in [b.code for b in outcome2.blockers]
+
+
+def test_precheck_execution_review_none_flagged(tmp_path):
+    """review=None 的旧版计划:review_missing=True 且不产 snapshot 守卫阻断。"""
+    from migration.pipeline import precheck_execution
+
+    game, plan, legacy = _legacy_layout(tmp_path)
+    plan.review = None
+    outcome = precheck_execution(plan, game, "src", "dst", legacy_dir=legacy)
+    assert outcome.review_missing and not [b for b in outcome.blockers
+                                            if b.code == "snapshot_changed"]
+
+
+def test_precheck_execution_legacy_layout_no_false_positive(tmp_path):
+    """W2.6 P1-1 的管线侧:旧布局快照下 precheck 不误报 snapshot_changed
+    (取位与签发同构——GUI 消费路径 T1 Step4 同判)。"""
+    from migration.pipeline import precheck_execution
+
+    game, plan, legacy = _legacy_layout(tmp_path)
+    outcome = precheck_execution(plan, game, "src", "dst", legacy_dir=legacy)
+    assert not [b for b in outcome.blockers if b.code == "snapshot_changed"]
+    assert not [b for b in outcome.blockers if b.code == "review_snapshot_missing"]
+
+
+def test_mtime_gate_same_form_plan_and_diff(tmp_path, monkeypatch):
+    """mtime 证据闸门统一口径(spec F35,W3 复审 #16):build_plan 与 run_diff 同形。
+
+    - v1 快照对(resolved_root 均为 None)且双侧指向同一活目录 → 两处闸门均
+      True(任一缺失回退活目录 resolve 比较;修复前 run_diff 对旧快照恒 False);
+    - v2 快照对(异根记录)→ 两处闸门均 False(双侧记录值优先,活目录不参与)。
+    """
+    import json
+
+    from migration import pipeline
+    from migration.differ import Differ
+    from migration.pipeline import run_diff
+
+    gates: list[bool] = []
+
+    class _SpyDiffer(Differ):
+        """真 Differ 子类:仅截获 mtime_evidence 闸门值,行为不变。"""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            gates.append(bool(kwargs.get("mtime_evidence", False)))
+            super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pipeline, "Differ", _SpyDiffer)
+
+    def _strip_resolved_root(p: Path) -> None:
+        """把快照降级为 v1 形态(剥掉 resolved_root 键,load 得 None)。"""
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc.pop("resolved_root", None)
+        p.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    game = tmp_path / "game"
+    data = game / ".mcmig"
+    _mk_version(game, "solo", "fps:120\n")
+    scan_version(game, "solo", data / "snapshots")
+    _strip_resolved_root(data / "snapshots" / "solo.snapshot.json")
+    # 场景一:v1 快照对 + 双侧同名同目录(自比对形态,活目录 resolve 相等)→ 均开
+    build_plan(tmp_path, game, "solo", "solo",
+               mcmig_dir=data, plans_dir=data / "plans", data_dir=data)
+    run_diff(tmp_path, src="solo", dst="solo", mcmig_dir=data)
+    assert gates == [True, True]
+    gates.clear()
+    # 场景二:v2 快照对(各自记录本目录 resolve,异根)→ 记录值优先,均关
+    _mk_version(game, "src", "fps:120\n")
+    _mk_version(game, "dst", "fps:60\n")
+    scan_version(game, "src", data / "snapshots")
+    scan_version(game, "dst", data / "snapshots")
+    build_plan(tmp_path, game, "src", "dst",
+               mcmig_dir=data, plans_dir=data / "plans", data_dir=data)
+    run_diff(tmp_path, src="src", dst="dst", mcmig_dir=data)
+    assert gates == [False, False]
+
+
+# ---- 批次I-W3 T7:swap 编排下沉(预检/装包备份/journal/全流程,spec §8) ----
+
+
+def _pack_with_jars(tmp: Path, names: dict[str, bytes]) -> Path:
+    pack = tmp / "newpack"
+    (pack / "mods").mkdir(parents=True)
+    for n, b in names.items():
+        (pack / "mods" / n).write_bytes(b)
+    return pack
+
+
+def test_swap_install_backs_up_overwritten_jars(tmp_path):
+    """spec §5.2:同名不同内容覆盖前,目标 jar 备份至 backups/swap/<时间戳>/。"""
+    dst_mods = tmp_path / "dst" / "mods"
+    dst_mods.mkdir(parents=True)
+    (dst_mods / "a-1.0.jar").write_bytes(b"OLD")
+    pack = _pack_with_jars(tmp_path, {"a-1.0.jar": b"NEW"})
+    out = swap_install(dst_mods, pack / "mods", overwrite={"a-1.0.jar"},
+                       dry_run=False, backup_root=tmp_path / "backups")
+    assert (dst_mods / "a-1.0.jar").read_bytes() == b"NEW"
+    assert out.backed_up == ["a-1.0.jar"]
+    assert (out.backup_dir / "a-1.0.jar").read_bytes() == b"OLD"
+
+
+def test_swap_journal_records_intent_per_jar(tmp_path, monkeypatch):
+    """spec §5.2/§4.3:装包过程 write-ahead——每 jar 意图(含备份位)→完成;
+    崩溃窗口重启经 scan_interrupted 可核(spec §9 swap 断言)。"""
+    import migration.pipeline as pl
+
+    dst_mods = tmp_path / "dst" / "mods"
+    dst_mods.mkdir(parents=True)
+    (dst_mods / "a-1.0.jar").write_bytes(b"OLD")
+    pack = _pack_with_jars(tmp_path, {"a-1.0.jar": b"NEW", "b-2.0.jar": b"B"})
+    journal = JobJournal(tmp_path / "jobs", "swapjob", "swap",
+                         src="s", dst="d", game_root=str(tmp_path))
+    real_copy = pl.copy_atomic
+
+    from migration.fsops import FsOpsError
+
+    def _crash_on_b(src, dst, *, rel, backup_dir=None):
+        if rel == "b-2.0.jar":
+            # copy_atomic 的类型化异常契约(FsOpsError 族);裸 OSError 亦被
+            # swap_install 捕获(防御),此处按真实契约模拟
+            raise FsOpsError(str(dst), f"模拟崩溃:装包中途中断({rel})")
+        return real_copy(src, dst, rel=rel, backup_dir=backup_dir)
+
+    monkeypatch.setattr(pl, "copy_atomic", _crash_on_b)
+    out = swap_install(dst_mods, pack / "mods", overwrite={"a-1.0.jar"},
+                       dry_run=False, backup_root=tmp_path / "backups",
+                       journal=journal)
+    # 0.12.0 复审#5:中途失败不再上抛——已知部分结果随返回值(outcome.error)
+    assert out.error is not None and "b-2.0.jar" in out.error
+    assert out.copied == 1                                   # a.jar 已装
+    items = scan_interrupted(tmp_path / "jobs")
+    assert items and items[0]["kind"] == "swap"
+    assert [e["rel"] for e in items[0]["entries"]] == ["b-2.0.jar"]
+    # 意图含备份根(0.12.0 复审#5):中断清单可直接指出原件所在备份目录
+    assert items[0]["entries"][0]["detail"]["backup_root"] == str(tmp_path / "backups")
+    # a.jar 已意图+完成双记录,b.jar 停在意图态(待核对,≠未执行)
+    assert (dst_mods / "a-1.0.jar").read_bytes() == b"NEW"
+
+
+def test_swap_run_cli_equivalent(tmp_path):
+    """CLI 对拍基准:run_swap 决策语义与退出码等价(确认拒绝=0/成功=0);
+    SwapRunOutcome 携带 CLI 既有输出所需全量信息(评审 v3 契约A:prefetch/
+    install/compat_warnings/plan_summary/plan_file 皆可自返回值打印)。"""
+    game = tmp_path / "game"
+    src_dir = game / "versions" / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    dst_dir = game / "versions" / "dst"
+    dst_dir.mkdir()
+    (dst_dir / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
+    (dst_dir / "mods").mkdir()
+    (dst_dir / "mods" / "leftover.jar").write_bytes(b"L")   # 新包外残留→触发确认
+    (game / ".mcmig" / "plans").mkdir(parents=True)
+    scan_version(game, "src", game / ".mcmig" / "snapshots")
+    scan_version(game, "dst", game / ".mcmig" / "snapshots")
+    pack = _pack_with_jars(tmp_path, {"new-1.0.jar": b"NEW"})
+
+    def run(confirm_extras):
+        return run_swap(tmp_path, game, "src", "dst", pack,
+                        confirm_extras=confirm_extras,
+                        resolve_conflict=lambda n: True)
+
+    # 分支①:extras 确认被拒 → rc 0,零装包,preflight 仍回传(extras 清单在)
+    out = run(confirm_extras=lambda extras: False)
+    assert out.rc == 0 and out.install is None
+    assert out.preflight is not None and "leftover.jar" in out.preflight.extras
+    assert not (dst_dir / "mods" / "new-1.0.jar").exists()
+    # 分支②:确认放行 → rc 0,装包计数正确,规划摘要/计划文件齐备
+    out = run(confirm_extras=lambda extras: True)
+    assert out.rc == 0 and out.install is not None and out.install.copied == 1
+    assert (dst_dir / "mods" / "new-1.0.jar").read_bytes() == b"NEW"
+    assert out.plan_summary and out.plan_summary.get("must_migrate", 0) >= 1
+    assert out.plan_file and out.plan_file.is_file()
+    assert out.plan_error is None
+
+
+def test_swap_fingerprint_binds_instance_and_version_json(tmp_path):
+    """评审 P2-3:指纹绑定规范化游戏根与目标 <dst>.json——同名版本对在不同
+    游戏根指纹不同;版本 json 内容变化指纹不同。"""
+    a, b = tmp_path / "ga", tmp_path / "gb"
+    for root in (a, b):
+        (root / "versions" / "dst" / "mods").mkdir(parents=True)
+        (root / "versions" / "dst" / "dst.json").write_text("{}", encoding="utf-8")
+    (a / "versions" / "dst" / "dst.json").write_text('{"x": 1}', encoding="utf-8")
+    fa = _swap_fingerprint(a, "src", "dst", a / "pack",
+                           a / "versions" / "dst" / "mods", a / "pack" / "mods")
+    fb = _swap_fingerprint(b, "src", "dst", b / "pack",
+                           b / "versions" / "dst" / "mods", b / "pack" / "mods")
+    assert fa != fb                                     # 不同游戏根(含 json 差异)
+    (b / "versions" / "dst" / "dst.json").write_text('{"x": 2}', encoding="utf-8")
+    fb2 = _swap_fingerprint(b, "src", "dst", b / "pack",
+                            b / "versions" / "dst" / "mods", b / "pack" / "mods")
+    assert fb != fb2                                    # json 内容变化即失配
+
+
+def test_swap_install_disk_space_precheck_blocks_before_first_write(tmp_path, monkeypatch):
+    """评审(0.12.0 复审#6):装包前磁盘空间预检——空间不足在**首个装包动作
+    前**拦截(零写盘),error 随 outcome 返回而非上抛;写入需求=将复制 jar
+    之和(空间检查复用 fsops.check_disk_space,与迁移路径同源)。"""
+    import migration.fsops as fsops
+
+    dst_mods = tmp_path / "dst" / "mods"
+    dst_mods.mkdir(parents=True)
+    (dst_mods / "victim.jar").write_bytes(b"OLD")
+    pack = _pack_with_jars(tmp_path, {"new-1.0.jar": b"N" * 1024})
+
+    class _FakeUsage:
+        free = 0        # 任何需求都判不足
+
+    monkeypatch.setattr(fsops.shutil, "disk_usage", lambda p: _FakeUsage())
+    out = swap_install(dst_mods, pack / "mods", overwrite=set(),
+                       dry_run=False, backup_root=tmp_path / "backups")
+    assert out.copied == 0 and out.error is not None and "不足" in out.error
+    assert not (dst_mods / "new-1.0.jar").exists()      # 零写盘
+    assert (dst_mods / "victim.jar").read_bytes() == b"OLD"
+
+
+def test_run_swap_returns_partial_install_on_install_error(tmp_path, monkeypatch):
+    """评审(0.12.0 复审#5)CLI 消费面:装包失败(空间/中途文件操作)不再以
+    异常打穿 run_swap——rc=2 + install(已知部分统计与备份位置)保留 +
+    plan_error 呈现原因,调用方必须能据此报告(目标 mods/ 可能已被部分改写)。"""
+    import migration.pipeline as pl
+    from migration.pipeline import SwapInstallOutcome, run_swap
+
+    game = tmp_path / "game"
+    src_dir = game / "versions" / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    dst_dir = game / "versions" / "dst"
+    dst_dir.mkdir()
+    (dst_dir / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
+    (dst_dir / "mods").mkdir()
+    (game / ".mcmig" / "plans").mkdir(parents=True)
+    scan_version(game, "src", game / ".mcmig" / "snapshots")
+    scan_version(game, "dst", game / ".mcmig" / "snapshots")
+    pack = _pack_with_jars(tmp_path, {"new-1.0.jar": b"NEW"})
+    bk = tmp_path / "backups"
+    monkeypatch.setattr(
+        pl, "swap_install",
+        lambda *a, **k: SwapInstallOutcome(1, 0, 0, ["old.jar"], bk, False,
+                                           "磁盘空间不足:需要 9.9 MB,剩余 1.0 MB"))
+    out = run_swap(tmp_path, game, "src", "dst", pack,
+                   confirm_extras=lambda extras: True,
+                   resolve_conflict=lambda n: True)
+    assert out.rc == 2
+    assert out.install is not None and out.install.copied == 1
+    assert out.install.backed_up == ["old.jar"] and out.install.backup_dir == bk
+    assert out.plan_error == "磁盘空间不足:需要 9.9 MB,剩余 1.0 MB"
+    assert out.plan_summary is None                     # 失败后不进规划
+
+
+def test_swap_install_reports_progress_per_jar(tmp_path):
+    """T13.5:装包逐 jar 进度回调(1-based,含 total);dry_run 不回调。"""
+    dst_mods = tmp_path / "dst" / "mods"
+    dst_mods.mkdir(parents=True)
+    (dst_mods / "a-1.0.jar").write_bytes(b"OLD")
+    pack = _pack_with_jars(tmp_path, {"a-1.0.jar": b"NEW", "b-2.0.jar": b"B"})
+    calls: list[tuple[str, int, int]] = []
+    out = swap_install(dst_mods, pack / "mods", overwrite={"a-1.0.jar"},
+                       dry_run=False, backup_root=tmp_path / "backups",
+                       progress_cb=lambda n, i, t: calls.append((n, i, t)))
+    assert out.error is None
+    assert [c[1] for c in calls] == [1, 2]          # 1-based 递增
+    assert all(c[2] == 2 for c in calls)            # total=动作数
+    assert {c[0] for c in calls} == {"a-1.0.jar", "b-2.0.jar"}
+    calls.clear()
+    swap_install(dst_mods, pack / "mods", overwrite={"a-1.0.jar"},
+                 dry_run=True, backup_root=tmp_path / "backups",
+                 progress_cb=lambda n, i, t: calls.append((n, i, t)))
+    assert calls == []                              # dry-run 零回调

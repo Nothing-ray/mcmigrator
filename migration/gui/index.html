@@ -89,6 +89,16 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ============ ① 换包面板(批次I-W3 T8,spec §5.2) ============ */
+  #swap-panel {
+    border: 1px dashed #cbd2dc; border-radius: 8px;
+    padding: 12px 16px; margin: 12px 0; background: #fbfcfe;
+  }
+  #swap-panel h3 { margin-top: 4px; }
+  #swap-preflight-result ul {
+    margin: 6px 0; padding-left: 18px; font-size: 13px; word-break: break-all;
+  }
+
   /* ============ ② 计划分组 ============ */
   #plan-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
   #search { flex: 1; min-width: 220px; max-width: none; }
@@ -108,6 +118,8 @@
   .behavior-tag { font-size: 12px; font-weight: 400; color: #6b7280; }
   .group-body { display: none; border-top: 1px solid #edeff3; }
   .group.open .group-body { display: block; }
+  /* 仅客户端件折叠区:中性信息色(非警示——部署形态差异,不是错误) */
+  .group-body.info { background: #eff6ff; border-top-color: #bfdbfe; }
   .row {
     display: flex; align-items: baseline; gap: 10px; padding: 5px 14px;
     border-bottom: 1px solid #f1f3f6; font-size: 13px;
@@ -122,6 +134,24 @@
   }
   #no-match { color: #6b7280; font-size: 13px; padding: 10px 2px; }
   .group.hidden-by-search, .row.hidden-by-search { display: none; }
+
+  /* ============ ② 审阅摘要条(批次I-W3 T6,spec §5.1 五要素) ============ */
+  #review-summary {
+    background: #f8fafc; border: 1px solid #e2e4e9; border-radius: 8px;
+    padding: 10px 14px; margin: 10px 0;
+  }
+  .sum-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sum-chip {
+    background: #e0e7ff; color: #3730a3; border-radius: 999px;
+    font-size: 12.5px; font-weight: 600; padding: 2px 12px;
+  }
+  .sum-chip.warn { background: #fffbeb; color: #92400e; }
+  /* compat 警示块(默认随审阅页展开):真警告,用警示色 */
+  #compat-warn-box {
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+    padding: 10px 14px; margin: 10px 0; color: #92400e; font-size: 13px;
+  }
+  #compat-warn-box ul { margin: 6px 0 0; padding-left: 18px; word-break: break-all; }
 
   /* ============ ③ 执行 ============ */
   #file-count { font-size: 18px; font-weight: 700; margin: 6px 0 2px; }
@@ -171,13 +201,23 @@
   <span id="nav3">③ 执行迁移</span>
 </nav>
 
-<!-- 断线横幅:EventSource onerror 时显示(任务已收尾的主动断流不算) -->
-<div id="banner-disconnect" hidden>连接断开,刷新页面重新开始</div>
+<!-- 断线横幅(批次I-W3 T5 行为变更白名单 #8):未终态任务 onerror 不关流,
+     浏览器按 WHATWG SSE 自动重连——文案运行时由 PAGE_STRINGS 写入
+     (重连中/服务不可达两种),任意新事件到达即清除 -->
+<div id="banner-disconnect" hidden></div>
 
-<!-- 中断横幅(批次I-T6):页面加载时扫描 /api/jobs/interrupted,有未收尾的
-     job journal(上次异常退出)时提示核对;待核对≠取消,仅提示不阻断 -->
+<!-- 中断横幅(批次I-T6/W3-T3):页面加载时扫描 /api/jobs/interrupted,有未收尾的
+     job journal(上次异常退出)时提示核对;待核对≠取消,仅提示不阻断;
+     条目附「已核对,清除」入口(POST dismiss,批次I-W3 T5 接线);
+     修复 A7b:每条 journal 折叠展开待核对明细(此前只计数不列清单) -->
 <div id="banner-interrupted" hidden
      style="background:#7c2d12;color:#fff;border-radius:8px;padding:10px 16px;margin-bottom:12px;font-weight:600"></div>
+
+<!-- 过程提示横幅(修复 A7b):notice/warning 事件此前只入模型、从无 DOM 出口——
+     旧布局快照/规则回退/中断实例锁提示等用户提示实际不可见;render() 经
+     noticeLines 派生文本铺入本横幅,任意步骤可见,空则隐藏 -->
+<div id="banner-notices" hidden
+     style="background:#1e3a5f;color:#fff;border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:13px"></div>
 
 <!-- ============ 步① 选择版本 ============ -->
 <section class="step" id="step1">
@@ -198,11 +238,63 @@
   <p id="same-warning" class="warn" hidden>源与目标不能是同一个版本</p>
   <p>
     <button id="btn-plan" class="primary" disabled>开始生成迁移计划</button>
+    <button id="btn-swap-entry" type="button">整合包换包(进阶)…</button>
   </p>
   <p class="hint">计划生成需要扫描两个版本文件夹,大目录可能耗时十几秒,期间请勿关闭页面。</p>
+
+  <!-- 整合包换包面板(批次I-W3 T8,spec §5.2):两阶段交互——① 只读预检呈现
+       三类决策(不兼容/新包外残留/同名冲突)→ ② 确认装包+链式生成换包迁移
+       计划直入②审阅页;源/目标沿用上方向导已选,新包目录须含 mods/(服务端校验) -->
+  <div id="swap-panel" hidden>
+    <h3>整合包换包(进阶)</h3>
+    <p class="hint">换包 = 先把<b>新整合包的 mods/</b> 装入<b>目标版本</b>(覆盖前自动备份),再生成「源版本进度 → 目标版本」的迁移计划。源版本/目标版本沿用上方向导已选。</p>
+    <p class="hint" id="swap-route"></p>
+    <label class="field"><b>新整合包目录(须含 mods/ 子目录)</b>
+      <input type="text" id="swap-new-pack" placeholder="例如 H:\MC\新整合包\1.21.1-NeoForge_xxx">
+    </label>
+    <p>
+      <button id="btn-swap-preflight" type="button">预检新包(只读)</button>
+      <button id="btn-swap-apply" class="primary" hidden disabled>确认装包并生成换包计划</button>
+      <button id="btn-swap-close" type="button" class="small">收起</button>
+    </p>
+    <div id="swap-error" class="error" hidden></div>
+    <p id="swap-preflight-progress" class="phase-line" hidden><span class="spin"></span><span id="swap-preflight-phase">正在预检…</span></p>
+    <p class="warn" id="swap-abandon-note" hidden></p>
+    <div id="swap-preflight-result" hidden>
+      <!-- 预检决策面(spec §5.2):三类清单 + 接受勾选 + 冲突覆盖多选(=overwrite_jars) -->
+      <div id="swap-sec-incompat" hidden>
+        <h3 style="color:#b91c1c">⚠ 新包中与目标 NeoForge 不兼容的 mod(<span id="swap-incompat-badge">0</span>)</h3>
+        <ul id="swap-incompat-list"></ul>
+        <p><label><input type="checkbox" id="swap-accept-incompat"> 我已知晓不兼容风险,仍要装包</label></p>
+      </div>
+      <div id="swap-sec-extras" hidden>
+        <h3 style="color:#b45309">⚠ 目标 mods/ 中新包没有的 jar,装包后将保留(<span id="swap-extras-badge">0</span>)</h3>
+        <ul id="swap-extras-list"></ul>
+        <p><label><input type="checkbox" id="swap-accept-extras"> 我已知晓残留,仍要装包</label></p>
+      </div>
+      <div id="swap-sec-conflicts" hidden>
+        <h3>同名但内容不同的 jar(<span id="swap-conflicts-badge">0</span>)——勾选 = 用新包覆盖(覆盖前自动备份)</h3>
+        <div id="swap-conflict-rows"></div>
+      </div>
+      <p class="hint" id="swap-backup-preview"></p>
+    </div>
+  </div>
 </section>
 
 <!-- ============ 步② 审阅计划 ============ -->
+<!-- ============ 关于/更新(折叠,W4 T13;spec §4.3.4) ============ -->
+<details id="update-panel" class="update-panel">
+  <summary id="update-summary">关于 / 更新</summary>
+  <div id="update-current"></div>
+  <button id="btn-update-check" class="secondary">检查更新</button>
+  <div id="update-status" hidden></div>
+  <button id="btn-update-download" hidden>下载并校验</button>
+  <button id="btn-update-cancel" class="secondary" hidden>取消下载</button>
+  <div id="update-progress" hidden></div>
+  <div id="update-done" hidden></div>
+  <button id="btn-update-open" class="secondary" hidden>打开暂存位置</button>
+</details>
+
 <section class="step" id="step2" hidden>
   <!-- plan job 运行中的阶段提示 -->
   <div id="plan-progress">
@@ -214,18 +306,71 @@
   <!-- plan job 失败(或 POST /api/plan、POST /api/migrate 被拒)的三段式错误 -->
   <div id="step2-error" class="error" hidden></div>
 
+  <!-- 返回步①:step2 直下(#14,批次I-W3 T6)——plan 进行中/失败(错误条)态均可见,
+       不再困在 #plan-body 内 -->
+  <p style="margin-top:12px"><button id="btn-back1">← 返回重选版本</button></p>
+
   <!-- 计划渲染主体:done 事件的 plan 字段到位后显示 -->
   <div id="plan-body" hidden>
     <h2>② 审阅迁移计划:<span id="plan-route"></span></h2>
+
+    <!-- 换包装包结果条(批次I-W3 T8,spec §5.2):仅 swap 链式计划进审阅页时
+         呈现——装包统计 + 不可逆边界文案 + 放弃出口;常规迁移计划恒隐藏 -->
+    <div id="swap-review-banner" hidden>
+      <div class="sum-chips" id="swap-install-stats"></div>
+      <p class="warn" id="swap-boundary-note"></p>
+      <p>
+        <button id="btn-swap-abandon" type="button" class="small">放弃此计划返回</button>
+        <span class="hint">放弃后该换包计划作废;如需换包迁移须重新执行换包(预检+装包)。</span>
+      </p>
+    </div>
+
+    <!-- 顶部摘要条(T6,spec §5.1 五要素:待迁移/体积/待确认/将覆盖/兼容警告 +
+         检测范围说明行;数据自 done.diff 填充) -->
+    <div id="review-summary" hidden>
+      <div class="sum-chips" id="review-stats"></div>
+      <p class="hint" id="review-scope-note"></p>
+    </div>
+
+    <!-- compat 警示块(默认随审阅页展开;空时不渲染可见) -->
+    <div id="compat-warn-box" hidden>
+      <b>⚠ Mod 版本兼容警告(<span id="compat-warn-count">0</span>)</b>
+      <ul id="compat-warn-list"></ul>
+    </div>
+
     <div id="plan-toolbar">
       <input type="search" id="search" placeholder="搜索路径或原因,过滤下方列表…">
       <span id="ask-summary" class="hint"></span>
     </div>
     <div id="groups"></div>
+
+    <!-- 折叠参考区(T6):mod 配对 / 仅客户端件 / 世界提示——默认折叠,
+         首次展开才建行(#24 懒建行);数据自 done.diff 填充 -->
+    <div class="group" id="sec-mod_pairs" hidden>
+      <button class="group-head" type="button" id="mod-pairs-head">
+        <span class="arrow">▸</span><span class="title">Mod 配对(升级 / 改名 / 重打包)</span>
+        <span class="badge" id="mod-pairs-badge">0</span>
+      </button>
+      <div class="group-body" id="mod-pairs-body"></div>
+    </div>
+    <div class="group" id="sec-client_only" hidden>
+      <button class="group-head" type="button" id="client-only-head">
+        <span class="arrow">▸</span><span class="title">仅客户端件(专服部署注意)</span>
+        <span class="badge" id="client-only-badge">0</span>
+      </button>
+      <div class="group-body info" id="client-only-body"></div>
+    </div>
+    <div class="group" id="sec-world_notices" hidden>
+      <button class="group-head" type="button" id="world-notices-head">
+        <span class="arrow">▸</span><span class="title">世界目录提示(疑似改名等)</span>
+        <span class="badge" id="world-notices-badge">0</span>
+      </button>
+      <div class="group-body" id="world-notices-body"></div>
+    </div>
+
     <p id="no-match" hidden>没有匹配的条目。</p>
     <p style="margin-top:16px">
       <button id="btn-migrate" class="primary">执行迁移</button>
-      <button id="btn-back1">← 返回重选版本</button>
     </p>
     <p class="hint">「执行迁移」会把上方勾选的待确认文件一并复制;未勾选的按未确认处理(跳过)。</p>
   </div>
@@ -256,14 +401,19 @@
   <div id="summary-box" hidden>
     <p class="done-title" id="done-title">迁移完成</p>
     <div class="stats" id="stats"></div>
+    <!-- 备份位置行(T6,spec §5.1):仅本次执行确有覆盖备份(backed_up)时呈现 -->
+    <p class="hint" id="backup-note" hidden></p>
     <div id="reminder-box" hidden>
       <b>PCL 启动器配置提醒</b>
       <pre id="reminder-text"></pre>
     </div>
-    <p class="hint">如需再次迁移或重新审阅,刷新页面重新开始。</p>
+    <p class="hint">如需再次迁移或重新审阅,请重新生成计划;刷新页面可回到本次结果页。</p>
   </div>
 
-  <p><button id="btn-back2">← 返回审阅计划</button></p>
+  <p><button id="btn-back2">← 返回审阅计划</button>
+     <!-- 换包终态(取消/规划失败)出口(批次I-W3 T8):无计划可审,
+          「返回审阅计划」不适用,改指向步①换包面板 -->
+     <button id="btn-swap-fail-back" type="button" hidden>← 返回换包入口</button></p>
 </section>
 
 <!-- 运行日志:两个 job 的 SSE 事件原文逐条追加(时间戳),出错自动展开 -->
@@ -281,36 +431,191 @@
 <script>
 "use strict";
 /* ======================================================================
- * mcmig 三步迁移向导(Task 7)
+ * mcmig 三步迁移向导(Task 7;批次I-W3 T5 页面重构)
  * - 单文件页面:零外部资源(无 CDN/字体/图片),离线可用
- * - 仅消费 Task 6 契约:/api/config、/api/versions、/api/plan、/api/migrate、SSE 事件流
+ * - 仅消费服务端契约:/api/config、/api/versions、/api/plan、/api/migrate、
+ *   GET /api/jobs/{id}(状态快照,含 done 终态载荷)、SSE 事件流
  * - 全部 API 用相对路径,127.0.0.1 与 localhost 访问行为一致(Host 无关)
+ * ----- 批次I-W3 T5:Presentation Model + 事件恢复协议 -----
+ * - jobModel:SSE 事件与 GET 状态两路更新的唯一模型,DOM 渲染一律自模型
+ *   派生(render() 唯一出口);状态核(applyEvent/applyStatus/newJob/
+ *   ownsCurrent/请求代际原语)零 DOM 依赖,node 行为测试可直测
+ * - 游标四规则(评审 P2-5):①正常订阅 URL 干净(断线靠浏览器自动重连回发
+ *   Last-Event-ID 请求头);②仅显式重建订阅(reset/overflow 后重同步、刷新
+ *   恢复)在 URL 带 ?last_event_id=<seq>;③控制帧(reset/overflow,无 seq)
+ *   不推进 lastSeq,普通事件按数值 seq 单调去重;④GET 重同步后以 body.revision
+ *   为准续订(applyStatus 内 revision 一致性门)
+ * - 回调归属双轨(评审 P2-6+v3 P1):POST 回调用请求代际(beginRequest/
+ *   requestAlive),运行中任务的回调用任务归属(ownsCurrent),不得混用
+ * - 恢复协议:onerror 不 close(浏览器标准自动重连),断线横幅「正在自动
+ *   重连」,任意新事件清除;sessionStorage["mcmig.job"] 游标持久化,页面
+ *   加载经 restoreSavedJob(零 DOM 主体)按 kind 重建页面/续订
+ * ----- 批次I-W3 T8:换包 swap 两阶段页面 -----
+ * - 步① 次级入口「整合包换包(进阶)」→ 面板两阶段:只读预检(三类决策面)
+ *   → 确认装包(③执行页复用 migrate 渲染,file 事件同路径)→ done 以链式
+ *   换包计划的 plan/plan_id/diff 直接渲染②审阅页(评审 P1-2:不回退普通
+ *   /api/plan——旧包 jar 已按换包排除);phase=replan 隐藏取消入口(评审
+ *   v3 P2-3,与服务端 cancel 409 同步);装包已完成但规划失败(swap_replan_
+ *   failed 载荷带 install/backup_dir)按边界文案呈现(契约B)
  * ==================================================================== */
 
-/* ---------- 常量:文案与规则(页面侧硬编码,服务端无对应字段) ---------- */
+/* ---------- 常量:文案集中(PAGE_STRINGS)与规则(页面侧硬编码,服务端无对应字段) ---------- */
 
-// SSE phase 名 → 中文阶段标签(契约:scan_src|scan_dst|plan|migrate;done 是独立事件型)
-var PHASE_LABELS = {
-  scan_src: "扫描源版本…",
-  scan_dst: "扫描目标版本…",
-  plan: "生成迁移计划…",
-  migrate: "正在迁移文件…"
+// 页面侧文案单点(批次I-W3 T5,吸收 #6 页面半):JS 注入的全部用户可见文案
+// 集中于此,静态标记文案仍在 HTML;唯一例外见 shutdownServer 内注释
+var PAGE_STRINGS = {
+  // SSE phase 名 → 中文阶段标签(契约:scan_src|scan_dst|plan|migrate;done 是
+  // 独立事件型;swap job 增 install|replan 两阶段,批次I-W3 T8)
+  PHASE_LABELS: {
+    scan_src: "扫描源版本…",
+    scan_dst: "扫描目标版本…",
+    plan: "生成迁移计划…",
+    migrate: "正在迁移文件…",
+    install: "正在装入新包 mods…",
+    replan: "正在生成换包计划…"
+  },
+  // 组 behavior → 短标签(展示在组标题右侧)
+  BEHAVIOR_LABELS: { copy: "将复制", skip: "默认不迁", ask: "待勾选确认" },
+  // 文件状态 → 中文(done 事件 summary 五键 + file 事件 status 共用一套口径)
+  STATUS_LABELS: {
+    copied: "已复制",
+    identical: "内容一致",
+    asked_no: "待确认未勾选",
+    skipped: "跳过",
+    failed: "失败"
+  },
+  // 断线/服务不可达横幅(#8 行为变更白名单:重连语义取代旧的「刷新重新开始」)
+  BANNER_RECONNECTING: "连接中断,正在自动重连…",
+  RESYNC_GIVE_UP: "连接已断开且多次重试失败,请刷新页面或检查服务。",
+  BANNER_SERVER_UNREACHABLE: "无法连接服务,请确认控制台窗口仍在运行。",
+  // 阶段行文案
+  PHASE_PREPARING: "准备中…",
+  PHASE_STARTING: "正在启动…",
+  PHASE_STOPPING: "正在停止…(等待当前文件完成)",
+  PHASE_ENDED: "已结束",
+  PHASE_FAILED: "任务失败",
+  // 取消入口(批次I-T6)
+  CANCEL_BUTTON: "取消迁移",
+  CANCEL_STOPPING: "正在停止…",
+  // 执行终态标题
+  DONE_OK: "迁移完成",
+  DONE_CANCELLED: "迁移已取消",
+  // ---- 更新面板(W4 T13;spec §4.3.4) ----
+  UPDATE_TITLE: "关于 / 更新",
+  UPDATE_CHECK_BTN: "检查更新",
+  UPDATE_CHECKING: "正在检查…",
+  UPDATE_CURRENT: function (v) { return "当前版本: v" + v; },
+  UPDATE_LATEST: function (v) { return "已是最新版本(v" + v + ")"; },
+  UPDATE_NO_RELEASE: "尚无任何发布版本",
+  UPDATE_AVAILABLE: function (v, mb) { return "发现新版 v" + v + "(" + mb + " MB)"; },
+  UPDATE_SOURCE: "源码运行模式:请 git pull 更新,自动下载仅面向打包发行版",
+  UPDATE_DOWNLOAD_BTN: "下载并校验",
+  UPDATE_CANCEL_BTN: "取消下载",
+  UPDATE_DOWNLOADING: function (recvMb, totalMb) { return "下载中 " + recvMb + " / " + totalMb + " MB"; },
+  UPDATE_PREPARING: "准备下载(等待响应)…",
+  UPDATE_DOWNLOADED: "已下载,尚未应用",
+  UPDATE_STEPS: "应用三步:①退出当前 mcmig;②把下载的文件替换到 mcmig 所在目录(覆盖旧文件);③重新启动 mcmig。应用后暂存目录可整目录删除。",
+  // 形态化替换指引(评审④ P2-2):onedir 下载物是含顶层 mcmig/ 目录的 zip,
+  // 「替换到所在目录」不足以完成更新;onefile 是替换现有 mcmig-gui*.exe
+  UPDATE_STEPS_ONEFILE: "应用三步:①退出当前 mcmig(窗口与命令行);②用本次下载的 exe 替换你现在使用的 mcmig-gui*.exe(覆盖或改名均可);③重新启动 mcmig。应用后暂存目录可整目录删除。",
+  UPDATE_STEPS_ONEDIR: "应用三步:①退出所有 mcmig 进程(窗口与命令行);②把下载的 zip 解压,用解压出的 mcmig 文件夹内容覆盖现有 mcmig 程序目录(同名文件覆盖;你自己的 data/config.toml 保留);③重新启动 mcmig。应用后暂存目录可整目录删除。",
+  UPDATE_OPEN_BTN: "打开暂存位置",
+  UPDATE_CANCELLED: "下载已取消(本次临时文件已清理)",
+  UPDATE_BUSY: "有任务正在运行,请等它结束后再下载",
+  DONE_FAILED: "迁移失败",
+  donePartialTitle: function (n) { return "迁移结束(有 " + n + " 个失败)"; },
+  lastFileLine: function (path, label, backedUp) {
+    return "最近:" + path + "(" + label + (backedUp ? ",目标已备份" : "") + ")";
+  },
+  cancelNote: function (done, pending) { return "已完成 " + done + " 个文件,未执行 " + pending + " 个;如需继续迁移,请返回重新生成计划后再执行(重新生成的计划中已完成文件会按「内容一致」跳过,不会重复复制)。"; },
+  // 审阅页
+  NO_ASK_ITEMS: "本计划没有需要人工确认的条目。",
+  askSummary: function (n, total) { return "待确认已勾选 " + n + " / " + total + " 项(勾选的将随本次迁移一并复制)"; },
+  // 审阅摘要条五要素(T6,spec §5.1:数量/体积/待确认/将覆盖/兼容警告)
+  sumMigrate: function (n) { return "待迁移 " + n + " 项"; },
+  sumAsk: function (m) { return "待确认 " + m; },
+  sumOverwrite: function (o) { return "将覆盖(有备份)" + o; },
+  sumCompat: function (k) { return "兼容警告 " + k; },
+  // Mod 配对术语中文化(⇄ 注记:upgrade/renamed/rebuilt → 升级/改名/重打包)
+  PAIR_KIND_LABELS: { upgrade: "升级", renamed: "改名", rebuilt: "重打包" },
+  CONTENT_DIFFERS: "⚠ 上游重打包",
+  // ③ 结束页备份位置(仅本次执行确有覆盖备份时呈现)
+  backupLocation: function (dir) { return "被覆盖文件的原件在 " + dir + ",需要找回请到该目录。"; },
+  // 中断横幅(批次I-T6;W3-T3 增 unknown_progress 口径、W3-T5 接清除通道)
+  interruptedBanner: function (jobs, entries, unknown) {
+    return "检测到上次未完成的迁移(" + jobs + " 个任务、" + entries + " 项文件状态待核对" +
+      (unknown > 0 ? ",其中 " + unknown + " 个任务整体进度未知(无待核对条目)" : "") +
+      "),请核对相关文件后重新生成计划再继续迁移;已完成文件在重新生成的计划中会按「内容一致」跳过。";
+  },
+  INTERRUPTED_DISMISS: "已核对,清除该记录",
+  INTERRUPTED_DISMISS_FAILED: "清除失败:该任务可能仍在运行",
+  // 待核对明细(修复 A7b):逐条折叠展开的文件清单文案
+  interruptedItem: function (it) {
+    var route = (it.src && it.dst) ? (it.src + " → " + it.dst) : "(实例信息缺失)";
+    var n = (it.entries || []).length;
+    return "任务 " + it.job_id + "(" + (it.kind || "") + ":" + route + "):" + n +
+      " 项文件状态待核对" + (it.unknown_progress ? ",整体进度未知" : "");
+  },
+  interruptedEntry: function (en) {
+    var d = en.detail || {};
+    var parts = [en.rel];
+    if (d.op) { parts.push("计划动作:" + d.op); }
+    if (d.backup) { parts.push("覆盖前备份:" + d.backup); }
+    return parts.join(" · ");
+  },
+  INTERRUPTED_UNKNOWN: "该任务中断时尚无待核对条目,整体进度未知;请以目标实例实际状态为准核对。",
+  // 过程提示前缀(修复 A7b):warning 型事件在顶部提示横幅中的标记
+  NOTICE_WARNING_PREFIX: "⚠ ",
+  // 步① 版本列表/配置
+  ACTIVE_SUFFIX: "(当前活跃)",
+  ACTIVE_NOT_READ: "当前活跃版本:未读取到",
+  activeHint: function (active) {
+    return "当前活跃版本(启动器正在使用):" + (active || "未读取到") +
+      "。迁移完成后请按下文提醒更新 PCL 两处配置。";
+  },
+  NO_VERSIONS_WHAT: "没有可选版本",
+  VERSIONS_READ_FAILED_WHAT: "版本列表读取失败",
+  CONFIG_ROOT_WHAT: "游戏根目录不可用",
+  CONFIG_ROOT_WHY: "请先填写整合包客户端根目录(含 versions/ 子目录)",
+  // 复制失败清单按钮反馈
+  COPIED: "已复制",
+  COPY_FAILED_BUTTON: "复制失败清单",
+  UNKNOWN_ERROR: "未知错误",
+  ERROR_FALLBACK: "出错了",
+  httpFailed: function (status) { return "请求失败(HTTP " + status + ")"; },
+  // swap 换包两阶段(批次I-W3 T8,spec §5.2):面板决策/进度/边界文案——页面
+  // 消费侧文案归 PAGE_STRINGS(服务端仅下发 install/backup_dir 等数据字段,
+  // 无对应 server 侧 STRINGS 键;done 载荷的 what/why 类错误文案已由 T7 入
+  // server STRINGS 随事件下发)
+  SWAP_CANCEL_BUTTON: "取消装包",
+  SWAP_REPLAN_NO_CANCEL: "装包完成,正在生成换包计划(此阶段不可取消)",
+  SWAP_REPLAN_FAILED_WHAT: "装包已完成但规划失败",
+  SWAP_PF_FATAL_WHAT: "换包预检未通过",
+  SWAP_PF_NEED_VERSIONS: "请先在上方选择互不相同的源版本与目标版本,再执行换包预检",
+  SWAP_PF_NEED_PACK: "请先填写新整合包目录(含 mods/ 子目录)",
+  SWAP_APPLY_STALE_ROUTE: "上方版本选择与预检时不一致,请重新执行换包预检",
+  // 装包统计四格口径(copied 含冲突覆盖件,与 CLI 计数语义一致)
+  SWAP_INSTALL_LABELS: { copied: "已装入", skipped: "内容一致", conflicted: "同名冲突", backed_up: "覆盖已备份" },
+  swapRoute: function (src, dst) {
+    return "本次换包:" + src + " → " + dst + "(新包装入目标,源版本进度随后迁入)。";
+  },
+  swapBackupPreview: function (dir) {
+    return "被覆盖的 jar 会先备份到 " + dir + " 下的时间戳子目录,可随时找回。";
+  },
+  // 边界文案条(spec §5.2):装包不可逆——取消迁移不撤销装包+备份位置指引
+  swapBoundary: function (dir) {
+    return "确认装包后目标 mods/ 已被修改;此后取消迁移不会自动撤销装包;备份位于 " + dir + ",可从中找回被覆盖 jar。";
+  },
+  SWAP_ABANDON_NOTE: "已放弃换包迁移计划(该计划已作废);如仍需换包迁移,请重新执行换包预检与装包。已装入目标 mods/ 的文件不会自动撤销,被覆盖 jar 可在备份目录找回。",
+  SWAP_REPLAN_FAILED_NOTE: "装包已完成但生成换包计划失败;如需迁移进度,请重新执行换包预检与装包以生成换包迁移计划(已装入文件不会自动撤销,被覆盖 jar 可在备份目录找回)。",
+  SWAP_CANCELLED_NOTE: "装包已取消(部分文件可能已装入;再次装包时内容一致的 jar 会自动跳过)。如需继续换包,请重新预检并确认装包。",
+  SWAP_RETRY_NOTE: "装包未执行(预检输入已变化或请求被拒);请重新执行换包预检后再确认装包。"
 };
 
-// 分组默认展开名单(spec §5:✅/✏️/❓ 展开,👻/⚙️/⛔/📦 等折叠;服务端分组无 default_visible 字段)
-var DEFAULT_EXPANDED = ["must_migrate", "config_modified", "needs_review"];
+// 分组默认展开名单(T6 决策视角重构:❓待确认组与 compat 警示块默认展开,
+// 其余分组折叠——计数已由顶部摘要条给出,正文留给需要动手的决策)
+var DEFAULT_EXPANDED = ["needs_review"];
 
-// 组 behavior → 短标签(展示在组标题右侧)
-var BEHAVIOR_LABELS = { copy: "将复制", skip: "默认不迁", ask: "待勾选确认" };
-
-// 文件状态 → 中文(done 事件 summary 五键 + file 事件 status 共用一套口径)
-var STATUS_LABELS = {
-  copied: "已复制",
-  identical: "内容一致",
-  asked_no: "待确认未勾选",
-  skipped: "跳过",
-  failed: "失败"
-};
 // summary 固定五键的渲染顺序
 var SUMMARY_KEYS = ["copied", "identical", "asked_no", "skipped", "failed"];
 
@@ -321,7 +626,8 @@ var LOG_MAX_LINES = 2000;
 
 function $(id) { return document.getElementById(id); }
 
-// HTML 转义:所有服务端数据(路径/原因/错误文案)注入 DOM 前必须经过这里
+// HTML 转义:服务端数据注入 innerHTML 前必须经过这里(textContent 路径天然安全,
+// 当前渲染全走 textContent;保留本函数作为后续需要 innerHTML 时的安全锚点)
 function esc(s) {
   return String(s).replace(/[&<>"']/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -340,7 +646,7 @@ function renderError(box, what, why, details) {
   var html = '<span class="what"></span>' +
     '<p class="why"></p>';
   box.innerHTML = html;
-  box.querySelector(".what").textContent = what || "出错了";
+  box.querySelector(".what").textContent = what || PAGE_STRINGS.ERROR_FALLBACK;
   box.querySelector(".why").textContent = why || "";
   var det = document.createElement("details");
   var sum = document.createElement("summary");
@@ -362,13 +668,21 @@ function postJson(url, body) {
   }).then(function (resp) {
     if (resp.ok) { return resp.json(); }
     return resp.json().catch(function () { return {}; }).then(function (j) {
-      var err = new Error(j.what || ("请求失败(HTTP " + resp.status + ")"));
-      err.what = j.what || ("请求失败(HTTP " + resp.status + ")");
+      var what = j.what || PAGE_STRINGS.httpFailed(resp.status);
+      var err = new Error(what);
+      err.what = what;
       err.why = j.why || "";
       err.details = j.details || {};
       throw err;
     });
   });
+}
+
+// 断线/服务不可达横幅(SSE 重连与 fetch 网络失败共用容器,文案区分;
+// SSE 收到任意新事件时清除,见 openEvents 分派)
+function showBanner(text) {
+  $("banner-disconnect").textContent = text;
+  $("banner-disconnect").hidden = false;
 }
 
 /* ---------- 日志面板:SSE 事件原文逐条追加(时间戳) ---------- */
@@ -395,48 +709,905 @@ function openLogOnError() {
   log.scrollTop = log.scrollHeight;
 }
 
-/* ---------- SSE 订阅:四型事件分派 + 断线兜底 ---------- */
+/* ======================================================================
+ * Presentation Model(批次I-W3 T5,设计输入①)
+ * SSE 事件(applyEvent)与 GET 状态快照(applyStatus)两路更新同一
+ * jobModel,渲染一律自模型派生(render 唯一 DOM 出口)——请求乱序/迟到
+ * 回调可对模型直测(零 DOM 状态核,node 行为测试执行)。
+ * ==================================================================== */
+
+var jobModel = {
+  jobId: null, kind: null, status: "idle", phase: null,
+  createGen: null,   // 创建请求代际:接管排序凭据(评审⑤ P1/P2①,newJob 赋值)
+  progress: { index: 0, total: 0 }, summary: null, results: null,
+  error: null, cancelled: false, lastSeq: 0,
+  // 终态载荷/计划数据(applyEvent 的 done 分支与 applyStatus 的 done 载荷分支
+  // 同源填充):plan 恢复 planId/persisted/plan/diff,migrate 恢复 summary/reminder/
+  // backupDir(冲突备份目录,T6);anyBackedUp=file 事件/results 中出现过备份
+  planId: null, persisted: null, diff: null, plan: null,
+  src: null, dst: null, reminder: null, backupDir: null, anyBackedUp: false,
+  completed: null, pending: null, lastFile: null,
+  // swap 专属终态字段(批次I-W3 T8):预检=决策清单+指纹+备份预告;装包=
+  // install 统计+backup_dir(错误载荷携带时同样留存,契约B)——决策面/边界
+  // 文案的渲染数据源(刷新恢复经 applyStatus 同源重建)
+  swap: null,
+  bytes: null,   // update job 字节进度(progress 事件;快照 progress_bytes 同源)
+  notices: [], failedFiles: [],
+  get terminal() {
+    return ["succeeded", "partial_failed", "failed", "cancelled"].indexOf(this.status) >= 0;
+  }
+};
+
+// ---- 更新面板状态核(W4 T13;零 DOM 纯函数,行为测试驱动) ----
+// 状态机:idle→checking→(available|latest|error);available→downloading→
+// (downloaded|cancelled|error);source 模式检查结果落 latest(source 文案)
+var updateModel = {
+  status: "idle",
+  current: null, latest: null, assetName: null, size: null,
+  received: 0, total: 0, plan: null, error: null,
+  form: null,   // 安装形态(check 响应/done 载荷下发;评审④ P2-2 形态化指引)
+};
+function applyCheckResult(res) {
+  if (res.error) { updateModel.status = "error"; updateModel.error = res.error; return; }
+  updateModel.current = res.current; updateModel.latest = res.latest;
+  updateModel.assetName = res.asset_name; updateModel.size = res.size;
+  updateModel.form = res.form || updateModel.form;
+  updateModel.error = null;
+  if (res.mode === "source") { updateModel.status = "latest"; updateModel.latest = "source"; return; }
+  updateModel.status = res.newer ? "available" : "latest";
+}
+function applyUpdateEvent(ev) {
+  if (ev.type === "progress") {
+    updateModel.status = "downloading";
+    updateModel.received = ev.received; updateModel.total = ev.total;
+  } else if (ev.type === "error") {
+    updateModel.status = "error"; updateModel.error = { what: ev.what, why: ev.why };
+  } else if (ev.type === "done") {
+    if (ev.cancelled) { updateModel.status = "cancelled"; }
+    else if (ev.no_update) { updateModel.status = "latest"; }
+    else {
+      updateModel.status = "downloaded";
+      updateModel.form = ev.form || updateModel.form;
+      updateModel.plan = { version: ev.version, asset_name: ev.asset_name,
+                           path: ev.path, size: ev.size, sha256: ev.sha256 };
+    }
+  }
+}
+
+// 检查按钮禁用矩阵(状态核,零 DOM;评审④ P1):检查中/下载中/已下载(有产物)
+// 禁用——检查与下载共用的旧代际会废止在飞回执;已下载态再检会盖掉两态展示
+// (「打开暂存位置」入口丢失)。取消/错误态可再检。
+function updateCheckDisabled(model) {
+  if (!model) { return false; }
+  return model.status === "checking" || model.status === "downloading"
+      || (model.status === "downloaded" && !!model.plan);
+}
+
+// 检查结果的应用门(状态核,零 DOM;评审⑤ P2②):下载任务已接管面板(运行中
+// 或已下载有产物)时,在飞的检查结果不得改写面板归属——刷新恢复与检查竞态
+// 的可达形态:迟到检查把 downloading 盖回 available,取消/暂存入口消失而
+// 任务仍在跑。与 newJob 的 update 代际作废双保险(接管即失效 + 回调再验)。
+function updatePanelJobOwned(model) {
+  if (!model) { return false; }
+  return model.status === "downloading"
+      || (model.status === "downloaded" && !!model.plan);
+}
+
+// 下载进度行文案(状态核,零 DOM;评审④ P2-5):字节进度未出现(检查 Release/
+// 取 SUMS/首块未达)时不得显示「0 / 0 MB」——按「准备下载」呈现;取消入口由
+// renderUpdatePanel 随 downloading 状态照常可见。
+function updateProgressText(model) {
+  if (!model || !model.total) { return PAGE_STRINGS.UPDATE_PREPARING; }
+  return PAGE_STRINGS.UPDATE_DOWNLOADING(Math.round(model.received / 1048576),
+                                          Math.round(model.total / 1048576));
+}
+
+// 替换指引按安装形态分派(状态核,零 DOM;评审④ P2-2):form 来自 check 响应/
+// done 载荷(服务端 _form.FORM 同源);未知形态回落通用三步(防御旧服务端)。
+function updateStepsText(model) {
+  var form = model && model.form;
+  if (form === "onedir") { return PAGE_STRINGS.UPDATE_STEPS_ONEDIR; }
+  if (form === "onefile") { return PAGE_STRINGS.UPDATE_STEPS_ONEFILE; }
+  return PAGE_STRINGS.UPDATE_STEPS;
+}
+
+// 游标持久化(设计输入②):仅在 lastSeq 推进/newJob 切换时更新——页面刷新
+// 恢复的凭据(job_id/kind/seq);存储不可用(隐私模式)静默降级
+function saveJobCursor() {
+  if (!jobModel.jobId) { return; }
+  try {
+    sessionStorage.setItem("mcmig.job",
+      JSON.stringify({ job_id: jobModel.jobId, kind: jobModel.kind, seq: jobModel.lastSeq }));
+  } catch (e) { /* 存储不可用:仅失去刷新恢复,不影响当前会话 */ }
+}
+
+// 代际重置:切到新任务(startPlan/startMigrate/刷新恢复)时全量清零,渲染层
+// 据此回到初始态;lastSeq 归零即新代际的游标基线。createGen=创建请求代际
+// (评审⑤ P1/P2①):接管排序凭据,缺省 null=顺序未知(回执一律可接管)
+function newJob(id, kind, createGen) {
+  clearResyncRetry();    // 代际重置一并清理未决重试(0.12.0 复审#8)
+  jobModel.jobId = id;
+  jobModel.kind = kind;
+  jobModel.createGen = (typeof createGen === "number") ? createGen : null;
+  jobModel.status = "running";
+  jobModel.phase = null;
+  jobModel.progress = { index: 0, total: 0 };
+  jobModel.summary = null;
+  jobModel.results = null;
+  jobModel.error = null;
+  jobModel.cancelled = false;
+  jobModel.lastSeq = 0;
+  jobModel.planId = null;
+  jobModel.persisted = null;
+  jobModel.diff = null;
+  jobModel.plan = null;
+  jobModel.src = null;
+  jobModel.dst = null;
+  jobModel.reminder = null;
+  jobModel.backupDir = null;
+  jobModel.anyBackedUp = false;
+  jobModel.completed = null;
+  jobModel.pending = null;
+  jobModel.lastFile = null;
+  jobModel.swap = null;      // swap 终态字段随代际作废(批次I-W3 T8)
+  jobModel.bytes = null;     // update 字节进度随代际作废(W4 T13)
+  if (kind === "update") {
+    // 接管/恢复更新任务:面板归属易主,在飞的检查结果作废(评审⑤ P2②)——
+    // 否则迟到检查把 downloading 盖回 available,取消/暂存入口消失
+    updateCheckSeq += 1;
+  }
+  updateModel.status = "idle"; updateModel.plan = null; updateModel.error = null;
+  updateModel.received = 0; updateModel.total = 0;   // 更新面板代际归位
+  jobModel.notices = [];
+  jobModel.failedFiles = [];
+  saveJobCursor();
+  return jobModel;
+}
+
+// 任务归属校验:只守**运行中任务**的回调(SSE 分派/重同步/取消/轮询)——
+// 旧任务的迟到回调不得污染新代际(评审 P2-6)。POST 回调用请求归属
+// (beginRequest/requestAlive),两者不得混用(评审 v3 P1)
+function ownsCurrent(id) {
+  return typeof id === "string" && id === jobModel.jobId && !jobModel.terminal;
+}
+
+// 请求代际(评审 v3 P1):POST 回调的归属凭据,与任务归属分离——「计划完成→
+// 执行迁移」时当前任务已终态,ownsCurrent 必拒,而后台可能已开始执行
+var requestSeq = 0;
+
+// 发请求前调用:++requestSeq 并返回本次代际——发起新请求即废止旧请求回调
+function beginRequest() {
+  requestSeq += 1;
+  return requestSeq;
+}
+
+// 请求归属校验:gen === requestSeq(更晚的请求已发出则旧回调作废)
+function requestAlive(gen) {
+  return gen === requestSeq;
+}
+
+// 取消提示可见性(状态核,零 DOM;T13.5-2):仅「换包重规划运行段」显示
+// 「不可取消」提示;终态(含 swap_replan_failed)一律不可见——渲染层据此清残留
+function cancelHintVisible(model) {
+  if (!model || model.terminal) { return false; }
+  return model.kind === "swap" && model.phase === "replan";
+}
+
+// 取消按钮文案(状态核,零 DOM;T13.5-3):swap 系任务用装包口径——
+// 恢复运行中 swap 任务不得显示「取消迁移」
+function cancelButtonText(model) {
+  return (model && model.kind === "swap") ? PAGE_STRINGS.SWAP_CANCEL_BUTTON
+                                          : PAGE_STRINGS.CANCEL_BUTTON;
+}
+
+// done 终态归一(与 GET 状态端点的判定同构):取消 → cancelled;plan 恒
+// succeeded(persisted:false 不属 error 事件,服务端状态仍 succeeded);
+// migrate 按失败数给 partial_failed/succeeded
+function doneTerminalStatus(ev) {
+  if (ev.cancelled) { return "cancelled"; }
+  if (ev.job_kind === "plan") { return "succeeded"; }
+  return (ev.summary && ev.summary.failed > 0) ? "partial_failed" : "succeeded";
+}
+
+// done 终态载荷消费(SSE done 事件与 GET 状态快照 body.done 同源,评审 P2-4:
+// GET 与 SSE 消费同一份终态结果——刷新恢复按 kind 重建审阅页/执行终态)
+function applyDonePayload(ev) {
+  jobModel.src = ev.src || jobModel.src;
+  jobModel.dst = ev.dst || jobModel.dst;
+  if (ev.job_kind === "plan" || (ev.job_kind === "swap" && ev.plan)) {
+    // 计划载荷:plan job 与 swap 链式换包计划同形(评审 P1-2 页面半,批次I-W3
+    // T8)——swap done 直接携带 plan/plan_id/diff,页面据此直入②审阅页;
+    // 取消终态的 swap done 无 plan,不入本分支(装包部分完成无审阅意义)
+    jobModel.plan = ev.plan || null;
+    jobModel.planId = ev.plan_id;
+    jobModel.persisted = ev.persisted;
+    planId = jobModel.planId;   // C1 句柄同步(声明见步②状态区,契约锚点)
+    if (ev.persisted === false && ev.what) {
+      // 未落盘计划:三段式错误随 done 事件携带(渲染归 render 自模型派生)
+      jobModel.error = { what: ev.what, why: ev.why, details: ev.details };
+    }
+  }
+  if (ev.job_kind !== "plan") {
+    // 执行类终态(migrate/swap):summary(migrate 五键)/PCL 提醒/取消清单/备份目录
+    jobModel.summary = ev.summary || null;
+    jobModel.reminder = ev.reminder || [];
+    jobModel.backupDir = ev.backup_dir || null;  // 冲突备份目录(T6,spec §5.1)
+    jobModel.cancelled = !!ev.cancelled;
+    if (ev.cancelled) {
+      jobModel.completed = ev.completed || [];
+      jobModel.pending = ev.pending || [];
+    }
+  }
+  // swap 专属终态字段(批次I-W3 T8):预检决策清单/装包统计随模型留存——
+  // 面板决策面与边界文案的渲染数据源(刷新恢复经 applyStatus 同源重建)
+  if (ev.job_kind === "swap_preflight") {
+    jobModel.swap = {
+      // 致命错(缺版本 json/缺源快照)为 done 载荷 error 字段(CLI 同款文案串,
+      // 非三段式结构)——页面据此禁用装包并展示引导
+      pf_error: ev.error || null,
+      incompat: ev.incompat || [],
+      extras: ev.extras || [],
+      conflicts: ev.conflicts || [],
+      preflight_id: ev.preflight_id || null,
+      backup_preview: ev.backup_preview || null
+    };
+  } else if (ev.job_kind === "swap") {
+    jobModel.swap = { install: ev.install || null, backup_dir: ev.backup_dir || null };
+  }
+  jobModel.diff = ev.diff || null;  // plan 审阅摘要(T6):五要素/配对/警示/范围说明
+  jobModel.status = doneTerminalStatus(ev);
+}
+
+// SSE 事件 → 模型(状态核,零 DOM)。**先按 seq 去重**(规则③:typeof
+// ev.seq === "number" 且 ev.seq <= lastSeq → 丢弃;否则推进 lastSeq);
+// reset/overflow 是无 seq 控制帧,分派层处理,不入此函数
+function applyEvent(ev) {
+  if (typeof ev.seq === "number") {
+    if (ev.seq <= jobModel.lastSeq) { return; }
+    jobModel.lastSeq = ev.seq;
+    saveJobCursor();
+  }
+  // 事件携带的实例身份顺手记录(T13.5-4):终态 preflight 面板复燃/行为测试
+  // 的输入;恢复路径另有 restoreSavedJob 的显式派生(两者同源不冲突)
+  if (ev.src) { jobModel.src = ev.src; }
+  if (ev.dst) { jobModel.dst = ev.dst; }
+  var t = ev.type;
+  if (t === "phase") {
+    jobModel.phase = ev.name;
+  } else if (t === "file") {
+    jobModel.progress = { index: ev.index || 0, total: ev.total || 0 };
+    jobModel.lastFile = { path: ev.path, status: ev.status,
+                          failed: !!ev.failed, backed_up: !!ev.backed_up };
+    if (ev.backed_up) { jobModel.anyBackedUp = true; }  // 终态备份位置行的呈现门
+    if (ev.failed) {
+      jobModel.failedFiles.push({ path: ev.path, error: ev.error || PAGE_STRINGS.UNKNOWN_ERROR });
+    }
+  } else if (t === "done") {
+    applyDonePayload(ev);
+  } else if (t === "error") {
+    jobModel.error = { what: ev.what, why: ev.why, details: ev.details };
+    jobModel.status = "failed";
+    // 契约B(swap_replan_failed,批次I-W3 T7/T8):error 载荷携带 install/
+    // backup_dir——装包已完成不可静默,存模型供 render 按边界文案呈现
+    if (ev.install || ev.backup_dir) {
+      jobModel.swap = { install: ev.install || null, backup_dir: ev.backup_dir || null };
+    }
+  } else if (t === "progress") {
+    jobModel.bytes = { received: ev.received || 0, total: ev.total || 0 };
+  } else if (t === "notice" || t === "warning") {
+    jobModel.notices.push(ev);
+  }
+  // 未知型事件:忽略(契约允许服务端新增事件型,页面不崩)
+  // update 专属状态核分派(单一写入者纪律:SSE/恢复路均经 applyEvent 触达)
+  if (jobModel.kind === "update") { applyUpdateEvent(ev); }
+}
+
+// GET 状态快照 → 模型(状态核,零 DOM)。revision 一致性门(规则④):仅当
+// body.revision >= lastSeq 采用,迟到的旧快照不回退模型;终态且快照携带
+// done 完整载荷时按 kind 同源填充(与 SSE done 分支共用 applyDonePayload)
+function applyStatus(body) {
+  if (typeof body.revision === "number") {
+    if (body.revision < jobModel.lastSeq) { return; }
+    jobModel.lastSeq = body.revision;
+    saveJobCursor();
+  }
+  if (body.status) { jobModel.status = body.status; }
+  if (body.phase) { jobModel.phase = body.phase; }
+  if (body.progress) {
+    jobModel.progress = { index: body.progress.index || 0, total: body.progress.total || 0 };
+  }
+  if (body.progress_bytes) {
+    jobModel.bytes = { received: body.progress_bytes.received || 0,
+                       total: body.progress_bytes.total || 0 };
+  }
+  if (body.error) { jobModel.error = body.error; }
+  if (body.summary) { jobModel.summary = body.summary; }
+  if (body.results) {
+    jobModel.results = body.results;
+    jobModel.failedFiles = body.results.filter(function (r) { return r.failed; })
+      .map(function (r) { return { path: r.path, error: r.error || PAGE_STRINGS.UNKNOWN_ERROR }; });
+    if (body.results.some(function (r) { return !!r.backed_up; })) {
+      jobModel.anyBackedUp = true;   // 恢复路与 SSE 路同口径(终态备份位置行)
+    }
+  }
+  // 终态且携带 done 完整载荷(plan 恢复审阅页/migrate 恢复执行终态,按 kind);
+  // error 型终态载荷不走 done 分支(status 已由 body.status 给出,错误字段在
+  // body.error),唯 swap_replan_failed 的 install/backup_dir 同源留存(契约B,
+  // 批次I-W3 T8:GET 恢复路与 SSE 路同样能按边界文案呈现装包状态)
+  if (jobModel.terminal && body.done) {
+    if (body.done.type === "done") {
+      applyDonePayload(body.done);
+    } else if (body.done.type === "error" && (body.done.install || body.done.backup_dir)) {
+      jobModel.swap = { install: body.done.install || null,
+                        backup_dir: body.done.backup_dir || null };
+    }
+  }
+  // update 面板同源重建(评审② I4):reset/overflow 重同步与刷新恢复共用同一出口
+  // ——运行中回填字节进度;终态按 done 载荷(成功)或 error 字段收口
+  if (jobModel.kind === "update") {
+    if (jobModel.bytes) {
+      updateModel.received = jobModel.bytes.received;
+      updateModel.total = jobModel.bytes.total;
+    }
+    // 运行态由任务 status 决定(评审④ P2-5):字节进度可能尚未出现(检查
+    // Release/取 SUMS/首块未达,progress_bytes=null)——此前要求 bytes 非空
+    // 才置 downloading,刷新恢复落该窗口时面板停 idle、取消入口消失
+    if (!jobModel.terminal) { updateModel.status = "downloading"; }
+    if (jobModel.terminal && body.done && body.done.type === "done") {
+      applyUpdateEvent(body.done);
+    } else if (jobModel.terminal && jobModel.error) {
+      updateModel.status = "error";
+      updateModel.error = jobModel.error;
+    }
+  }
+}
+
+/* ======================================================================
+ * 渲染层:模型 → DOM(render 是全部展示逻辑的唯一出口,设计输入①)
+ * ==================================================================== */
+
+function render() {
+  if (!jobModel.jobId) { return; }  // 无任务:DOM 由各步复位流程管理
+  renderNotices();  // 修复 A7b:过程提示全步骤共享的顶部横幅(空则隐藏)
+  if (jobModel.kind === "plan") { renderPlanState(); }
+  else if (jobModel.kind === "swap_preflight") { renderSwapPreflightState(); }
+  else if (jobModel.kind === "update") { renderUpdatePanel(); }
+  // migrate 与 swap 装包共用③执行页渲染(file 事件复用 migrate 渲染,T8)
+  else { renderMigrateState(); }
+}
+
+// 过程提示文本派生(状态核,零 DOM;修复 A7b):notice 取 text,warning 前缀标记
+// ——与 DOM 出口分离,node 行为测试可直测
+function noticeLines() {
+  var lines = [];
+  jobModel.notices.forEach(function (ev) {
+    if (ev.type === "warning" && ev.message) {
+      lines.push(PAGE_STRINGS.NOTICE_WARNING_PREFIX + ev.message);
+    } else if (ev.text) {
+      lines.push(ev.text);
+    }
+  });
+  return lines;
+}
+
+// 过程提示渲染(修复 A7b):此前 notices 只入模型、全页无渲染路径——旧布局
+// 快照/规则回退/中断实例锁提示用户实际看不到(手测 J8 验收点不可达)
+function renderNotices() {
+  var box = $("banner-notices");
+  var lines = noticeLines();
+  box.textContent = lines.join("\n");
+  box.style.whiteSpace = "pre-line";
+  box.hidden = lines.length === 0;
+}
+
+// plan job 渲染:运行态给阶段标签;终态按 error(含 persisted:false 随 done
+// 携带的三段式)/plan(审阅页)二分——恢复路径与正常路径同一出口
+function renderPlanState() {
+  if (!jobModel.terminal) {
+    $("plan-progress").hidden = false;
+    if (jobModel.phase) {
+      $("plan-phase").textContent = PAGE_STRINGS.PHASE_LABELS[jobModel.phase] || jobModel.phase;
+    }
+    return;
+  }
+  $("plan-progress").hidden = true;
+  if (jobModel.error) {
+    renderError($("step2-error"), jobModel.error.what, jobModel.error.why, jobModel.error.details);
+    openLogOnError();
+    $("btn-plan").disabled = false;
+    if (jobModel.persisted === false) { $("btn-migrate").disabled = true; }
+    return;
+  }
+  if (jobModel.plan) {
+    buildPlanReview();
+    $("btn-plan").disabled = false;
+    $("btn-migrate").disabled = false;  // 新计划 → 可执行(上次失败可能禁用了按钮)
+  }
+}
+
+var builtPlanId = null; // 已构建审阅页的计划标识(同一计划不重复重建,保住勾选/展开态)
+
+// 终态 plan job → 审阅页(分组规范化 + 默认展开 + 摘要/折叠参考区 + 按钮态)
+function buildPlanReview() {
+  if (builtPlanId === jobModel.planId && planGroups.length > 0) { return; }
+  planGroups = normalizeGroups(jobModel.plan || {});
+  // 初始展开状态:白名单展开,其余折叠(T6 决策视角;服务端无 default_visible 字段)
+  planGroups.forEach(function (g) {
+    groupOpen[g.origin] = DEFAULT_EXPANDED.indexOf(g.origin) >= 0;
+  });
+  builtPlanId = jobModel.planId;
+  renderPlan();
+  buildReviewExtras();
+  $("plan-body").hidden = false;
+}
+
+// migrate/swap job 渲染:阶段行/进度(经 rAF 合批)/最近文件/失败清单;
+// 终态:migrate 交 renderMigrateTerminal,swap 成功(带链式计划)交
+// onSwapApplyDone 直入②审阅页(批次I-W3 T8)
+function renderMigrateState() {
+  var term = jobModel.terminal;
+  // 阶段行:取消中间态 → 停止文案;终态 → 结束/失败;运行中 → 阶段标签
+  if (jobModel.status === "cancelling") {
+    $("migrate-phase").textContent = PAGE_STRINGS.PHASE_STOPPING;
+  } else if (term) {
+    $("migrate-phase").textContent = jobModel.error ? PAGE_STRINGS.PHASE_FAILED : PAGE_STRINGS.PHASE_ENDED;
+  } else if (jobModel.phase) {
+    $("migrate-phase").textContent = PAGE_STRINGS.PHASE_LABELS[jobModel.phase] || jobModel.phase;
+  }
+  // 文件级进度 DOM 更新经 rAF 合批(#24,见 scheduleProgressRender);swap 装包
+  // 若发 file 事件同样复用本渲染路径(批次I-W3 T8)
+  scheduleProgressRender();
+  // 换包装包后的重规划段(评审 v3 P2-3,批次I-W3 T8):装包段结束取消窗已
+  // 原子关闭(服务端该阶段 cancel 409)——页面同步隐藏取消入口并提示不可
+  // 取消,按钮不得留在界面上误导用户
+  var swapReplanning = cancelHintVisible(jobModel);
+  $("btn-cancel").hidden = term || swapReplanning;
+  if (swapReplanning) {
+    $("cancel-hint").hidden = false;
+    $("cancel-hint").textContent = PAGE_STRINGS.SWAP_REPLAN_NO_CANCEL;
+  } else if (!$("cancel-hint").hidden
+             && $("cancel-hint").textContent === PAGE_STRINGS.SWAP_REPLAN_NO_CANCEL) {
+    // 离开重规划段(含 replan_failed 终态,T13.5-2):清残留的「不可取消」提示
+    $("cancel-hint").hidden = true;
+  }
+  if (!term && !swapReplanning && jobModel.status !== "cancelling") {
+    // 取消按钮文案按 kind 分化(T13.5-3;cancelling 期间保留「正在停止」)
+    $("btn-cancel").textContent = cancelButtonText(jobModel);
+  }
+  var spin = $("migrate-spin");
+  if (spin) { spin.style.display = term ? "none" : ""; }
+  if (term) {
+    if (jobModel.kind === "swap" && jobModel.plan && !jobModel.error) {
+      onSwapApplyDone();   // 链式换包计划直入②审阅页(评审 P1-2 页面半)
+    } else {
+      renderMigrateTerminal();
+    }
+  }
+}
+
+// #24 渲染合批:file 事件到达频率可远高于帧率,逐事件直写 DOM 会逐次强制回流;
+// 收拢进 rAF 回调并以 _progressRafPending 去重——同一帧内多个事件合并为一次渲染。
+// node 行为测试环境无 rAF:退化为同步执行(同一出口,仅失合批)
+var _progressRafPending = false;
+function scheduleProgressRender() {
+  if (_progressRafPending) { return; }
+  _progressRafPending = true;
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(function () {
+      _progressRafPending = false;
+      renderFileProgress();
+    });
+  } else {
+    _progressRafPending = false;
+    renderFileProgress();
+  }
+}
+
+// 文件级进度:只更新计数/进度条/最近一行(每帧至多一次)
+function renderFileProgress() {
+  $("file-count").textContent = jobModel.progress.index + " / " + jobModel.progress.total;
+  $("file-progress").max = jobModel.progress.total || 1;
+  $("file-progress").value = jobModel.progress.index;
+  if (jobModel.lastFile) {
+    var label = jobModel.lastFile.failed ? PAGE_STRINGS.STATUS_LABELS.failed
+      : (PAGE_STRINGS.STATUS_LABELS[jobModel.lastFile.status] || jobModel.lastFile.status);
+    $("last-file").textContent =
+      PAGE_STRINGS.lastFileLine(jobModel.lastFile.path, label, jobModel.lastFile.backed_up);
+    $("last-file").className = jobModel.lastFile.failed ? "failed" : "";
+  }
+  renderFailedList();
+}
+
+// 失败清单(可复制):自模型派生(SSE 路=file 事件累积,恢复路=GET results)
+function renderFailedList() {
+  $("failed-count").textContent = String(jobModel.failedFiles.length);
+  var list = $("failed-list");
+  list.innerHTML = "";
+  jobModel.failedFiles.forEach(function (f) {
+    var li = document.createElement("li");
+    li.textContent = f.path + " — " + f.error;
+    list.appendChild(li);
+  });
+  $("failed-box").hidden = jobModel.failedFiles.length === 0;
+}
+
+// migrate/swap 终态渲染:标题按 status 分支 + summary 五键(migrate)/装包
+// 统计(swap)+ 取消注记 + PCL 提醒;swap 非成功终态的出口切换到换包入口
+function renderMigrateTerminal() {
+  if (cancelPollTimer) { clearInterval(cancelPollTimer); cancelPollTimer = null; }
+  var failed = (jobModel.summary && jobModel.summary.failed) || 0;
+  // 契约B(swap_replan_failed):error 载荷带 install = 装包已完成但规划失败
+  var swapReplanFailed = jobModel.kind === "swap" && !!jobModel.error
+    && !!jobModel.swap && !!jobModel.swap.install;
+  if (jobModel.status === "cancelled" || jobModel.cancelled) {
+    $("done-title").textContent = PAGE_STRINGS.DONE_CANCELLED;
+  } else if (swapReplanFailed) {
+    // 装包已完成的失败:按边界口径命名,不给「迁移完成」的误导标题
+    $("done-title").textContent = PAGE_STRINGS.SWAP_REPLAN_FAILED_WHAT;
+  } else if (jobModel.status === "failed" || jobModel.error) {
+    // 纯失败(守卫/预检/journal 等无逐文件 summary 的失败,0.12.0 复审#9):
+    // 不得落入兜底「迁移完成」——失败就是失败
+    $("done-title").textContent = PAGE_STRINGS.DONE_FAILED;
+  } else if (failed > 0) {
+    $("done-title").textContent = PAGE_STRINGS.donePartialTitle(failed);
+  } else {
+    $("done-title").textContent = PAGE_STRINGS.DONE_OK;
+  }
+  // 取消终态注记(批次I-T6):部分完成清单;重复渲染先清上一轮
+  var oldNote = document.getElementById("cancel-note");
+  if (oldNote && oldNote.parentNode) { oldNote.parentNode.removeChild(oldNote); }
+  if (jobModel.cancelled) {
+    var note = document.createElement("p");
+    note.className = "hint";
+    note.id = "cancel-note";
+    note.textContent = PAGE_STRINGS.cancelNote(
+      (jobModel.completed || []).length, (jobModel.pending || []).length);
+    $("summary-box").insertBefore(note, $("stats"));
+  }
+  // summary 五键恒存在(服务端契约 I1);swap 终态无五键 summary——改呈装包
+  // 统计四格(copied/skipped/conflicted/备份数,批次I-W3 T8)
+  var stats = $("stats");
+  stats.innerHTML = "";
+  if (jobModel.kind === "swap" && jobModel.swap && jobModel.swap.install) {
+    renderSwapInstallChips(stats, jobModel.swap.install);
+  } else {
+    SUMMARY_KEYS.forEach(function (k) {
+      var v = (jobModel.summary && jobModel.summary[k]) || 0;
+      var div = document.createElement("div");
+      div.className = "stat" + (k === "failed" && v > 0 ? " bad" : "");
+      var b = document.createElement("b");
+      b.textContent = String(v);
+      var s = document.createElement("span");
+      s.textContent = PAGE_STRINGS.STATUS_LABELS[k] || k;
+      div.appendChild(b);
+      div.appendChild(s);
+      stats.appendChild(div);
+    });
+  }
+  $("summary-box").hidden = false;
+  // 备份位置行(T6,spec §5.1):仅本次执行确有覆盖备份(backed_up)才呈现——
+  // 未覆盖时备份目录可能根本不存在,给路径只会误导;swap 终态的备份=装包
+  // 覆盖备份,以边界文案口径呈现(取消迁移不会自动撤销装包,T8)
+  if (jobModel.kind === "swap" && jobModel.swap && jobModel.swap.install
+      && jobModel.swap.backup_dir && (jobModel.swap.install.backed_up || []).length > 0) {
+    $("backup-note").textContent = PAGE_STRINGS.swapBoundary(jobModel.swap.backup_dir);
+    $("backup-note").hidden = false;
+  } else if (jobModel.backupDir && jobModel.anyBackedUp) {
+    $("backup-note").textContent = PAGE_STRINGS.backupLocation(jobModel.backupDir);
+    $("backup-note").hidden = false;
+  } else {
+    $("backup-note").hidden = true;
+  }
+  // PCL 提醒:全文逐行显示(dry-run 或有失败时服务端给空数组,不渲染)
+  var reminder = jobModel.reminder || [];
+  if (reminder.length > 0) {
+    $("reminder-text").textContent = reminder.join("\n");
+    $("reminder-box").hidden = false;
+  }
+  // error 事件终态:三段式错误条 + 允许修正后返回重试;swap_replan_failed
+  // 按边界口径呈现(what 用「装包已完成但规划失败」,统计与备份指引已在上文,
+  // 契约B)且无计划可执行——「执行迁移」保持禁用,出口指向换包入口
+  if (jobModel.error) {
+    if (swapReplanFailed) {
+      renderError($("step3-error"), PAGE_STRINGS.SWAP_REPLAN_FAILED_WHAT,
+        jobModel.error.why, jobModel.error.details);
+      openLogOnError();
+    } else {
+      renderError($("step3-error"), jobModel.error.what, jobModel.error.why, jobModel.error.details);
+      openLogOnError();
+      $("btn-migrate").disabled = false;
+    }
+  }
+  // swap 非成功终态(取消/规划失败/装包被拒)在③的出口:无计划可审,
+  // 「返回审阅计划」不适用——切换为「返回换包入口」(批次I-W3 T8)
+  if (jobModel.kind === "swap") {
+    $("btn-back2").hidden = true;
+    $("btn-swap-fail-back").hidden = false;
+  }
+}
+
+/* ======================================================================
+ * SSE 订阅:统一消费 + 控制帧重同步 + 断线自动重连(批次I-W3 T5)
+ * ==================================================================== */
 
 var currentEs = null; // 当前 EventSource(单任务,重开前先关旧的)
 
-// 关闭当前订阅(收到 done/error 后服务端会主动断流,这里显式 close 防 onerror 误报)
+// 关闭当前订阅(收到 done/error 后服务端会主动断流,这里显式 close 防 onerror 误报);
+// 同时清理未决的重同步重试(0.12.0 复审#8:离开任务后不得再有后台重试触达)
 function closeEvents() {
+  clearResyncRetry();
   if (currentEs) { currentEs.close(); currentEs = null; }
 }
 
-// 订阅 job 事件流;done/error 收到即视为任务收尾(关流,后续 onerror 忽略)
-function openEvents(jobId, handlers) {
+// 控制帧(reset=续订早于保留的历史尾/overflow=订阅队列满被摘)不静默丢弃:
+// 关流 → GET 状态重建模型 → 未终态按规则②带游标重订(规则④:游标取 body.revision)
+// GET 失败(0.12.0 复审#8):带退避重试(1s/2s/4s/8s 后各一次)——修复前只挂
+// 「正在自动重连」横幅却无任何重试,连接数归零、页面静默停更;重试受任务
+// 归属(ownsCurrent)与终态约束,404(job 已不存在=服务重启)不重试;离开
+// 任务(newJob/closeEvents)清理重试句柄
+var resyncTimer = null;
+var RESYNC_BACKOFF_MS = [1000, 2000, 4000, 8000];
+
+function clearResyncRetry() {
+  if (resyncTimer) { clearTimeout(resyncTimer); resyncTimer = null; }
+}
+
+// 退避耗尽文案(状态核,零 DOM;T13.5-8):重试期内用「正在重连」,耗尽后必须
+// 换成可行动的诚实指引——继续谎报「正在重连」= 页面静默停更的温床
+function resyncFailureText() {
+  return PAGE_STRINGS.RESYNC_GIVE_UP;
+}
+
+function resyncAfterControl(attempt) {
+  attempt = attempt || 0;
+  var jobId = jobModel.jobId;
+  var kind = jobModel.kind;
   closeEvents();
-  var es = new EventSource("/api/jobs/" + encodeURIComponent(jobId) + "/events");
+  fetch("/api/jobs/" + encodeURIComponent(jobId))
+    .then(function (r) {
+      if (r.status === 404) { return null; }   // job 已不存在:无重试意义
+      if (!r.ok) { throw new Error("HTTP " + r.status); }
+      return r.json();
+    })
+    .then(function (body) {
+      if (!body || !ownsCurrent(jobId)) { return; }
+      clearResyncRetry();
+      applyStatus(body);
+      render();
+      if (!jobModel.terminal) {
+        openEvents(jobId, handlersForKind(kind), { resumeSeq: jobModel.lastSeq });
+      }
+    })
+    .catch(function () {
+      if (!ownsCurrent(jobId) || jobModel.terminal) {
+        return;          // 非本代际/已终态:横幅交由各步复位流程管理
+      }
+      if (attempt >= RESYNC_BACKOFF_MS.length) {
+        showBanner(resyncFailureText());   // 退避耗尽:诚实文案(T13.5-8)
+        return;
+      }
+      showBanner(PAGE_STRINGS.BANNER_RECONNECTING);
+      var delay = RESYNC_BACKOFF_MS[attempt];
+      clearResyncRetry();
+      resyncTimer = setTimeout(function () {
+        resyncTimer = null;
+        resyncAfterControl(attempt + 1);
+      }, delay);
+    });
+}
+
+// 订阅 job 事件流:统一消费(applyEvent→模型)+ 控制帧分流 + 断线不关流
+function openEvents(jobId, handlers, opts) {
+  closeEvents();
+  var enc = encodeURIComponent(jobId);
+  var es;
+  if (opts && typeof opts.resumeSeq === "number") {
+    // 游标规则②:仅**显式重建订阅**(reset/overflow 后重同步、页面刷新恢复)
+    // 在 URL 带 ?last_event_id=<seq>——新建连接无 Last-Event-ID 请求头,游标由
+    // 页面主动给出;该 query 仅作用于首次请求,其后的自动重连由浏览器回发的
+    // header 主导(服务端解析头优先,T2)
+    es = new EventSource("/api/jobs/" + enc + "/events?last_event_id=" + opts.resumeSeq);
+  } else {
+    // 游标规则①:正常订阅 URL 干净无 query——断线后浏览器按 WHATWG SSE 自动
+    // 重连并回发**最新**游标的 Last-Event-ID 请求头,服务端以 header 续订
+    es = new EventSource("/api/jobs/" + enc + "/events");
+  }
   currentEs = es;
-  var finished = false;
   es.onmessage = function (e) {
     var ev;
     try { ev = JSON.parse(e.data); } catch (err) { return; }
+    $("banner-disconnect").hidden = true;  // 任意新事件清除断线横幅(#12)
     appendLog(ev);
-    if (ev.type === "phase" && handlers.onPhase) {
-      handlers.onPhase(ev);
-    } else if (ev.type === "file" && handlers.onFile) {
-      handlers.onFile(ev);
-    } else if (ev.type === "done") {
-      finished = true; es.close();
-      if (currentEs === es) { currentEs = null; }
-      if (handlers.onDone) { handlers.onDone(ev); }
-    } else if (ev.type === "error") {
-      finished = true; es.close();
-      if (currentEs === es) { currentEs = null; }
-      if (handlers.onError) { handlers.onError(ev); }
+    if (!ownsCurrent(jobId)) { return; }   // 旧代际订阅的迟到事件:静默丢弃(P2-6)
+    if (ev.type === "reset" || ev.type === "overflow") {
+      resyncAfterControl();                // 控制帧:重读 GET 状态并按规则②重订
+      return;
     }
+    applyEvent(ev);                        // 统一消费:SSE 路→模型唯一写入者
+    if (ev.type === "done" || ev.type === "error") {
+      // 任务收尾:服务端断流属正常,客户端主动 close 防 onerror 误报
+      if (currentEs === es) { currentEs = null; }
+      es.close();
+    }
+    if (handlers.onEvent) { handlers.onEvent(ev); }  // kind 特有页面流(分派共享)
+    render();                              // DOM 一律自模型派生(唯一出口)
   };
   es.onerror = function () {
-    if (finished) { return; } // 任务已收尾,服务端断流属正常
-    finished = true;
-    es.close();
-    if (currentEs === es) { currentEs = null; }
-    $("banner-disconnect").hidden = false; // 真断线:任务结果未知,提示刷新
-    openLogOnError();
+    if (jobModel.terminal || !ownsCurrent(jobId)) {
+      // 已终态/旧代际订阅:断流属正常(主动 close 的竞态兜底)
+      if (currentEs === es) { currentEs = null; }
+      es.close();
+      return;
+    }
+    // 未终态:不 close——浏览器按标准自动重连并回发 Last-Event-ID(规则①);
+    // 横幅提示重连中(#8 行为变更白名单),任意新事件到达即清除
+    showBanner(PAGE_STRINGS.BANNER_RECONNECTING);
   };
   return es;
+}
+
+// 任务创建回执接管(评审④ P1;排序规则评审⑤ P1/P2①):POST 202 = 服务端任务
+// 已存在——回执必须完成接管(newJob+订阅),不得因更晚请求的请求代际被静默
+// 丢弃:丢弃=页面失去任务控制权(无 jobId/无刷新游标/无 SSE/无法取消),而
+// 单锁仍被后台占用。接管判定按**创建请求代际**排序,不把客户端 terminal 当
+// 服务端单锁的事实:服务端单锁保证「更晚请求能拿到 202 ⇒ 旧任务已收尾」,
+// 故 gen > createGen 的新回执接管并取代旧任务(返回重选后重新生成的可达
+// 形态);gen <= createGen 的迟到回执不得夺回展示(旧结果覆盖新计划)。页面
+// 无任务时一律接管;同 id 已接管时幂等跳过(不重复订阅)。迟到错误(409/422)
+// 仍由各 catch 分支的 requestAlive 丢弃。
+function adoptJobReceipt(body, kind, handlers, gen) {
+  if (!body || !body.job_id) { return false; }
+  if (jobModel.jobId === body.job_id) { return true; }   // 已接管(幂等)
+  if (jobModel.jobId && typeof gen === "number"
+      && typeof jobModel.createGen === "number" && gen <= jobModel.createGen) {
+    return false;   // 迟到回执:已被更晚创建请求取代,不重新展示
+  }
+  newJob(body.job_id, kind, gen);
+  openEvents(body.job_id, handlers);
+  return true;
+}
+
+// plan 流分派:展示一律自模型经 render() 派生;唯 persisted:false(未落盘
+// 计划,C1)按事件原字段渲染三段式并禁执行——与 render 自模型的渲染一致,
+// 保留事件字段直渲染以钉住既有契约(test_page_contract C1 用例)
+function planHandlers() {
+  return {
+    onEvent: function (ev) {
+      if (ev.persisted === false) {
+        // persisted:false(批次I-T3 白名单②):计划未落盘,不可执行——渲染
+        // 三段式错误并禁用「执行迁移」(与 done 事件同载荷),封死「审新执旧」
+        planId = null;
+        jobModel.planId = null;
+        renderError($("step2-error"), ev.what, ev.why, ev.details);
+        openLogOnError();
+        $("btn-migrate").disabled = true;
+        $("btn-plan").disabled = false;
+        return;
+      }
+    }
+  };
+}
+
+// migrate 流分派:全部展示自模型经 render() 派生,无额外页面流;保留装配
+// 位——恢复路径与正常路径共用同一份分派(后续任务在此扩展)
+function migrateHandlers() {
+  return { onEvent: function () {} };
+}
+
+// 按 kind 装配分派(恢复路径/正常路径/控制帧重同步共用)
+function handlersForKind(kind) {
+  if (kind === "plan") { return planHandlers(); }
+  if (kind === "update") { return updateHandlers(); }
+  return migrateHandlers();
+}
+
+// update 流分派:模型写入由 applyEvent 内 update 分派统一完成(单一写入者),
+// 本分派仅保留装配位;DOM 由 render() 的 update 分支派生
+function updateHandlers() {
+  return { onEvent: function () {} };
+}
+
+// 更新面板 DOM 出口(render 的 update 分支唯一调用;全部状态自 updateModel 派生)
+function renderUpdatePanel() {
+  var st = updateModel.status;
+  var cur = $("update-current");
+  cur.textContent = updateModel.current ? PAGE_STRINGS.UPDATE_CURRENT(updateModel.current) : "";
+  var btnCheck = $("btn-update-check");
+  btnCheck.disabled = updateCheckDisabled(updateModel);   // 评审④ P1:下载中/已下载禁检
+  btnCheck.textContent = st === "checking" ? PAGE_STRINGS.UPDATE_CHECKING : PAGE_STRINGS.UPDATE_CHECK_BTN;
+  var statusText = "";
+  if (st === "latest") {
+    statusText = (updateModel.latest === "source") ? PAGE_STRINGS.UPDATE_SOURCE
+      : (updateModel.latest ? PAGE_STRINGS.UPDATE_LATEST(updateModel.latest)
+                            : PAGE_STRINGS.UPDATE_NO_RELEASE);
+  } else if (st === "available") {
+    statusText = PAGE_STRINGS.UPDATE_AVAILABLE(updateModel.latest,
+      Math.round((updateModel.size || 0) / 1048576));
+  } else if (st === "error") {
+    statusText = (updateModel.error && updateModel.error.what) || "";
+    if (updateModel.error && updateModel.error.why) { statusText += ":" + updateModel.error.why; }
+  } else if (st === "cancelled") {
+    statusText = PAGE_STRINGS.UPDATE_CANCELLED;
+  }
+  var statusBox = $("update-status");
+  statusBox.textContent = statusText;
+  statusBox.hidden = !statusText;
+  $("btn-update-download").hidden = st !== "available";
+  $("btn-update-cancel").hidden = st !== "downloading";
+  var downloading = (st === "downloading");
+  var prog = $("update-progress");
+  prog.hidden = !downloading;
+  if (downloading) {
+    prog.textContent = updateProgressText(updateModel);   // 评审④ P2-5:无字节进度→准备下载
+  }
+  var downloaded = (st === "downloaded" && !!updateModel.plan);
+  var doneBox = $("update-done");
+  doneBox.hidden = !downloaded;
+  if (downloaded) {
+    doneBox.textContent = PAGE_STRINGS.UPDATE_DOWNLOADED + "\n" + updateStepsText(updateModel);
+    doneBox.style.whiteSpace = "pre-line";
+  }
+  $("btn-update-open").hidden = !downloaded;
+}
+
+// 检查更新:专属请求代际(评审④ P1)——检查不创建任务,但走共享 beginRequest
+// 会废止在飞的**任务创建回执**(下载 POST 202 已在服务端生效,回执被弃=页面
+// 失去任务控制权)。检查自身的新旧由 updateCheckSeq 判定;下载任务活动/已下载
+// 态直接不发起(与按钮禁用同一判据,双保险)。
+var updateCheckSeq = 0;
+function checkUpdate() {
+  if (updateCheckDisabled(updateModel)) { return; }
+  if (jobModel.kind === "update" && !jobModel.terminal) { return; }  // 下载任务活动(防御)
+  updateModel.status = "checking";
+  renderUpdatePanel();
+  updateCheckSeq += 1;
+  var gen = updateCheckSeq;
+  postJson("/api/update/check", {})
+    .then(function (body) {
+      if (gen !== updateCheckSeq) { return; }   // 更晚的检查已发起:旧结果作废
+      if (updatePanelJobOwned(updateModel)) { return; }   // 面板已被下载任务接管(评审⑤ P2②)
+      applyCheckResult(body);
+      renderUpdatePanel();
+    })
+    .catch(function (err) {
+      if (gen !== updateCheckSeq) { return; }
+      if (updatePanelJobOwned(updateModel)) { return; }   // 错误结果同样不得改写归属
+      applyCheckResult({ error: { what: err.what || "检查失败", why: err.why || "无法连接本地服务" } });
+      renderUpdatePanel();
+    });
+}
+
+// 下载并校验:job 化(update kind,可取消);409/400 等三段式经 postJson 抛出
+function startUpdateDownload() {
+  updateModel.status = "downloading";
+  renderUpdatePanel();
+  var gen = beginRequest();
+  postJson("/api/update/download", {})
+    .then(function (body) {
+      // 回执必须完成接管(评审④ P1;创建代际随回执排序,评审⑤)
+      if (!adoptJobReceipt(body, "update", handlersForKind("update"), gen)) { return; }
+      updateModel.status = "downloading";   // newJob 代际归位后回置(下载已开始)
+      renderUpdatePanel();
+    })
+    .catch(function (err) {
+      if (!requestAlive(gen)) { return; }
+      applyUpdateEvent({ type: "error", what: err.what || PAGE_STRINGS.UPDATE_BUSY, why: err.why || "" });
+      renderUpdatePanel();
+    });
+}
+
+// 取消下载(update job 白名单可取消;终态竞态由 409 兜底,静默即可)
+function cancelUpdate() {
+  if (jobModel.kind !== "update" || jobModel.terminal || !jobModel.jobId) { return; }
+  postJson("/api/jobs/" + encodeURIComponent(jobModel.jobId) + "/cancel", {})
+    .catch(function () { /* 已终态/已关窗:SSE/轮询自会收口 */ });
+}
+
+// 打开暂存位置(服务端 explorer /select 选中资产;绝不直接执行下载物)
+function openUpdateLocation() {
+  if (!updateModel.plan) { return; }
+  postJson("/api/update/open-location", { path: updateModel.plan.path })
+    .catch(function () { /* 打开失败:面板重试即可 */ });
 }
 
 /* ---------- 步骤切换(导航高亮:当前步 active,已完成步 done) ---------- */
@@ -473,8 +1644,7 @@ function saveConfig() {
   var path = $("game-root-input").value.trim();
   $("config-error").hidden = true;
   if (!path) {
-    renderError($("config-error"), "游戏根目录不可用",
-      "请先填写整合包客户端根目录(含 versions/ 子目录)", {});
+    renderError($("config-error"), PAGE_STRINGS.CONFIG_ROOT_WHAT, PAGE_STRINGS.CONFIG_ROOT_WHY, {});
     return;
   }
   var btn = $("btn-save-root");
@@ -486,7 +1656,7 @@ function saveConfig() {
   }).catch(function (err) {
     btn.disabled = false;
     if (err instanceof TypeError) {
-      $("banner-disconnect").hidden = false;
+      showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE);
       return;
     }
     renderError($("config-error"), err.what, err.why, err.details || {});
@@ -498,7 +1668,7 @@ function fillSelect(sel, versions, active) {
   versions.forEach(function (v) {
     var opt = document.createElement("option");
     opt.value = v;
-    opt.textContent = v + (v === active ? "(当前活跃)" : "");
+    opt.textContent = v + (v === active ? PAGE_STRINGS.ACTIVE_SUFFIX : "");
     sel.appendChild(opt);
   });
 }
@@ -521,11 +1691,31 @@ function refreshStartButton() {
   $("btn-plan").disabled = same || !src || !dst;
 }
 
+// 刷新恢复回填(0.12.0 复审#10):loadVersions 完成后,把恢复出的预检路线
+// 回填向导下拉——swapSrc/swapDst 已在 restoreSavedJob 派生,但刷新后下拉是
+// 默认值,startSwapApply 的「值 vs swapSrc/swapDst」比对会误判路线已变;
+// option 不存在(版本被删)时不强填,比对自然拦截并引导重检
+function restoreRouteSelections() {
+  if (jobModel.kind !== "swap_preflight" || !jobModel.src || !jobModel.dst) {
+    return;
+  }
+  var so = $("src-select");
+  var dod = $("dst-select");
+  var has = function (sel, v) {
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === v) { return true; }
+    }
+    return false;
+  };
+  if (has(so, jobModel.src)) { so.value = jobModel.src; }
+  if (has(dod, jobModel.dst)) { dod.value = jobModel.dst; }
+}
+
 function loadVersions() {
   fetch("/api/versions").then(function (resp) {
     if (!resp.ok) {
       return resp.json().catch(function () { return {}; }).then(function (j) {
-        throw { what: j.what || "版本列表读取失败", why: j.why || ("HTTP " + resp.status), details: j.details };
+        throw { what: j.what || PAGE_STRINGS.VERSIONS_READ_FAILED_WHAT, why: j.why || ("HTTP " + resp.status), details: j.details };
       });
     }
     return resp.json();
@@ -534,9 +1724,9 @@ function loadVersions() {
     activeVersion = body.active || null;
     $("versions-error").hidden = true; // 成功即清旧错误(改根目录后重拉的场景)
     if (versions.length === 0) {
-      renderError($("versions-error"), "没有可选版本",
+      renderError($("versions-error"), PAGE_STRINGS.NO_VERSIONS_WHAT,
         "游戏根目录的 versions/ 下没有版本文件夹,请检查配置后刷新页面", {});
-      $("active-hint").textContent = "当前活跃版本:未读取到";
+      $("active-hint").textContent = PAGE_STRINGS.ACTIVE_NOT_READ;
       return;
     }
     fillSelect($("src-select"), versions, activeVersion);
@@ -544,14 +1734,13 @@ function loadVersions() {
     var d = pickDefaults(versions);
     if (d.src) { $("src-select").value = d.src; }
     if (d.dst) { $("dst-select").value = d.dst; }
-    $("active-hint").textContent =
-      "当前活跃版本(启动器正在使用):" + (activeVersion || "未读取到") +
-      "。迁移完成后请按下文提醒更新 PCL 两处配置。";
+    restoreRouteSelections();   // 刷新恢复回填(0.12.0 复审#10)
+    $("active-hint").textContent = PAGE_STRINGS.activeHint(activeVersion);
     refreshStartButton();
   }).catch(function (err) {
     if (err instanceof TypeError) {
-      // fetch 网络层失败(服务进程不在了):与 SSE 断线同一提示口径
-      $("banner-disconnect").hidden = false;
+      // fetch 网络层失败(服务进程不在了):断线横幅统一提示
+      showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE);
       return;
     }
     renderError($("versions-error"), err.what, err.why, err.details || {});
@@ -559,21 +1748,23 @@ function loadVersions() {
 }
 
 /* ======================================================================
- * 步②:plan job(SSE phase → done.plan)与计划渲染
+ * 步②:plan job(POST /api/plan → SSE phase → done.plan)与计划渲染
  * ==================================================================== */
 
 var planGroups = [];         // 规范化后的分组数组(渲染顺序=服务端返回顺序)
 var groupOpen = {};          // origin → 是否展开(搜索时暂存用户态)
+var groupBuilt = {};         // origin → 组体行是否已建(#24 懒建行缓存)
 var askChecked = {};         // path → true(❓组勾选状态)
 var planSrc = "", planDst = "";
 // 当前计划的校验标识(plan job done 事件的 plan_id,批次I-T3 终审修复 C1):
-// migrate 请求必须回传,否则服务端按 plan_id_missing 拒绝;persisted:false 或
-// 页面刷新丢失时为 null——刷新后靠该错误事件引导重新生成计划,不做额外持久化
+// migrate 请求必须回传(取自 jobModel.planId,恢复路径同源),否则服务端按
+// plan_id_missing 拒绝;persisted:false 或页面刷新丢失时为 null——刷新恢复
+// 经 restoreSavedJob 重建模型,persisted:false 靠该错误事件引导重新生成计划。
+// 本变量为契约锚点(声明/作废路径保留),真实状态以 jobModel.planId 为准
 var planId = null;
 
 // 规范化分组:契约真源唯一为 origin 字典(server._group_actions 的返回形态),
-// 渲染顺序=对象键序(Origin 枚举声明序)。原型期的 {groups:[{items}]} 数组形态
-// 是契约笔误(T7 评审),已连同其容错回退一并删除。
+// 渲染顺序=对象键序(Origin 枚举声明序)。actions 缺省为空数组(容错)。
 function normalizeGroups(plan) {
   return Object.keys(plan).map(function (origin) {
     var g = plan[origin];
@@ -583,15 +1774,62 @@ function normalizeGroups(plan) {
       behavior: g.behavior,
       footnote: g.footnote || null,
       count: g.count,
-      actions: g.actions
+      actions: g.actions || []
     };
   });
 }
 
+// 组体行构建收拢点(#24 懒建行):❓组行带勾选框(默认不勾),所有组行显
+// path + reason;👻组脚注随行建在组体末尾(展开才可见)。只在 ensureGroupBody
+// 的首次展开路径被调用——renderPlan 自身不建行,大计划初始渲染只建组头
+function buildGroupBody(g) {
+  var isAsk = g.behavior === "ask";
+  var body = document.createElement("div");
+  body.className = "group-body";
+  g.actions.forEach(function (a) {
+    var row = document.createElement("div");
+    row.className = "row";
+    row.dataset.q = (a.path + "\n" + (a.reason || "")).toLowerCase();
+    if (isAsk) {
+      var cb2 = document.createElement("input");
+      cb2.type = "checkbox";
+      cb2.dataset.path = a.path;
+      cb2.checked = !!askChecked[a.path];
+      cb2.addEventListener("change", function () { syncAsk(a.path, cb2.checked); refreshAskSummary(); });
+      row.appendChild(cb2);
+    }
+    var p = document.createElement("code");
+    p.className = "path";
+    p.textContent = a.path;
+    var r = document.createElement("span");
+    r.className = "reason";
+    r.textContent = a.reason || "";
+    row.appendChild(p);
+    row.appendChild(r);
+    body.appendChild(row);
+  });
+  // 👻组脚注:从分组数据的 footnote 字段取(其余组为 null 不渲染)
+  if (g.footnote) {
+    var fn = document.createElement("div");
+    fn.className = "footnote";
+    fn.textContent = g.footnote;
+    body.appendChild(fn);
+  }
+  return body;
+}
+
+// 懒建行(#24):首次展开才建组体并按 origin 缓存;默认展开组在 renderPlan 首帧调用
+function ensureGroupBody(section, g) {
+  if (groupBuilt[g.origin]) { return; }
+  groupBuilt[g.origin] = true;
+  section.appendChild(buildGroupBody(g));
+}
+
 function renderPlan() {
-  $("plan-route").textContent = planSrc + " → " + planDst;
+  $("plan-route").textContent = (jobModel.src || planSrc) + " → " + (jobModel.dst || planDst);
   var box = $("groups");
   box.innerHTML = "";
+  groupBuilt = {};  // 分组重建:懒建行缓存随之作废(防新 section 被误判已建)
   planGroups.forEach(function (g) {
     var isAsk = g.behavior === "ask";
     var section = document.createElement("section");
@@ -602,14 +1840,27 @@ function renderPlan() {
     var head = document.createElement("button");
     head.type = "button";
     head.className = "group-head";
-    var inner = '<span class="arrow">▸</span><span class="title"></span>' +
-      '<span class="badge">' + esc(String(g.count)) + "</span>" +
-      '<span class="behavior-tag">' + esc(BEHAVIOR_LABELS[g.behavior] || g.behavior) + "</span>";
-    head.innerHTML = inner;
-    head.querySelector(".title").textContent = g.title;
+    var arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.textContent = "▸";
+    var title = document.createElement("span");
+    title.className = "title";
+    title.textContent = g.title;
+    var badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = String(g.count);
+    var tag = document.createElement("span");
+    tag.className = "behavior-tag";
+    tag.textContent = PAGE_STRINGS.BEHAVIOR_LABELS[g.behavior] || g.behavior;
+    head.appendChild(arrow);
+    head.appendChild(title);
+    head.appendChild(badge);
+    head.appendChild(tag);
     head.addEventListener("click", function () {
       section.classList.toggle("open");
       groupOpen[g.origin] = section.classList.contains("open");
+      // 懒建行(#24):首次展开才调用 buildGroupBody 建行(缓存防重复)
+      if (groupOpen[g.origin]) { ensureGroupBody(section, g); }
     });
     if (isAsk) {
       var all = document.createElement("label");
@@ -629,45 +1880,11 @@ function renderPlan() {
       head.appendChild(all);
     }
     section.appendChild(head);
-
-    // 行:❓组带勾选框(默认不勾),所有组行显 path + reason
-    var body = document.createElement("div");
-    body.className = "group-body";
-    g.actions.forEach(function (a) {
-      var row = document.createElement("div");
-      row.className = "row";
-      row.dataset.q = (a.path + "\n" + (a.reason || "")).toLowerCase();
-      if (isAsk) {
-        var cb2 = document.createElement("input");
-        cb2.type = "checkbox";
-        cb2.dataset.path = a.path;
-        cb2.checked = !!askChecked[a.path];
-        cb2.addEventListener("change", function () { syncAsk(a.path, cb2.checked); refreshAskSummary(); });
-        row.appendChild(cb2);
-      }
-      var p = document.createElement("code");
-      p.className = "path";
-      p.textContent = a.path;
-      var r = document.createElement("span");
-      r.className = "reason";
-      r.textContent = a.reason || "";
-      row.appendChild(p);
-      row.appendChild(r);
-      body.appendChild(row);
-    });
-    section.appendChild(body);
-
-    // 👻组脚注:从分组数据的 footnote 字段取(其余组为 null 不渲染)
-    if (g.footnote) {
-      var fn = document.createElement("div");
-      fn.className = "footnote";
-      fn.textContent = g.footnote;
-      section.appendChild(fn);
-    }
+    // 默认展开组首帧即建行;折叠组等首次展开(懒建行,#24)
+    if (groupOpen[g.origin]) { ensureGroupBody(section, g); }
     box.appendChild(section);
   });
   refreshAskSummary();
-  applyFilter();
 }
 
 function syncAsk(path, checked) {
@@ -677,13 +1894,12 @@ function syncAsk(path, checked) {
 function refreshAskSummary() {
   var askGroups = planGroups.filter(function (g) { return g.behavior === "ask"; });
   if (askGroups.length === 0) {
-    $("ask-summary").textContent = "本计划没有需要人工确认的条目。";
+    $("ask-summary").textContent = PAGE_STRINGS.NO_ASK_ITEMS;
     return;
   }
   var total = askGroups.reduce(function (n, g) { return n + g.count; }, 0);
   var n = Object.keys(askChecked).length;
-  $("ask-summary").textContent = "待确认已勾选 " + n + " / " + total +
-    " 项(勾选的将随本次迁移一并复制)";
+  $("ask-summary").textContent = PAGE_STRINGS.askSummary(n, total);
   // 同步组头「全选」框状态
   askGroups.forEach(function (g) {
     var cb = $("ask-all-" + g.origin);
@@ -691,11 +1907,168 @@ function refreshAskSummary() {
   });
 }
 
-// 搜索过滤(前端):匹配 path/reason(不区分大小写);有匹配的组强制显示并展开,无匹配的组隐藏
+/* ======================================================================
+ * 审阅摘要与折叠参考区(批次I-W3 T6,spec §5.1):数据源=done.diff
+ * ==================================================================== */
+
+// 体积显示:MB 一位小数;不足 1 MB 退 KB/B(测试夹具与真实整合包都可读)
+function formatBytes(n) {
+  if (n >= 1048576) { return "约 " + (n / 1048576).toFixed(1) + " MB"; }
+  if (n >= 1024) { return "约 " + Math.round(n / 1024) + " KB"; }
+  return n + " B";
+}
+
+// 静态折叠区懒建缓存(#24 与分组行同口径):buildReviewExtras 随新计划重置
+var extraBuilt = {};
+
+function ensureExtraBody(secId, builder) {
+  if (extraBuilt[secId]) { return; }
+  extraBuilt[secId] = true;
+  builder();
+}
+
+// 静态折叠区展开/收起:首次展开才建行(#24 懒建行)
+function toggleExtraGroup(secId, builder) {
+  var section = $(secId);
+  section.classList.toggle("open");
+  if (section.classList.contains("open")) { ensureExtraBody(secId, builder); }
+}
+
+// 顶部摘要条(五要素)+ compat 警示块 + 折叠参考区露出控制;无 diff 整体隐藏
+function buildReviewExtras() {
+  var d = jobModel.diff;
+  // 折叠参考区:懒建缓存与残留内容随新计划重置(首次展开再建行)
+  extraBuilt = {};
+  ["mod-pairs-body", "client-only-body", "world-notices-body"].forEach(function (id) {
+    $(id).innerHTML = "";
+  });
+  ["sec-mod_pairs", "sec-client_only", "sec-world_notices"].forEach(function (id) {
+    $(id).classList.remove("open");
+  });
+  if (!d) {
+    $("review-summary").hidden = true;
+    $("compat-warn-box").hidden = true;
+    $("sec-mod_pairs").hidden = true;
+    $("sec-client_only").hidden = true;
+    $("sec-world_notices").hidden = true;
+    return;
+  }
+  // 五要素(决策视角):待迁移 N 项 / 约 X MB / 待确认 M / 将覆盖(有备份)O / 兼容警告 K
+  var buckets = d.buckets || {};
+  var toMigrate = planGroups.filter(function (g) { return g.behavior === "copy"; })
+    .reduce(function (n, g) { return n + (buckets[g.origin] || 0); }, 0);
+  var warnCount = (d.compat_warnings || []).length;
+  var chips = [
+    { text: PAGE_STRINGS.sumMigrate(toMigrate), cls: "" },
+    { text: formatBytes(d.total_bytes || 0), cls: "" },
+    { text: PAGE_STRINGS.sumAsk(d.ask_count || 0), cls: "" },
+    { text: PAGE_STRINGS.sumOverwrite(d.overwrite_count || 0), cls: "" },
+    { text: PAGE_STRINGS.sumCompat(warnCount), cls: warnCount > 0 ? "warn" : "" }
+  ];
+  var stats = $("review-stats");
+  stats.innerHTML = "";
+  chips.forEach(function (c) {
+    var chip = document.createElement("span");
+    chip.className = "sum-chip" + (c.cls ? " " + c.cls : "");
+    chip.textContent = c.text;
+    stats.appendChild(chip);
+  });
+  $("review-scope-note").textContent = d.guard_scope || "";
+  $("review-summary").hidden = false;
+  // compat 警示块(默认随审阅页展开;无警示不占位)
+  $("compat-warn-count").textContent = String(warnCount);
+  var ul = $("compat-warn-list");
+  ul.innerHTML = "";
+  (d.compat_warnings || []).forEach(function (w) {
+    var li = document.createElement("li");
+    li.textContent = w;
+    ul.appendChild(li);
+  });
+  $("compat-warn-box").hidden = warnCount === 0;
+  // 折叠参考区:有数据才露出(默认折叠;首次展开经 extraBuilt 懒建行)
+  var pairs = d.mod_pairs || [];
+  $("mod-pairs-badge").textContent = String(pairs.length);
+  $("sec-mod_pairs").hidden = pairs.length === 0;
+  var clientOnly = d.client_only || [];
+  $("client-only-badge").textContent = String(clientOnly.length);
+  $("sec-client_only").hidden = clientOnly.length === 0;
+  var notices = d.world_notices || [];
+  $("world-notices-badge").textContent = String(notices.length);
+  $("sec-world_notices").hidden = notices.length === 0;
+}
+
+// Mod 配对表:⇄ 术语中文化(upgrade=升级/renamed=改名/rebuilt=重打包;
+// content_differs 注记「⚠ 上游重打包」——同版本重名 size 异,上游重建版证据)
+function buildModPairsBody() {
+  var body = $("mod-pairs-body");
+  ((jobModel.diff && jobModel.diff.mod_pairs) || []).forEach(function (p) {
+    var row = document.createElement("div");
+    row.className = "row";
+    var s = document.createElement("code");
+    s.className = "path";
+    s.textContent = (p.src_files || []).join(", ");
+    var kind = document.createElement("span");
+    kind.className = "reason";
+    kind.textContent = "⇄ " + (PAGE_STRINGS.PAIR_KIND_LABELS[p.kind] || p.kind) +
+      (p.content_differs ? "(" + PAGE_STRINGS.CONTENT_DIFFERS + ")" : "");
+    var t = document.createElement("code");
+    t.className = "path";
+    t.textContent = (p.dst_files || []).join(", ");
+    row.appendChild(s);
+    row.appendChild(kind);
+    row.appendChild(t);
+    body.appendChild(row);
+  });
+}
+
+// 仅客户端件清单(中性信息色:部署形态差异,不是错误)
+function buildClientOnlyBody() {
+  var body = $("client-only-body");
+  ((jobModel.diff && jobModel.diff.client_only) || []).forEach(function (p) {
+    var row = document.createElement("div");
+    row.className = "row";
+    var c = document.createElement("code");
+    c.className = "path";
+    c.textContent = p;
+    row.appendChild(c);
+    body.appendChild(row);
+  });
+}
+
+// 世界目录提示(服务端文案已带「[提示] 疑似世界目录改名…」完整语句)
+function buildWorldNoticesBody() {
+  var body = $("world-notices-body");
+  ((jobModel.diff && jobModel.diff.world_notices) || []).forEach(function (n) {
+    var row = document.createElement("div");
+    row.className = "row";
+    var s = document.createElement("span");
+    s.className = "reason";
+    s.textContent = n;
+    row.appendChild(s);
+    body.appendChild(row);
+  });
+}
+
+// origin → 分组对象查找(搜索补建懒建组时用)
+function groupByOrigin(origin) {
+  for (var i = 0; i < planGroups.length; i++) {
+    if (planGroups[i].origin === origin) { return planGroups[i]; }
+  }
+  return null;
+}
+
+// 搜索过滤(前端):匹配 path/reason(不区分大小写);有匹配的组强制显示并
+// 展开,无匹配的组隐藏——仅在搜索输入事件时执行(render 的初始构建不依赖:
+// 分组创建时已按 groupOpen 落定展开态)。搜索态先为懒建组(#24 未展开未建)
+// 补建行,再过滤——否则折叠组的匹配行不存在,会被误判为无匹配
 function applyFilter() {
-  var q = $("search").value.trim().toLowerCase();
+  var q = ($("search").value || "").trim().toLowerCase();
   var anyVisible = false;
   document.querySelectorAll("#groups .group").forEach(function (section) {
+    if (q) {
+      var gg = groupByOrigin(section.dataset.origin);
+      if (gg) { ensureGroupBody(section, gg); }
+    }
     var visibleRows = 0;
     section.querySelectorAll(".row").forEach(function (row) {
       var hit = !q || row.dataset.q.indexOf(q) >= 0;
@@ -715,7 +2088,7 @@ function applyFilter() {
 // 步② UI 复位(重新生成计划/返回第一步时)
 function resetStep2() {
   $("plan-progress").hidden = false;
-  $("plan-phase").textContent = "准备中…";
+  $("plan-phase").textContent = PAGE_STRINGS.PHASE_PREPARING;
   $("step2-error").hidden = true;
   $("plan-body").hidden = true;
   $("groups").innerHTML = "";
@@ -723,11 +2096,16 @@ function resetStep2() {
   $("no-match").hidden = true;
   planGroups = [];
   groupOpen = {};
+  groupBuilt = {};          // 懒建行缓存随代际作废(#24)
+  extraBuilt = {};
   askChecked = {};
-  planId = null; // 旧计划标识作废:migrate 只接受当前页面的计划
+  planId = null;            // 旧计划标识作废:migrate 只接受当前页面的计划
+  jobModel.planId = null;   // 模型侧同步作废(POST 失败时也不得沿用旧计划)
+  builtPlanId = null;
+  $("swap-review-banner").hidden = true;  // 换包上下文随计划代际作废(批次I-W3 T8)
 }
 
-// 启动 plan job:POST /api/plan → 订阅 SSE → phase 更新 / done 渲染分组 / error 渲染错误条
+// 启动 plan job:POST /api/plan → 订阅 SSE → 阶段/终态全部自模型渲染
 function startPlan() {
   var src = $("src-select").value;
   var dst = $("dst-select").value;
@@ -737,66 +2115,33 @@ function startPlan() {
   $("step2-error").hidden = true;
   resetStep2();
   showStep(2);
+  // 请求归属:成功回执经 adoptJobReceipt 完成接管(评审④ P1);catch 用
+  // generation 守(迟到的旧错误不弹在当前流程上)
+  var gen = beginRequest();
   postJson("/api/plan", { src: src, dst: dst }).then(function (body) {
-    openEvents(body.job_id, {
-      onPhase: function (ev) {
-        $("plan-phase").textContent = PHASE_LABELS[ev.name] || ev.name;
-      },
-      onDone: function (ev) {
-        $("plan-progress").hidden = true;
-        // persisted:false(批次I-T3 白名单②):计划未落盘,不可执行——渲染三段式
-        // 错误并禁用「执行迁移」(what/why/details 与 done 事件同载荷),封死
-        // 「审新执旧」;重新生成计划成功后按钮随新 done 事件恢复可用
-        if (ev.persisted === false) {
-          planId = null;
-          renderError($("step2-error"), ev.what, ev.why, ev.details);
-          openLogOnError();
-          $("btn-migrate").disabled = true;
-          $("btn-plan").disabled = false;
-          return;
-        }
-        // 计划身份(C1):捕获 plan_id 供 migrate 请求回传(校验「页面审阅的计划
-        // =盘上将执行的计划」);刷新页面丢失后由 plan_id_missing 错误引导重新生成
-        planId = ev.plan_id || null;
-        var plan = ev.plan || {};
-        planGroups = normalizeGroups(plan);
-        // 初始展开状态:白名单展开,其余折叠(spec §5;服务端无 default_visible 字段)
-        planGroups.forEach(function (g) {
-          groupOpen[g.origin] = DEFAULT_EXPANDED.indexOf(g.origin) >= 0;
-        });
-        renderPlan();
-        $("plan-body").hidden = false;
-        $("btn-plan").disabled = false;
-        $("btn-migrate").disabled = false; // 新计划 → 可执行(上次失败可能禁用了按钮)
-      },
-      onError: function (ev) {
-        $("plan-progress").hidden = true;
-        renderError($("step2-error"), ev.what, ev.why, ev.details);
-        openLogOnError();
-        $("btn-plan").disabled = false;
+      adoptJobReceipt(body, "plan", planHandlers(), gen);   // 回执必须接管(评审④ P1;排序评审⑤)
+    })
+    .catch(function (err) {
+      if (!requestAlive(gen)) { return; }
+      if (err instanceof TypeError) {
+        showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE);
+        return;
       }
+      $("plan-progress").hidden = true;
+      renderError($("step2-error"), err.what, err.why, err.details);
+      $("btn-plan").disabled = false;
     });
-  }).catch(function (err) {
-    if (err instanceof TypeError) {
-      $("banner-disconnect").hidden = false;
-      return;
-    }
-    $("plan-progress").hidden = true;
-    renderError($("step2-error"), err.what, err.why, err.details);
-    $("btn-plan").disabled = false;
-  });
 }
 
 /* ======================================================================
  * 步③:migrate job(POST /api/migrate → SSE file 流 → done/error)
  * ==================================================================== */
 
-var failedFiles = []; // {path, error} 失败清单(done 前可复制)
 var currentMigrateJobId = null; // 当前 migrate job(取消端点用,批次I-T6)
 var cancelPollTimer = null;     // 取消后的状态轮询句柄(done 事件到达即停)
 
 function resetStep3() {
-  $("migrate-phase").textContent = "正在启动…";
+  $("migrate-phase").textContent = PAGE_STRINGS.PHASE_STARTING;
   $("file-count").textContent = "0 / 0";
   $("file-progress").max = 1;
   $("file-progress").value = 0;
@@ -809,95 +2154,32 @@ function resetStep3() {
   $("summary-box").hidden = true;
   $("stats").innerHTML = "";
   var oldNote = document.getElementById("cancel-note"); // 上一轮取消清单注记
-  if (oldNote) { oldNote.remove(); }
+  if (oldNote && oldNote.parentNode) { oldNote.parentNode.removeChild(oldNote); }
   $("reminder-box").hidden = true;
   $("reminder-text").textContent = "";
-  $("done-title").textContent = "迁移完成";
-  failedFiles = [];
-  // 取消按钮复位(批次I-T6)
+  $("backup-note").hidden = true;  // 备份位置行(T6):随代际复位
+  $("done-title").textContent = PAGE_STRINGS.DONE_OK;
+  // 失败清单模型侧在 newJob 代际重置时清零(POST 成功前旧 DOM 先行复位)
   $("btn-cancel").hidden = false;
   $("btn-cancel").disabled = false;
-  $("btn-cancel").textContent = "取消迁移";
+  $("btn-cancel").textContent = PAGE_STRINGS.CANCEL_BUTTON;
   $("cancel-hint").hidden = true;
+  // ③的出口按钮复位:常规「返回审阅计划」;swap 终态才切换到换包入口(T8)
+  $("btn-back2").hidden = false;
+  $("btn-swap-fail-back").hidden = true;
   if (cancelPollTimer) { clearInterval(cancelPollTimer); cancelPollTimer = null; }
-}
-
-function onFileEvent(ev) {
-  // 文件级进度:只更新计数/进度条/最近一行(不逐行刷 DOM)
-  $("file-count").textContent = ev.index + " / " + ev.total;
-  $("file-progress").max = ev.total || 1;
-  $("file-progress").value = ev.index;
-  var label = STATUS_LABELS[ev.status] || ev.status;
-  if (ev.failed) {
-    label = "失败";
-    failedFiles.push({ path: ev.path, error: ev.error || "未知错误" });
-    $("failed-count").textContent = String(failedFiles.length);
-    var li = document.createElement("li");
-    li.textContent = ev.path + " — " + (ev.error || "未知错误");
-    $("failed-list").appendChild(li);
-    $("failed-box").hidden = false;
-  }
-  $("last-file").textContent = "最近:" + ev.path + "(" + label +
-    (ev.backed_up ? ",目标已备份" : "") + ")";
-  $("last-file").className = ev.failed ? "failed" : "";
-}
-
-function onMigrateDone(ev) {
-  $("migrate-phase").textContent = "已结束";
-  var spin = $("migrate-spin");
-  if (spin && spin.parentNode) { spin.parentNode.removeChild(spin); }
-  $("btn-cancel").hidden = true; // 任务收尾:取消入口退场(含取消终态)
-  if (cancelPollTimer) { clearInterval(cancelPollTimer); cancelPollTimer = null; }
-  var summary = ev.summary || {};
-  // 取消终态(批次I-T6):标题+部分完成清单;其余按失败数给文案
-  if (ev.cancelled) {
-    $("done-title").textContent = "迁移已取消";
-    var note = document.createElement("p");
-    note.className = "hint";
-    note.id = "cancel-note";
-    note.textContent = "已完成 " + (ev.completed || []).length + " 个文件,未执行 " +
-      (ev.pending || []).length + " 个;如需继续迁移,请返回重新生成计划后再执行" +
-      "(重新生成的计划中已完成文件会按「内容一致」跳过,不会重复复制)。";
-    $("summary-box").insertBefore(note, $("stats"));
-  }
-  // summary 五键恒存在(服务端契约 I1);done-title 按失败数给文案
-  var failed = summary.failed || 0;
-  if (!ev.cancelled) {
-    $("done-title").textContent = failed > 0 ? "迁移结束(有 " + failed + " 个失败)" : "迁移完成";
-  }
-  var stats = $("stats");
-  stats.innerHTML = "";
-  SUMMARY_KEYS.forEach(function (k) {
-    var v = summary[k] || 0;
-    var div = document.createElement("div");
-    div.className = "stat" + (k === "failed" && v > 0 ? " bad" : "");
-    var b = document.createElement("b");
-    b.textContent = String(v);
-    var s = document.createElement("span");
-    s.textContent = STATUS_LABELS[k] || k;
-    div.appendChild(b);
-    div.appendChild(s);
-    stats.appendChild(div);
-  });
-  $("summary-box").hidden = false;
-  // PCL 提醒:全文逐行显示(dry-run 或有失败时服务端给空数组,不渲染)
-  var reminder = ev.reminder || [];
-  if (reminder.length > 0) {
-    $("reminder-text").textContent = reminder.join("\n");
-    $("reminder-box").hidden = false;
-  }
 }
 
 function copyFailedList() {
-  var text = failedFiles.map(function (f) {
+  var text = jobModel.failedFiles.map(function (f) {
     return f.path + "\n  错误: " + f.error;
   }).join("\n");
   if (!text) { return; }
   // 优先剪贴板 API(127.0.0.1/localhost 属安全上下文),失败退回选区方案
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function () {
-      $("btn-copy-failed").textContent = "已复制";
-      setTimeout(function () { $("btn-copy-failed").textContent = "复制失败清单"; }, 1500);
+      $("btn-copy-failed").textContent = PAGE_STRINGS.COPIED;
+      setTimeout(function () { $("btn-copy-failed").textContent = PAGE_STRINGS.COPY_FAILED_BUTTON; }, 1500);
     }, function () { fallbackCopy(text); });
   } else {
     fallbackCopy(text);
@@ -911,46 +2193,59 @@ function fallbackCopy(text) {
   ta.select();
   try { document.execCommand("copy"); } catch (e) { /* 忽略:极老浏览器 */ }
   document.body.removeChild(ta);
-  $("btn-copy-failed").textContent = "已复制";
-  setTimeout(function () { $("btn-copy-failed").textContent = "复制失败清单"; }, 1500);
+  $("btn-copy-failed").textContent = PAGE_STRINGS.COPIED;
+  setTimeout(function () { $("btn-copy-failed").textContent = PAGE_STRINGS.COPY_FAILED_BUTTON; }, 1500);
 }
 
-/* ---------- 取消迁移(批次I-T6):POST cancel → 「正在停止…」→ 轮询终态 ---------- */
+/* ---------- 取消迁移(批次I-T6/W3-T5 归属守卫):POST cancel → 「正在停止…」→ 轮询终态 ---------- */
 
 function cancelMigrate() {
-  if (!currentMigrateJobId) { return; }
+  // 归属双校验:入口与 202/catch 异步回调一律用**入口时捕获的 jobId**——
+  // 不得回读 live 变量 currentMigrateJobId(离开执行页/开启新迁移后它已指向
+  // 新代际,守卫会误放行旧取消响应,污染新任务模型);迟到的取消响应不得
+  // 把已终态的模型写回「正在停止」中间态(#22/评审 P2-6+复审修复 #1)
+  var jobId = currentMigrateJobId;
+  if (!jobId || !ownsCurrent(jobId)) { return; }
   var btn = $("btn-cancel");
   btn.disabled = true;
-  btn.textContent = "正在停止…";
+  btn.textContent = PAGE_STRINGS.CANCEL_STOPPING;
   $("cancel-hint").hidden = false;
-  postJson("/api/jobs/" + encodeURIComponent(currentMigrateJobId) + "/cancel", {})
+  postJson("/api/jobs/" + encodeURIComponent(jobId) + "/cancel", {})
     .then(function () {
-      $("migrate-phase").textContent = "正在停止…(等待当前文件完成)";
+      if (!ownsCurrent(jobId)) { return; }  // 202 迟到:静默丢弃
+      jobModel.status = "cancelling";  // 中间态入模型(render 统一出口)
+      render();
       pollCancelStatus();
     })
     .catch(function (err) {
+      if (!ownsCurrent(jobId)) { return; }
       // 405(不可取消)/409(已结束)等:回滚按钮态并提示;终态由 SSE 收口
       btn.disabled = false;
-      btn.textContent = "取消迁移";
+      btn.textContent = PAGE_STRINGS.CANCEL_BUTTON;
       $("cancel-hint").hidden = true;
-      if (err instanceof TypeError) { $("banner-disconnect").hidden = false; return; }
+      if (err instanceof TypeError) { showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE); return; }
       renderError($("step3-error"), err.what, err.why, err.details || {});
     });
 }
 
-// 兜底轮询:SSE 断流时也能观察到终态(cancelled),正常路径由 done 事件收口
+// 兜底轮询(取消后):SSE 断流也能观察到终态;终态经 applyStatus+render 与
+// SSE done 事件共用同一收口;轮询回调同样先 ownsCurrent(评审 P2-6)
 function pollCancelStatus() {
   if (cancelPollTimer) { clearInterval(cancelPollTimer); }
+  var jobId = currentMigrateJobId;
   cancelPollTimer = setInterval(function () {
-    if (!currentMigrateJobId) {
+    if (!ownsCurrent(jobId)) {
       clearInterval(cancelPollTimer); cancelPollTimer = null;
       return;
     }
-    fetch("/api/jobs/" + encodeURIComponent(currentMigrateJobId))
+    fetch("/api/jobs/" + encodeURIComponent(jobId))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (body) {
-        if (body && body.status !== "running" && body.status !== "cancelling") {
+        if (!body || !ownsCurrent(jobId)) { return; }
+        if (body.status !== "running" && body.status !== "cancelling") {
           clearInterval(cancelPollTimer); cancelPollTimer = null;
+          applyStatus(body);
+          render();
           $("btn-cancel").hidden = true;
         }
       })
@@ -958,34 +2253,36 @@ function pollCancelStatus() {
   }, 1000);
 }
 
-// 启动 migrate job:勾选路径放 ask_yes + 计划校验标识 plan_id(C1)→ POST /api/migrate → 订阅 SSE
+// 启动 migrate job:勾选路径放 ask_yes + 计划校验标识 plan_id(C1,取自模型)
+// → POST /api/migrate → newJob 切换任务模型 → 订阅 SSE
 function startMigrate() {
   var askYes = Object.keys(askChecked);
+  // 计划路由:优先模型内终态载荷的 src/dst(swap 链式计划同源,批次I-W3 T8),
+  // 回退向导选择(普通 plan 流两者一致)
+  var migSrc = jobModel.src || planSrc;
+  var migDst = jobModel.dst || planDst;
   $("btn-migrate").disabled = true;
   resetStep3();
   showStep(3);
-  postJson("/api/migrate", { src: planSrc, dst: planDst, ask_yes: askYes, dry_run: false, plan_id: planId })
+  // 请求归属(评审 v3 P1):POST 回调用 generation 守,不用 ownsCurrent——
+  // 当前 plan 任务已终态,ownsCurrent 必拒而后台已开始执行
+  var gen = beginRequest();
+  // plan_id 回退全局 planId(0.12.0 复审#9):执行后返回审阅页再重试时,
+  // jobModel 已切到 migrate 代际(planId 被 newJob 清空)——全局 planId 与
+  // 审阅页同生命周期(resetStep2/放弃/persisted:false 才作废),重试恰好
+  // 该沿用当前页面所示计划;服务端仍有指纹+状态双重校验兜底
+  postJson("/api/migrate", { src: migSrc, dst: migDst, ask_yes: askYes, dry_run: false, plan_id: jobModel.planId || planId })
     .then(function (body) {
-      currentMigrateJobId = body.job_id;
-      openEvents(body.job_id, {
-        onPhase: function (ev) {
-          $("migrate-phase").textContent = PHASE_LABELS[ev.name] || ev.name;
-        },
-        onFile: onFileEvent,
-        onDone: onMigrateDone,
-        onError: function (ev) {
-          $("migrate-phase").textContent = "任务失败";
-          $("btn-cancel").hidden = true;
-          renderError($("step3-error"), ev.what, ev.why, ev.details);
-          openLogOnError();
-          $("btn-migrate").disabled = false; // 允许修正后直接重试
-        }
-      });
+      // 回执必须完成接管(评审④ P1;排序评审⑤);取消入口归属随接管接线
+      if (adoptJobReceipt(body, "migrate", migrateHandlers(), gen)) {
+        currentMigrateJobId = body.job_id;
+      }
     })
     .catch(function (err) {
+      if (!requestAlive(gen)) { return; }
       // POST 被拒(409 单锁占用/422 版本不存在等):退回步②显示三段式错误
       if (err instanceof TypeError) {
-        $("banner-disconnect").hidden = false;
+        showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE);
         return;
       }
       showStep(2);
@@ -994,7 +2291,304 @@ function startMigrate() {
     });
 }
 
-/* ---------- 中断横幅(批次I-T6):加载时扫描待核对清单 ---------- */
+/* ======================================================================
+ * 换包 swap 两阶段(批次I-W3 T8,spec §5.2):
+ * 步① 面板预检(只读 job,三类决策面)→ 确认装包(③执行页复用 migrate 渲染,
+ * 装包段可取消)→ done 以链式换包计划直入②审阅页(评审 P1-2:不回步①用普通
+ * /api/plan 重新规划——旧包 jar 已按换包排除,不存在回迁路径)。
+ * POST 回调一律 requestAlive(请求代际),SSE/取消回调一律 ownsCurrent(任务
+ * 归属)——复用 T5 双轨守卫的既有装配(openEvents/cancelMigrate/restoreSavedJob)。
+ * ==================================================================== */
+
+var swapSrc = "", swapDst = "";  // 预检时定格的版本对(apply 回传;向导改动后须重检)
+
+// 面板开合:步① 次级入口切换;打开时刷新路由提示(源/目标沿用向导已选)
+function toggleSwapPanel() {
+  var panel = $("swap-panel");
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) { refreshSwapRoute(); }
+}
+
+// 路由提示:当前向导选择的源/目标(预检时定格到 swapSrc/swapDst)
+function refreshSwapRoute() {
+  $("swap-route").textContent = PAGE_STRINGS.swapRoute(
+    $("src-select").value, $("dst-select").value);
+}
+
+// 启动 swap 预检 job:POST /api/swap/preflight(只读,首步恒重扫 src)→
+// newJob 切换模型 → 订阅 SSE;done 载荷(incompat/extras/conflicts/
+// preflight_id/backup_preview)经 applyDonePayload 入 jobModel.swap,
+// 决策面由 renderSwapPreflightState 自模型渲染(恢复路径同源)
+function startSwapPreflight() {
+  var src = $("src-select").value;
+  var dst = $("dst-select").value;
+  var newPack = $("swap-new-pack").value.trim();
+  $("swap-error").hidden = true;
+  // 出口保障:输入不合法在面板内呈现,可修正重试或收起面板,不困死
+  if (!src || !dst || src === dst) {
+    renderError($("swap-error"), PAGE_STRINGS.SWAP_PF_FATAL_WHAT,
+      PAGE_STRINGS.SWAP_PF_NEED_VERSIONS, {});
+    return;
+  }
+  if (!newPack) {
+    renderError($("swap-error"), PAGE_STRINGS.SWAP_PF_FATAL_WHAT,
+      PAGE_STRINGS.SWAP_PF_NEED_PACK, {});
+    return;
+  }
+  swapSrc = src; swapDst = dst;
+  refreshSwapRoute();
+  $("btn-swap-preflight").disabled = true;
+  $("btn-swap-apply").hidden = true;      // 旧决策面作废:新预检完成前不可装包
+  $("swap-preflight-result").hidden = true;
+  $("swap-abandon-note").hidden = true;
+  $("swap-preflight-progress").hidden = false;
+  $("swap-preflight-phase").textContent = PAGE_STRINGS.PHASE_PREPARING;
+  // 请求归属:成功回执经 adoptJobReceipt 完成接管(评审④ P1);catch 用
+  // generation 守(迟到的旧错误不弹在当前流程上)
+  var gen = beginRequest();
+  postJson("/api/swap/preflight", { src: src, dst: dst, new_pack: newPack })
+    .then(function (body) {
+      adoptJobReceipt(body, "swap_preflight", handlersForKind("swap_preflight"), gen);
+      $("btn-swap-preflight").disabled = false;   // 回执到达即复位入口
+    })
+    .catch(function (err) {
+      if (!requestAlive(gen)) { return; }
+      $("btn-swap-preflight").disabled = false;
+      $("swap-preflight-progress").hidden = true;
+      if (err instanceof TypeError) {
+        showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE);
+        return;
+      }
+      // 新包目录校验失败(422 无 mods/ 子目录)等:面板内三段式,可改路径
+      // 重检或收起面板(有出口)
+      renderError($("swap-error"), err.what, err.why, err.details || {});
+    });
+}
+
+// swap 预检 job 渲染(模型 → 面板 DOM):运行态给阶段行;终态按 error 事件 /
+// 载荷致命错 / 决策面三分支——SSE 路与刷新恢复路同一出口
+function renderSwapPreflightState() {
+  $("swap-preflight-progress").hidden = jobModel.terminal;
+  if (!jobModel.terminal) {
+    $("swap-preflight-phase").textContent = jobModel.phase
+      ? (PAGE_STRINGS.PHASE_LABELS[jobModel.phase] || jobModel.phase)
+      : PAGE_STRINGS.PHASE_PREPARING;
+    return;
+  }
+  if (jobModel.error) {
+    // error 事件终态(如实例锁占用):面板内三段式,预检按钮复位可重试
+    $("swap-preflight-result").hidden = true;
+    $("btn-swap-apply").hidden = true;
+    $("btn-swap-preflight").disabled = false;
+    renderError($("swap-error"), jobModel.error.what, jobModel.error.why,
+      jobModel.error.details);
+    openLogOnError();
+    return;
+  }
+  renderSwapDecisions();
+}
+
+// 预检决策面:不兼容清单+accept_incompat 勾选 / 新包外残留清单+accept_extras
+// 勾选 / 同名冲突多选(=overwrite_jars)+ 覆盖备份位置预告;全部自
+// jobModel.swap 渲染(每次预检重建,勾选状态随之重置)
+function renderSwapDecisions() {
+  var s = jobModel.swap;
+  var box = $("swap-preflight-result");
+  if (!s || s.pf_error) {
+    // 致命错(缺版本 json/缺源快照):done 载荷 error 字段携带 CLI 同款文案——
+    // 禁用装包并给引导;改新包目录/补齐前置后可重新预检(有出口)
+    box.hidden = true;
+    $("btn-swap-apply").hidden = true;
+    if (s && s.pf_error) {
+      renderError($("swap-error"), PAGE_STRINGS.SWAP_PF_FATAL_WHAT, s.pf_error, {});
+    }
+    return;
+  }
+  var inc = s.incompat || [];
+  $("swap-sec-incompat").hidden = inc.length === 0;
+  $("swap-incompat-badge").textContent = String(inc.length);
+  var incList = $("swap-incompat-list");
+  incList.innerHTML = "";
+  inc.forEach(function (line) {
+    var li = document.createElement("li");
+    li.textContent = line;
+    incList.appendChild(li);
+  });
+  var ext = s.extras || [];
+  $("swap-sec-extras").hidden = ext.length === 0;
+  $("swap-extras-badge").textContent = String(ext.length);
+  var extList = $("swap-extras-list");
+  extList.innerHTML = "";
+  ext.forEach(function (jar) {
+    var li = document.createElement("li");
+    li.textContent = jar;
+    extList.appendChild(li);
+  });
+  var conf = s.conflicts || [];
+  $("swap-sec-conflicts").hidden = conf.length === 0;
+  $("swap-conflicts-badge").textContent = String(conf.length);
+  var rows = $("swap-conflict-rows");
+  rows.innerHTML = "";
+  conf.forEach(function (jar) {
+    var row = document.createElement("div");
+    row.className = "row";
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.dataset.jar = jar;   // 默认不勾 = 保留目标原件(覆盖决策显式化)
+    cb.addEventListener("change", updateSwapApplyGate);
+    var p = document.createElement("code");
+    p.className = "path";
+    p.textContent = jar;
+    var r = document.createElement("span");
+    r.className = "reason";
+    r.textContent = "内容不同:勾选 = 用新包覆盖(覆盖前自动备份)";
+    row.appendChild(cb);
+    row.appendChild(p);
+    row.appendChild(r);
+    rows.appendChild(row);
+  });
+  $("swap-accept-incompat").checked = false;
+  $("swap-accept-extras").checked = false;
+  $("swap-backup-preview").textContent = s.backup_preview
+    ? PAGE_STRINGS.swapBackupPreview(s.backup_preview) : "";
+  box.hidden = false;
+  $("btn-swap-apply").hidden = false;
+  updateSwapApplyGate();
+}
+
+// 装包按钮门:非空风险清单未被显式接受时禁用(服务端持锁重验兜底,
+// 页面先给确定性反馈,避免一次注定失败的 job)
+function updateSwapApplyGate() {
+  var s = jobModel.swap;
+  if (!s || s.pf_error || !s.preflight_id) {
+    $("btn-swap-apply").disabled = true;
+    return;
+  }
+  var incompatOk = !(s.incompat || []).length || $("swap-accept-incompat").checked;
+  var extrasOk = !(s.extras || []).length || $("swap-accept-extras").checked;
+  $("btn-swap-apply").disabled = !(incompatOk && extrasOk);
+}
+
+// 收集冲突 jar 勾选(apply 请求体的 overwrite_jars;须 ⊆ 预检 conflicts,
+// 页面只从预检清单建行,天然不越界)
+function collectOverwriteJars() {
+  var jars = [];
+  document.querySelectorAll("#swap-conflict-rows input[data-jar]").forEach(function (cb) {
+    if (cb.checked) { jars.push(cb.dataset.jar); }
+  });
+  return jars;
+}
+
+// 启动 swap 装包 job:POST /api/swap/apply(决策面:预检指纹+接受项+覆盖清单)
+// → ③执行页呈现进度(file 事件复用 migrate 渲染,装包段可取消)→ done 的
+// 链式换包计划经 render/onSwapApplyDone 直入②审阅页;本函数不调用普通
+// /api/plan(评审 P1-2)
+function startSwapApply() {
+  var s = jobModel.swap;
+  if (!s || !s.preflight_id) { return; }
+  $("swap-error").hidden = true;
+  if ($("src-select").value !== swapSrc || $("dst-select").value !== swapDst) {
+    // 向导版本对已变:preflight_id 绑定预检时的对,服务端必拒——先拦并引导重检
+    renderError($("swap-error"), PAGE_STRINGS.SWAP_PF_FATAL_WHAT,
+      PAGE_STRINGS.SWAP_APPLY_STALE_ROUTE, {});
+    return;
+  }
+  $("btn-swap-apply").disabled = true;
+  resetStep3();
+  $("btn-cancel").textContent = PAGE_STRINGS.SWAP_CANCEL_BUTTON;  // 装包段:取消=取消装包
+  showStep(3);
+  // 请求归属(评审 v3 P1):POST 回调用 generation 守,不用 ownsCurrent
+  var gen = beginRequest();
+  postJson("/api/swap/apply", {
+      preflight_id: s.preflight_id,
+      src: swapSrc,
+      dst: swapDst,
+      accept_incompat: $("swap-accept-incompat").checked,
+      accept_extras: $("swap-accept-extras").checked,
+      overwrite_jars: collectOverwriteJars()
+    })
+    .then(function (body) {
+      // 回执必须完成接管(评审④ P1;排序评审⑤);取消入口归属随接管接线
+      if (adoptJobReceipt(body, "swap", handlersForKind("swap"), gen)) {
+        currentMigrateJobId = body.job_id;   // 取消入口复用(SSE/取消回调 ownsCurrent)
+      }
+    })
+    .catch(function (err) {
+      if (!requestAlive(gen)) { return; }
+      if (err instanceof TypeError) {
+        showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE);
+        return;
+      }
+      // POST 被拒(422 预检过期/越界/409 单锁):回步①面板呈现,可重检后
+      // 重试或收起(有出口)
+      showStep(1);
+      $("swap-panel").hidden = false;
+      $("btn-swap-apply").disabled = false;
+      renderError($("swap-error"), err.what, err.why, err.details || {});
+    });
+}
+
+// 装包统计 chips(copied/skipped/conflicted/备份数):②审阅页边界条与③终态共用
+function renderSwapInstallChips(container, install) {
+  container.innerHTML = "";
+  if (!install) { return; }
+  var chips = [
+    [install.copied || 0, PAGE_STRINGS.SWAP_INSTALL_LABELS.copied],
+    [install.skipped || 0, PAGE_STRINGS.SWAP_INSTALL_LABELS.skipped],
+    [install.conflicted || 0, PAGE_STRINGS.SWAP_INSTALL_LABELS.conflicted],
+    [(install.backed_up || []).length, PAGE_STRINGS.SWAP_INSTALL_LABELS.backed_up]
+  ];
+  chips.forEach(function (c) {
+    var el = document.createElement("span");
+    el.className = "sum-chip";
+    el.textContent = c[1] + " " + c[0];
+    container.appendChild(el);
+  });
+}
+
+// swap 装包 done 消费(评审 P1-2 页面半,批次I-W3 T8):装包统计+边界文案条,
+// 并以链式换包计划的 plan/plan_id/diff(已由 applyDonePayload 入 jobModel,
+// planId 即 jobModel.planId)直接渲染②审阅页——「执行迁移」走既有 migrate 流
+// (旧包独有 jar 已按换包排除,不存在回迁路径);「放弃此计划返回」作废计划
+// 回步①;本路径不回退普通 /api/plan 重新规划
+function onSwapApplyDone() {
+  if (!jobModel.planId || !jobModel.plan) {
+    return;  // 取消/异常终态不带链式计划:留在③按 migrate 终态口径呈现
+  }
+  var s = jobModel.swap || {};
+  renderSwapInstallChips($("swap-install-stats"), s.install);
+  $("swap-boundary-note").textContent = PAGE_STRINGS.swapBoundary(s.backup_dir || "");
+  $("swap-review-banner").hidden = false;
+  buildPlanReview();          // 审阅页:分组/摘要条/折叠区自 jobModel.plan+diff
+  $("btn-migrate").disabled = false;
+  showStep(2);
+}
+
+// 放弃换包计划出口:作废计划(planId 清零)回步①,明确提示该计划已作废、
+// 须重走 swap;已装入 mods/ 不自动撤销(边界文案已在审阅页声明)
+function abandonSwapPlan() {
+  closeEvents();
+  resetStep2();               // 计划作废:planId/jobModel.planId 清零
+  $("swap-panel").hidden = false;
+  $("swap-abandon-note").hidden = false;
+  $("swap-abandon-note").textContent = PAGE_STRINGS.SWAP_ABANDON_NOTE;
+  showStep(1);
+}
+
+// ③执行页的换包非成功终态出口:回步①换包面板(取消/规划失败/装包被拒均
+// 无计划可审),按终态形态给出对应指引
+function backToSwapPanel() {
+  closeEvents();
+  currentMigrateJobId = null;  // 离开执行页:取消入口与轮询一并收口
+  $("swap-panel").hidden = false;
+  $("swap-abandon-note").hidden = false;
+  $("swap-abandon-note").textContent = (jobModel.swap && jobModel.swap.install)
+    ? (jobModel.error ? PAGE_STRINGS.SWAP_REPLAN_FAILED_NOTE : PAGE_STRINGS.SWAP_CANCELLED_NOTE)
+    : PAGE_STRINGS.SWAP_RETRY_NOTE;
+  showStep(1);
+}
+
+/* ---------- 中断横幅(批次I-T6):加载时扫描待核对清单;W3-T5 接清除通道 ---------- */
 
 function loadInterrupted() {
   fetch("/api/jobs/interrupted").then(function (resp) {
@@ -1002,13 +2596,59 @@ function loadInterrupted() {
   }).then(function (body) {
     var items = body.items || [];
     if (!items.length) { return; }
-    var n = items.reduce(function (s, it) { return s + (it.entries || []).length; }, 0);
-    $("banner-interrupted").textContent =
-      "检测到上次未完成的迁移(" + items.length + " 个任务、" + n +
-      " 项文件状态待核对),请核对相关文件后重新生成计划再继续迁移;" +
-      "已完成文件在重新生成的计划中会按「内容一致」跳过。";
-    $("banner-interrupted").hidden = false;
+    var entries = items.reduce(function (s, it) { return s + (it.entries || []).length; }, 0);
+    // W3-T3 新字段:unknown_progress=未收尾且无待核对条目(整体进度未知)
+    var unknown = items.filter(function (it) { return it.unknown_progress; }).length;
+    var banner = $("banner-interrupted");
+    banner.textContent = PAGE_STRINGS.interruptedBanner(items.length, entries, unknown);
+    banner.hidden = false;
+    // 清除通道(T3 #9,W3-T5 接线)+ 待核对明细(修复 A7b):逐条折叠展开
+    // 「文件 + 计划动作 + 覆盖前备份」——此前只计数不列出,用户被要求「核对」
+    // 却看不到核对什么(write-ahead 证据对用户不可见);懒展开交给原生 details
+    items.forEach(function (it) {
+      if (!it.job_id) { return; }
+      var wrap = document.createElement("details");
+      wrap.style.marginTop = "6px";
+      wrap.style.fontWeight = "normal";
+      var sum = document.createElement("summary");
+      sum.textContent = PAGE_STRINGS.interruptedItem(it);
+      wrap.appendChild(sum);
+      (it.entries || []).forEach(function (en) {
+        var line = document.createElement("div");
+        line.textContent = PAGE_STRINGS.interruptedEntry(en);
+        wrap.appendChild(line);
+      });
+      if (it.unknown_progress) {
+        var note = document.createElement("div");
+        note.textContent = PAGE_STRINGS.INTERRUPTED_UNKNOWN;
+        wrap.appendChild(note);
+      }
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "small";
+      btn.style.marginLeft = "10px";
+      btn.textContent = PAGE_STRINGS.INTERRUPTED_DISMISS;
+      btn.addEventListener("click", function () { dismissInterrupted(it.job_id, btn); });
+      wrap.appendChild(btn);
+      banner.appendChild(wrap);
+    });
   }).catch(function () { /* 拉取失败静默:横幅属辅助提示,不阻断向导 */ });
+}
+
+// 清除一条中断记录(POST dismiss;服务端对持锁活任务答 409,见 T3 评审 P2-8)
+function dismissInterrupted(jobId, btn) {
+  postJson("/api/jobs/interrupted/" + encodeURIComponent(jobId) + "/dismiss", {})
+    .then(function () {
+      if (btn.parentNode) { btn.parentNode.removeChild(btn); }
+      if ($("banner-interrupted").querySelectorAll("button").length === 0) {
+        $("banner-interrupted").hidden = true;
+      }
+    })
+    .catch(function (err) {
+      if (err instanceof TypeError) { showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE); return; }
+      // 服务端三段式的 why(句柄占用/保留名等具体指引)直达按钮;无 why 回退通用文案
+      btn.textContent = err.why || PAGE_STRINGS.INTERRUPTED_DISMISS_FAILED;
+    });
 }
 
 /* ---------- 退出服务(批次I-T6):空闲置停机标志,进程退出归启动方(T10 接线) ---------- */
@@ -1018,26 +2658,99 @@ function shutdownServer() {
   btn.disabled = true;
   postJson("/api/shutdown", {}).then(function () {
     // W2.5 复审 B6:停机标志已置,但进程退出由启动方轮询执行(T10 前尚在运行)——
-    // 文案不得声称「已退出」,否则玩家关页后控制台进程残留却自以为已收尾
+    // 文案不得声称「已退出」。注:这两句文案保留在本函数内(不入 PAGE_STRINGS):
+    // 契约测试锚定「已请求退出」必须出现在 shutdownServer 函数体内
     $("shutdown-note").textContent =
       "已请求退出。请关闭本页面;若控制台窗口仍停留,直接关闭它即可。";
   }).catch(function (err) {
     btn.disabled = false;
-    if (err instanceof TypeError) { $("banner-disconnect").hidden = false; return; }
+    if (err instanceof TypeError) { showBanner(PAGE_STRINGS.BANNER_SERVER_UNREACHABLE); return; }
     $("shutdown-note").textContent = err.why || err.what || "退出失败";
   });
+}
+
+/* ---------- 刷新恢复(批次I-W3 T5):零 DOM 主体 + init 薄壳 ---------- */
+
+// 刷新恢复零 DOM 主体(评审 v4 T5 建议):GET /api/jobs/<id> → applyStatus
+// 消费 done 载荷按 kind 重建模型/页面 → 未终态按规则②带游标续订;返回
+// Promise,node 行为测试可经 fetch 桩直测真实恢复路径;init() 仅薄壳调用
+function restoreSavedJob(saved) {
+  var gen = beginRequest();               // 恢复期间用户可能已发起新任务(v3 P1)
+  return fetch("/api/jobs/" + encodeURIComponent(saved.job_id))
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (body) {
+      if (!requestAlive(gen)) { return; }  // 旧恢复回调不覆盖新任务(v3 P1)
+      if (!body) {
+        // 服务端已不认识该 job(服务重启):游标作废,回到欢迎态
+        try { sessionStorage.removeItem("mcmig.job"); } catch (e) { /* 存储不可用 */ }
+        return;
+      }
+      newJob(saved.job_id, body.kind, gen);   // 恢复请求代际=当前任务创建代际(评审⑤)
+      jobModel.lastSeq = saved.seq || 0;  // GET 前先立游标(applyStatus 的 revision 门用)
+      applyStatus(body);
+      render();                           // 终态:done 载荷按 kind 重建页面
+      if (body.kind === "swap_preflight" && jobModel.src && jobModel.dst) {
+        // 预检身份从恢复模型统一派生(0.12.0 复审#10):swapSrc/swapDst 不随
+        // 恢复重建的话,startSwapApply 的路线比对会误判「向导已改动」,
+        // 把仍然有效的预检指纹挡成死路;下拉值由 restoreRouteSelections 回填
+        swapSrc = jobModel.src;
+        swapDst = jobModel.dst;
+      }
+      if (!jobModel.terminal) {           // 未终态:规则②带游标续订
+        // migrate 与 swap 装包均可取消:恢复后续订前接上取消入口(批次I-W3 T8)
+        if (body.kind === "migrate" || body.kind === "swap") {
+          currentMigrateJobId = saved.job_id;
+        }
+        openEvents(saved.job_id, handlersForKind(body.kind), { resumeSeq: jobModel.lastSeq });
+      }
+    })
+    .catch(function () { /* GET 网络失败:保留游标,横幅由其它入口统一提示 */ });
 }
 
 /* ---------- 事件绑定与启动 ---------- */
 
 function init() {
+  // 刷新恢复薄壳:读 sessionStorage 游标 → 转发零 DOM 主体 restoreSavedJob
+  var saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem("mcmig.job") || "null"); } catch (e) { /* 损坏视同无 */ }
+  if (saved && saved.job_id) {
+    restoreSavedJob(saved).then(function () {
+      // 导航续篇(主体零 DOM,不在此内):按恢复出的模型带到对应步骤
+      if (jobModel.kind === "migrate") { showStep(3); }
+      else if (jobModel.kind === "swap") {
+        // 换包装包:成功(带链式计划,render 已直入②审阅页)停在②,其余
+        // (运行中/取消/规划失败)停在③执行页(批次I-W3 T8)
+        showStep(jobModel.terminal && jobModel.plan && !jobModel.error ? 2 : 3);
+      }
+      else if (jobModel.kind === "swap_preflight") {
+        $("swap-panel").hidden = false;   // 预检恢复:决策面在步①面板(T8)
+        showStep(1);
+      }
+      else if (jobModel.kind === "plan") { showStep(2); }
+      else if (jobModel.kind === "update") { showStep(1); }   // 更新面板在步①区
+    });
+  }
   $("src-select").addEventListener("change", refreshStartButton);
   $("dst-select").addEventListener("change", refreshStartButton);
   $("btn-save-root").addEventListener("click", saveConfig);
   $("btn-plan").addEventListener("click", startPlan);
   $("btn-migrate").addEventListener("click", startMigrate);
   $("btn-cancel").addEventListener("click", cancelMigrate);
+  // 更新面板(W4 T13):检查/下载/取消/打开暂存位置
+  $("btn-update-check").addEventListener("click", checkUpdate);
+  $("btn-update-download").addEventListener("click", startUpdateDownload);
+  $("btn-update-cancel").addEventListener("click", cancelUpdate);
+  $("btn-update-open").addEventListener("click", openUpdateLocation);
   $("btn-shutdown").addEventListener("click", shutdownServer);
+  // 换包两阶段(批次I-W3 T8):面板开合/预检/装包/放弃与失败出口
+  $("btn-swap-entry").addEventListener("click", toggleSwapPanel);
+  $("btn-swap-close").addEventListener("click", function () { $("swap-panel").hidden = true; });
+  $("btn-swap-preflight").addEventListener("click", startSwapPreflight);
+  $("btn-swap-apply").addEventListener("click", startSwapApply);
+  $("swap-accept-incompat").addEventListener("change", updateSwapApplyGate);
+  $("swap-accept-extras").addEventListener("change", updateSwapApplyGate);
+  $("btn-swap-abandon").addEventListener("click", abandonSwapPlan);
+  $("btn-swap-fail-back").addEventListener("click", backToSwapPanel);
   $("btn-back1").addEventListener("click", function () {
     closeEvents();          // 放弃当前订阅(job 若仍在跑由服务端单锁兜底)
     $("btn-plan").disabled = false;
@@ -1053,6 +2766,16 @@ function init() {
   });
   $("btn-copy-failed").addEventListener("click", copyFailedList);
   $("search").addEventListener("input", applyFilter);
+  // 折叠参考区(T6):mod 配对/仅客户端件/世界提示——首次展开懒建行(#24)
+  $("mod-pairs-head").addEventListener("click", function () {
+    toggleExtraGroup("sec-mod_pairs", buildModPairsBody);
+  });
+  $("client-only-head").addEventListener("click", function () {
+    toggleExtraGroup("sec-client_only", buildClientOnlyBody);
+  });
+  $("world-notices-head").addEventListener("click", function () {
+    toggleExtraGroup("sec-world_notices", buildWorldNoticesBody);
+  });
   showStep(1);
   loadConfig();   // 预填游戏根目录(未配置留空,由用户在输入框填写)
   loadVersions();

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcmig"
-version = "0.11.2"
-description = "Minecraft 整合包版本迁移工具(只读 scan/diff)"
+version = "0.13.0"
+description = "Minecraft 整合包版本迁移工具:扫描/比对/计划/执行/换包/向导界面"
 requires-python = ">=3.11"
 dependencies = [
     "rich>=13.0",
@@ -18,8 +18,14 @@ dependencies = [
 
 [project.scripts]
 mcmig = "migration.cli:main"
+mcmig-gui = "migration.gui.app:main"
 
 [project.optional-dependencies]
+# 窗口壳可选组(spec §4.1.2/D5):默认安装=CLI+浏览器模式;
+# 打包与想要独立窗口的源码用户 `pip install -e ".[gui]"`。
+# >=5.0 钉版承担 selected_renderer 消费内部 API(webview.guilib.initialize)
+# 的风险;代码路径内 lazy import,未安装时自动降级浏览器模式(测试零依赖它)
+gui = ["pywebview>=5.0"]
 # 开发/测试依赖组:r11 教训 —— `uv sync` 精确模式只装运行时依赖会剪掉 pytest,
 # 测试环境请用 `uv pip install -e ".[dev]"`(或 pip 等价命令)
 dev = ["pytest>=8.0", "ruff==0.15.20"]

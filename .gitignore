@@ -23,8 +23,26 @@ dist/
 # 服务端场景测试交付包(本地手工打包,勿入库)
 /mcmigrator_服务端测试_*.zip
 
+# ===== 本地资源(机器本地,不入库) =====
+# 赛车活动(进行中):工作单与输入包在仓库根目录,勿入库
+/racing-event
+/racing-event.zip
+/goal.md
+/F1上海国际赛车场By Fadedmories 1.20.1.zip
+/机械动力服务端（9.28）.zip
+
+# ZCode 工具本地文件:会话计划/索引忽略配置/评审截图
+/.zcode/
+/.zcodeignore
+/.review-ui-*/
+
 # 客户端 9.19 语料实验室(junction 挂载,机器本地)
 /.lab_client919/
 
 # git worktrees(隔离工作区)
 .worktrees/
+
+# W4 打包工作区(独立构建 venv/工作副本/发行产物,均不入库)
+.venv-build/
+.build-work/
+dist-release/

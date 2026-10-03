@@ -1,0 +1,55 @@
+# .github/workflows/release.yml —— tag v*:全检+锁定构建+SUMS+自动 Release(spec §4.2.2/§5)
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # 全检 job(spec §4.2.2「同 build 全检」= 双平台;可编辑安装与 build.yml 同口径)
+  check-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev,gui]"
+      - run: python -m ruff check migration/ tests/
+      - run: python -m pytest tests/
+
+  # Linux 全检:POSIX flock 用例真跑(tag 上同样拦回归)
+  check-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m ruff check migration/ tests/
+      - run: python -m pytest tests/
+
+  # 发布 job:守卫先行;只装锁定文件(不做可编辑安装,防 _form 遮蔽,见 build.py)
+  release:
+    runs-on: windows-latest
+    needs: [check-windows, check-linux]
+    permissions:
+      contents: write   # gh release 建页所需
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python tools/packaging/check_release.py ${{ github.ref_name }}
+      - run: python -m pip install -r tools/packaging/requirements-win-build.txt
+      - run: python tools/packaging/build.py --form onefile
+      - run: python tools/packaging/build.py --form onedir
+      - run: python tools/packaging/build.py --sums dist-release
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist-release/*   # exe+zip+SHA256SUMS.txt 三资产
+          generate_release_notes: true
+          body: |
+            更新方式(基础档):下载 → SHA256 校验(见 SHA256SUMS.txt)→ 手动替换。
+            自动应用更新随后续版本提供,当前为下载-校验-手动替换。

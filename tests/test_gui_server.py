@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -380,10 +381,55 @@ def test_migrate_executed_plan_emits_preflight_error(tmp_path, monkeypatch):
     assert {"what", "why", "details"} <= set(err.keys())
     assert err["details"]["blockers"][0]["code"] == "plan_executed"
     assert err["details"]["blockers"][0]["message"]  # 文案随事件带给前端展示
+    # 修复 A6:why 取首条阻断的具体指引(不再是「请重新生成并审阅计划」通用文案)
+    assert err["why"] == err["details"]["blockers"][0]["message"]
+    assert "已执行" in err["why"]
+
+
+def test_legacy_plan_migrate_state_drift_blocked(tmp_path, monkeypatch):
+    """修复 A2:review=None 旧版计划不再跳过状态校验——与 CLI 同构(执行侧
+    内部兜底 validate_states=plan.review is None,cli.py:_cmd_migrate 同参)。
+    剥离审阅守卫后改动源文件(审阅后漂移),迁移必须阻断而非静默覆盖;
+    修复前 GUI 传 validate_states=False 且 precheck 对 review=None 不查状态
+    → 漂移被静默覆盖(GUI 防护弱于 CLI 的白名单外行为)。"""
+    import json as _json
+
+    from migration.plan import MigrationPlan
+    from migration.review import plan_fingerprint
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    r = client.post("/api/plan", json={"src": "src", "dst": "dst"})
+    done = _wait_job_done(client, r.json()["job_id"])[-1]
+    assert done["type"] == "done"
+    # 剥离审阅守卫(模拟旧版工具签发的计划)并复算指纹(review 参与 plan_id)
+    plan_file = game / ".mcmig" / "plans" / "src__dst.plan.json"
+    payload = _json.loads(plan_file.read_text(encoding="utf-8"))
+    payload["review"] = None
+    plan_file.write_text(
+        _json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    legacy_id = plan_fingerprint(MigrationPlan.load(plan_file))
+    # 审阅后漂移:改动源文件内容(快照记录的 md5 失配)
+    (game / "versions" / "src" / "options.txt").write_text("drift\n", encoding="utf-8")
+
+    r2 = client.post("/api/migrate", json={"src": "src", "dst": "dst", "ask_yes": [],
+                                           "plan_id": legacy_id})
+    events = _wait_job_done(client, r2.json()["job_id"])
+    assert events[-1]["type"] == "error", "旧版计划审阅后漂移必须阻断(修复 A2)"
+    err = events[-1]
+    assert err["details"]["code"] == "review_state_changed"
+    assert err["details"]["blockers"][0]["code"] == "source_state_changed"
+    # 漂移未被覆盖到目标:目标 options.txt 保持计划前内容
+    assert (game / "versions" / "dst" / "options.txt").read_text(
+        encoding="utf-8") == "fps:60\n"
 
 
 def test_migrate_preflight_warnings_emitted_as_events(tmp_path, monkeypatch):
-    """批次I-T2:预检降级警告 → warning 事件(新事件型,页面忽略未知型;不阻断流程)。"""
+    """批次I-T2:预检降级警告 → warning 事件(新事件型,页面忽略未知型;不阻断流程)。
+
+    批次I-W3 T1 起 migrate 前置检查经 pipeline.precheck_execution 单点,
+    注入点随之迁移(替身返回 PrecheckOutcome)。
+    """
+    from migration.pipeline import PrecheckOutcome
     from migration.preflight import PreflightWarning
 
     _game, client = _make_client(tmp_path, monkeypatch)
@@ -392,8 +438,9 @@ def test_migrate_preflight_warnings_emitted_as_events(tmp_path, monkeypatch):
     # GUI 走严格默认(decisions=None),warnings 仅在决策放行时产生;
     # 注入替身验证「warnings → warning 事件」接线本身
     monkeypatch.setattr(
-        server_module, "preflight_execute",
-        lambda *a, **k: ([], [PreflightWarning("snapshot_stale", "快照比计划新")]),
+        server_module, "precheck_execution",
+        lambda *a, **k: PrecheckOutcome(
+            [], [PreflightWarning("snapshot_stale", "快照比计划新")], False),
     )
     plan_id = events[-1]["plan_id"]
     r2 = client.post("/api/migrate", json={"src": "src", "dst": "dst", "ask_yes": [],
@@ -652,18 +699,20 @@ def test_slow_subscriber_dropped_without_backpressure(monkeypatch):
 
     Job 级单元断言(确定性):容量 2,连发 5 事件——快订阅者随发随收全量,
     慢订阅者在第 3 次 put 时被移除,emit 全程不阻塞不抛错。
+    (W3 T2 起 subscribe 返回 _Sub 订阅者对象,取队列经 ``.queue``。)
     """
     monkeypatch.setattr(server_module, "_SUBSCRIBER_QUEUE_LIMIT", 2)
     job = server_module.Job("j-slow", "migrate")
-    _reset1, _replay1, q_fast = job.subscribe(0)
-    _reset2, _replay2, q_slow = job.subscribe(0)  # 从不消费(慢订阅者)
+    _reset1, _replay1, sub_fast = job.subscribe(0)
+    _reset2, _replay2, sub_slow = job.subscribe(0)  # 从不消费(慢订阅者)
     got: list[dict] = []
     for i in range(5):
         job.emit({"type": "phase", "name": f"p{i}"})
-        got.append(q_fast.get_nowait())  # 快订阅者随发随收,队列永不积压
+        got.append(sub_fast.queue.get_nowait())  # 快订阅者随发随收,队列永不积压
     assert [e["seq"] for e in got] == [1, 2, 3, 4, 5]  # 快订阅者全量
-    assert q_slow not in job._subs                     # 慢订阅者已因队列满被丢弃
-    job.unsubscribe(q_fast)
+    assert sub_slow not in job._subs                 # 慢订阅者已因队列满被摘除
+    assert sub_slow.dropped                          # 且已标记(其流将以 overflow 帧收尾)
+    job.unsubscribe(sub_fast)
 
 
 def test_slow_subscriber_http_job_not_blocked(tmp_path, monkeypatch):
@@ -805,14 +854,14 @@ def test_cancel_migrate_flows_to_cancelled(tmp_path, monkeypatch):
     job_id = client.post(
         "/api/migrate", json={"src": "src", "dst": "dst", "ask_yes": [], "plan_id": plan_id}
     ).json()["job_id"]
-    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 202
+    assert client.post(f"/api/jobs/{job_id}/cancel", json={}).status_code == 202
     assert client.get(f"/api/jobs/{job_id}").json()["status"] == "cancelling"
     events = _wait_job_done(client, job_id)
     assert client.get(f"/api/jobs/{job_id}").json()["status"] == "cancelled"
     assert events[-1]["type"] == "done" and events[-1].get("cancelled") is True
     # 部分完成清单:首个动作恒执行(安全边界),其余未分发;计划不回写 executed_at
     assert events[-1]["completed"] and len(events[-1]["pending"]) == 19
-    assert (game / ".mcmig" / "jobs" / f"{job_id}.json").is_file()
+    assert (game / ".mcmig" / "jobs" / f"{job_id}.jsonl").is_file()
 
 
 def test_cancel_plan_job_unsupported(tmp_path, monkeypatch):
@@ -820,7 +869,7 @@ def test_cancel_plan_job_unsupported(tmp_path, monkeypatch):
     monkeypatch.setattr(server_module, "_JOB_MIN_ALIVE_SECONDS", 2.0)
     _game, client = _make_client(tmp_path, monkeypatch)
     job_id = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
-    resp = client.post(f"/api/jobs/{job_id}/cancel")
+    resp = client.post(f"/api/jobs/{job_id}/cancel", json={})
     assert resp.status_code == 405 and resp.json()["what"]
     assert client.get(f"/api/jobs/{job_id}").json()["status"] == "running"  # 取消不影响运行
     _wait_job_done(client, job_id)
@@ -831,7 +880,7 @@ def test_cancel_terminal_job_conflict(tmp_path, monkeypatch):
     _game, client = _make_client(tmp_path, monkeypatch)
     plan_id = _run_plan_for_migrate(client)
     job_id = _run_migrate_done(client, plan_id)
-    resp = client.post(f"/api/jobs/{job_id}/cancel")
+    resp = client.post(f"/api/jobs/{job_id}/cancel", json={})
     assert resp.status_code == 409 and resp.json()["what"]
 
 
@@ -846,6 +895,10 @@ def test_interrupted_listing_from_journal(tmp_path, monkeypatch):
     )
     items = client.get("/api/jobs/interrupted").json()["items"]
     assert items[0]["job_id"] == "deadbeef" and items[0]["entries"][0]["rel"] == "options.txt"
+    # 批次I-W3 T3 新返回形:身份字段照带(本条无身份=旧式构造);有待核对条目
+    # → unknown_progress=False(整体进度以 entries 呈现)
+    assert items[0]["src"] == "" and items[0]["dst"] == "" and items[0]["game_root"] == ""
+    assert items[0]["unknown_progress"] is False
 
 
 def test_interrupted_listing_filters_running_job(tmp_path, monkeypatch):
@@ -880,15 +933,61 @@ def test_interrupted_listing_filters_running_job(tmp_path, monkeypatch):
     assert [i["job_id"] for i in items2] == ["deadbeef"]
 
 
-def test_shutdown_endpoint_guards_on_busy(tmp_path, monkeypatch):
-    """退出入口: 空闲 200 置停机标志;job 运行 409(spec §4.3,uvicorn 侧接线归 T10)。"""
+def test_shutdown_endpoint_drains_atomically(tmp_path, monkeypatch):
+    """退出入口(修复 A5):忙 → 409 且不置位;空闲 → begin_shutdown 原子排空
+    (draining + 停机标志),此后新任务在 JobStore.start 同临界区被拒 503——
+    封死「检查为空闲 → 新任务启动 → 进程退出」竞争窗。"""
     _game, client = _make_client(tmp_path, monkeypatch)
-    assert client.post("/api/shutdown").json()["ok"] is True
-    assert client.app.state.shutdown_requested is True
     monkeypatch.setattr(server_module, "_JOB_MIN_ALIVE_SECONDS", 2.0)
     job_id = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
-    assert client.post("/api/shutdown").status_code == 409
+    busy = client.post("/api/shutdown", json={})
+    assert busy.status_code == 409
+    assert busy.json()["details"]["task"]                  # details 附任务描述
+    assert client.app.state.shutdown_requested is False    # 忙:不置位、不排空
+    assert client.app.state.jobs.draining is False
     _wait_job_done(client, job_id)
+
+    assert client.post("/api/shutdown", json={}).json()["ok"] is True
+    assert client.app.state.shutdown_requested is True
+    assert client.app.state.jobs.draining is True          # 原子排空已置位
+    r = client.post("/api/plan", json={"src": "src", "dst": "dst"})
+    assert r.status_code == 503                            # 排空后拒绝新任务
+    assert {"what", "why", "details"} <= set(r.json().keys())
+
+
+def test_jobstore_evicts_oldest_done_jobs():
+    """修复 A7:_jobs 只增不减 → 按插入序淘汰最旧**终态** job,保留最近
+    ``_MAX_JOBS`` 条;在跑 job 永不淘汰。"""
+    from migration.gui.server import Job, JobStore
+
+    store = JobStore()
+    for i in range(server_module._MAX_JOBS + 5):
+        j = Job(f"done{i}", "plan")
+        j.done = True
+        store._jobs[j.id] = j
+    running = Job("running", "migrate")          # 未收尾(在跑)
+    store._jobs[running.id] = running
+    store._current = running
+    store._evict_done_locked()
+    ids = set(store._jobs)
+    assert len(store._jobs) == server_module._MAX_JOBS
+    assert "running" in ids                        # 在跑 job 保留
+    assert "done0" not in ids                      # 最旧终态被淘汰
+    assert f"done{server_module._MAX_JOBS + 4}" in ids  # 最新终态保留
+
+
+def test_jobstore_eviction_wired_and_old_job_404(tmp_path, monkeypatch):
+    """修复 A7 接线:经 start() 连续注册 job 触发淘汰——超出上限的最旧 job
+    从仓库消失(GET 404),最近 job 仍可查(GET 200)。"""
+    monkeypatch.setattr(server_module, "_MAX_JOBS", 3)
+    _game, client = _make_client(tmp_path, monkeypatch)
+    ids = []
+    for _ in range(5):
+        jid = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
+        _wait_job_done(client, jid)
+        ids.append(jid)
+    assert client.get(f"/api/jobs/{ids[-1]}").status_code == 200   # 最近:可查
+    assert client.get(f"/api/jobs/{ids[0]}").status_code == 404    # 最旧:已淘汰
 
 
 # ---- 批次I-T6 修复(finding 1/2):journal 停发呈现与取消清单口径 ----
@@ -897,25 +996,28 @@ def test_shutdown_endpoint_guards_on_busy(tmp_path, monkeypatch):
 def test_journal_write_failure_not_locked_as_executed(tmp_path, monkeypatch):
     """journal 写失败停发: error 事件呈现(非静默 succeeded),executed_at 不回写,计划不锁(finding 1)。
 
-    注入点:migration.journal 命名空间的 write_json_atomic——首动作 intent+completion
-    两次写成功后,第二个动作的 intent 写失败 → Executor 停发(journal_failed),
-    仅 1 文件落盘。修复前:done 事件普通摘要 + status=succeeded + mark_executed 回写
+    注入点(批次I-W3 T3 机械更新):``JobJournal._append``——JSONL 追加原语,
+    替代旧版全量重写锚点 write_json_atomic;start 行不计次(构造期写入),
+    保持「首动作 intent+completion 两次追加成功后,第二个动作的 intent 失败」
+    的等价注入语义。修复前:done 事件普通摘要 + status=succeeded + mark_executed 回写
     → plan_executed 锁死计划,文件被静默漏迁。
     """
-    import migration.journal as jm
+    from migration.journal import JobJournal, JournalError
 
     game, client = _make_client(tmp_path, monkeypatch, files=3)
     plan_id = _run_plan_for_migrate(client)
-    real_write = jm.write_json_atomic
     calls = {"n": 0}
+    real_append = JobJournal._append
 
-    def _flaky(path, payload):
-        calls["n"] += 1
+    def _flaky(self, line):
+        if line.get("op") != "start":  # start 行不计次(构造期追加,非记录)
+            calls["n"] += 1
         if calls["n"] > 2:  # #1 intent(首动作) #2 completion(首动作) 成功;#3 起 disk
-            raise OSError("disk")
-        real_write(path, payload)
+            self.write_failed = True  # 模拟真实 _append 的 OSError 留痕语义
+            raise JournalError("journal 写入失败: disk(注入)")
+        real_append(self, line)
 
-    monkeypatch.setattr(jm, "write_json_atomic", _flaky)
+    monkeypatch.setattr(JobJournal, "_append", _flaky)
     job_id = client.post(
         "/api/migrate", json={"src": "src", "dst": "dst", "ask_yes": [], "plan_id": plan_id}
     ).json()["job_id"]
@@ -959,7 +1061,7 @@ def test_cancelled_completed_list_excludes_failed(tmp_path, monkeypatch):
     job_id = client.post(
         "/api/migrate", json={"src": "src", "dst": "dst", "ask_yes": [], "plan_id": plan_id}
     ).json()["job_id"]
-    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 202
+    assert client.post(f"/api/jobs/{job_id}/cancel", json={}).status_code == 202
     events = _wait_job_done(client, job_id)
     done = events[-1]
     assert done["type"] == "done" and done["cancelled"] is True
@@ -1010,7 +1112,7 @@ def test_cancel_after_settle_rejected_and_terminal_consistent(tmp_path, monkeypa
     ).json()["job_id"]
     assert settled.wait(timeout=10)  # job 线程已完成终态判定(done 尚未发出)
     # 判定之后、收尾之前:取消必须被 409 拒绝(终态已定,不再受理翻案)
-    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 409
+    assert client.post(f"/api/jobs/{job_id}/cancel", json={}).status_code == 409
     release.set()  # 放行 job 线程:按已判定的「成功」收尾
     events = _wait_job_done(client, job_id)
     done = events[-1]
@@ -1026,7 +1128,7 @@ def test_cancel_after_settle_rejected_and_terminal_consistent(tmp_path, monkeypa
     assert client.get("/api/jobs/interrupted").json()["items"] == []
     # 不变量:done 后 status 永不再变化,重复 cancel 恒 409
     for _ in range(3):
-        assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 409
+        assert client.post(f"/api/jobs/{job_id}/cancel", json={}).status_code == 409
         assert client.get(f"/api/jobs/{job_id}").json()["status"] == "succeeded"
 
 
@@ -1071,3 +1173,1111 @@ def test_plan_job_uses_legacy_rules_with_notice(tmp_path, monkeypatch):
                                            "plan_id": done["plan_id"]})
     events2 = _wait_job_done(client, r2.json()["job_id"])
     assert events2[-1]["type"] == "done"
+
+
+# ---- 批次I-W3 T1:执行前置检查单点 precheck_execution(③④⑤ 三段合一) ----
+
+
+def test_migrate_gui_legacy_snapshots_guard_no_false_positive(tmp_path, monkeypatch):
+    """吸收 #1/#10:旧布局快照用户 GUI 全链路——plan 带 notice 提示,
+    migrate 不误报 snapshot_changed;守卫错误 details.blockers 恒非空(#2 见下例)。
+
+    实现者注:旧布局目录须在 client 构建前就位——WorkDir 是冻结值对象,
+    resolve_workdir 在 create_app 时一次性判定 legacy_snapshots,客户端创建
+    后再挪目录不会被感知(故先建游戏与旧布局、再经 game= 传参建 client)。
+    rename 保 mtime,不触发 snapshot_stale(评审建议 B:先锚定扫描再 rename,
+    直接对不存在的锚定快照 rename 会 FileNotFoundError)。
+    """
+    from migration.pipeline import scan_version
+
+    game = _make_game(tmp_path)
+    # 先锚定扫描再 rename 到旧布局(锚定目录留空壳,与 CLI 同型夹具)
+    anchored = game / ".mcmig" / "snapshots"
+    scan_version(game, "src", anchored)
+    scan_version(game, "dst", anchored)
+    (tmp_path / ".mcmig" / "snapshots").mkdir(parents=True)
+    for ver in ("src", "dst"):
+        (anchored / f"{ver}.snapshot.json").rename(
+            tmp_path / ".mcmig" / "snapshots" / f"{ver}.snapshot.json")
+    _game, client = _make_client(tmp_path, monkeypatch, game=game)
+    job = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
+    events = _wait_job_done(client, job)
+    assert events[-1]["type"] == "done"
+    assert any(e["type"] == "notice" and "旧布局快照" in e["text"] for e in events)  # 吸收 #1
+    r = client.post("/api/migrate", json={"src": "src", "dst": "dst",
+                                          "ask_yes": [], "plan_id": events[-1]["plan_id"]})
+    events2 = _wait_job_done(client, r.json()["job_id"])
+    assert events2[-1]["type"] == "done"                              # 不误报
+
+
+def test_migrate_guards_error_details_never_empty_blockers(tmp_path, monkeypatch):
+    """吸收 #2:guards_plan_mismatch 时 details.blockers 恒含合成条目(消费方取 [0] 安全)。
+
+    两次 plan 之间改写 src(options.txt 内容进指纹;同秒连跑时 generated_at 与
+    快照哈希可能逐字节相同,内容改动才确定性产出不同 plan_id,盘上已是新计划);
+    持第一次的 plan_id 迁移即指纹失配。
+    """
+    game, client = _make_client(tmp_path, monkeypatch)
+    j1 = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
+    old_id = _wait_job_done(client, j1)[-1]["plan_id"]
+    (game / "versions" / "src" / "options.txt").write_text("fps:144\n", encoding="utf-8")
+    j2 = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
+    events2 = _wait_job_done(client, j2)
+    assert events2[-1]["plan_id"] != old_id                           # 盘上已是新计划
+    r = client.post("/api/migrate", json={"src": "src", "dst": "dst",
+                                          "ask_yes": [], "plan_id": old_id})
+    ev = _wait_job_done(client, r.json()["job_id"])[-1]
+    assert ev["type"] == "error" and ev["details"]["code"] == "guards_plan_mismatch"
+    assert ev["details"]["blockers"] and ev["details"]["blockers"][0]["code"] == "guards_plan_mismatch"
+
+
+# ---- 批次I-W3 T2:SSE 终态原子提交 + 慢订阅者溢出信号 + 游标契约对齐 ----
+
+
+def test_emit_terminal_settles_status_atomically():
+    """P2-4:终态事件入历史与状态收口同一临界区——emit(done) 返回即终态,无 _finish。"""
+    from migration.gui.server import Job
+    from migration.executor import FileResult
+    job = Job("t1", "migrate")
+    job.emit({"type": "phase", "name": "migrate"})
+    assert job.snapshot()["status"] == "running"
+    job.settle()                                        # 非取消场景仍先封取消窗
+    job.results = [FileResult("options.txt", "copied", failed=True, error="x")]
+    job.emit({"type": "done", "job_kind": "migrate", "summary": {}})
+    snap = job.snapshot()                               # emit 后立即快照,不经 _finish
+    assert snap["status"] == "partial_failed" and snap["revision"] == 2
+
+
+def test_emit_error_settles_failed_without_finish():
+    """P2-4 同型:error 事件即收口 failed(守卫阻断的早退路径)。"""
+    from migration.gui.server import Job
+    job = Job("t2", "migrate")
+    job.emit({"type": "error", "what": "w", "why": "y", "details": {}})
+    assert job.snapshot()["status"] == "failed" and job.done
+
+
+def test_error_event_wins_over_cancelling_status():
+    """修复 A3①:取消落在守卫/预检窗口、随后以 error 阻断的交错——终态必须为
+    failed(与 SSE error 事件一致);修复前按 cancelling 收口成 cancelled,
+    GET 报「已取消」而事件说「任务失败」,状态接口与事件流自相矛盾。"""
+    from migration.gui.server import Job
+
+    job = Job("t2a", "migrate")
+    job.status = "cancelling"                 # 模拟 cancel 端点已置中间态
+    job.emit({"type": "error", "what": "计划审阅守卫未通过", "why": "y", "details": {}})
+    snap = job.snapshot()
+    assert snap["status"] == "failed"         # 修复前:cancelled
+    assert snap["error"]["what"] == "计划审阅守卫未通过"
+    assert job.done
+
+
+def test_pure_cancel_still_reports_cancelled():
+    """回归护栏(A3①):纯取消路径(无 error 事件)仍按 cancelled 收口——
+    error 优先不改变合法取消的语义。"""
+    from migration.gui.server import Job
+
+    job = Job("t2b", "migrate")
+    job.status = "cancelling"
+    job.emit({"type": "done", "job_kind": "migrate", "cancelled": True})
+    assert job.snapshot()["status"] == "cancelled"
+
+
+def test_defensive_settle_emits_error_not_success():
+    """修复 A3②:job 体未产出终态事件即退出(异常路径)→ 兜底 error 事件、
+    状态 failed;修复前只做状态收口会被判 succeeded(SSE 无终态帧,GET 报成功,
+    页面停在「运行中/重连」)。"""
+    from migration.gui.server import Job
+
+    job = Job("t2c", "plan")
+    server_module._defensive_settle(job)
+    snap = job.snapshot()
+    assert snap["status"] == "failed"
+    assert snap["error"]["details"]["code"] == "job_aborted"
+    assert snap["done"]["type"] == "error" and job.done
+
+
+def test_defensive_settle_noop_after_terminal_event():
+    """A3② 护栏:终态事件已由 emit 原子收口的正常路径,防御收口为 no-op
+    (不覆写已定格的成功载荷)。"""
+    from migration.gui.server import Job
+
+    job = Job("t2d", "plan")
+    job.emit({"type": "done", "job_kind": "plan", "plan_id": "x", "persisted": True})
+    server_module._defensive_settle(job)
+    snap = job.snapshot()
+    assert snap["status"] == "succeeded" and snap["error"] is None
+    assert snap["done"]["plan_id"] == "x"
+
+
+def test_defensive_settle_fallback_keeps_payload_symmetry(monkeypatch):
+    """评审 M3:兜底 emit 自身失败时状态与载荷同源——_done_payload 复用同一份
+    error 事件,不出现「status=failed 而 GET done=None」的不对称。"""
+    from migration.gui.server import Job
+
+    job = Job("t2e", "plan")
+
+    def _boom(_ev: dict) -> None:
+        raise RuntimeError("emit 失败(注入)")
+
+    monkeypatch.setattr(job, "emit", _boom)
+    server_module._defensive_settle(job)
+    snap = job.snapshot()
+    assert snap["status"] == "failed"
+    assert snap["error"] is not None
+    assert snap["done"] is not None and snap["done"]["type"] == "error"
+
+
+def test_overflowed_subscriber_gets_explicit_signal_and_prompt_close(monkeypatch):
+    """P2-5/#18:慢订阅者队列满被摘后,其流尽快以 overflow 帧收尾(而非空转到 job 结束)。
+
+    确定性构造:手工占满订阅者队列(maxsize=1)再 emit → put_nowait 必然 Full
+    → sub.dropped;随后直接泵送该 sub(_pump_sub),0.5s 轮询醒来即收尾。
+    """
+    monkeypatch.setattr(server_module, "_SUBSCRIBER_QUEUE_LIMIT", 1)
+    job = server_module.Job("t3", "migrate")
+    reset, replay, sub = job.subscribe(0)
+    sub.queue.put_nowait({"type": "file", "seq": -1})   # 预占满队列(不被消费)
+    job.emit({"type": "file", "path": "f0", "index": 1, "total": 9})
+    assert sub.dropped                                  # 溢出即摘除+标记
+
+    async def _collect():                               # 0.12.0 复审#7:泵已 async 化
+        return [f async for f in server_module._pump_sub(job, sub, reset=False, replay=[])]
+
+    frames = asyncio.run(_collect())
+    assert any('"overflow"' in f for f in frames)       # 显式溢出帧
+    assert not job.done                                 # job 未收尾,流已先行断开
+
+
+def test_last_event_id_invalid_query_treated_as_zero(tmp_path, monkeypatch):
+    """吸收 #3:?last_event_id=abc 按 0 处理(200 从头重放),不再 422。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    job_id = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
+    _wait_job_done(client, job_id)
+    with client.stream("GET", f"/api/jobs/{job_id}/events?last_event_id=abc") as resp:
+        assert resp.status_code == 200
+        lines = [ln for ln in resp.iter_lines() if ln.startswith("data: ")]
+    assert json.loads(lines[-1][6:])["type"] == "done"  # 从头重放含终态
+
+
+def test_sse_header_overrides_stale_query_on_reconnect(tmp_path, monkeypatch):
+    """评审 v3 P2-2:「显式恢复连接(带旧 query)再次断线后自动重连」——URL
+    仍带旧游标,浏览器回发新 header:须按 header 续订,不得被旧 query 压回
+    重放(否则反复重放/反复 reset)。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    job_id = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
+    events = _wait_job_done(client, job_id)
+    seqs = [e["seq"] for e in events]
+    assert len(seqs) >= 2                                  # phase+done 至少两帧
+    with client.stream(
+        "GET", f"/api/jobs/{job_id}/events?last_event_id={seqs[0] - 1}",
+        headers={"Last-Event-ID": str(seqs[-2])},
+    ) as resp:
+        got = [json.loads(ln[6:]) for ln in resp.iter_lines() if ln.startswith("data: ")]
+    assert [e["seq"] for e in got] == seqs[-1:]            # 从 header 游标续,仅末帧
+
+
+def test_status_endpoint_carries_full_done_payload(tmp_path, monkeypatch):
+    """评审 P2-4:GET 终态含完整 done 载荷(plan/plan_id/persisted)——
+    刷新恢复按 kind 重建页面的数据源,不再只有 status+计数(diff 键由 T6
+    增补并在 T6 用例中断言)。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    job_id = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
+    _wait_job_done(client, job_id)
+    body = client.get(f"/api/jobs/{job_id}").json()
+    assert body["status"] == "succeeded"
+    done = body["done"]
+    assert done["type"] == "done" and done["plan_id"] and done["persisted"] is True
+    assert done["plan"]                                   # 审阅页可从 GET 重建
+
+
+# ---- 批次I-W3 T3:interrupted 新返回形透传 + dismiss 清除通道(#9/P2-8) ----
+
+# 仓库根(持锁子进程 ``python -c`` 须显式注入 sys.path 才能 import migration;
+# _make_client 已 chdir 到 tmp_path,不依赖 cwd,同 tests/test_instlock.py 约定)
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_interrupted_carries_identity_and_unknown_progress(tmp_path, monkeypatch):
+    """T3 新返回形:条目携带 src/dst/game_root/unknown_progress 字段(透传,
+    T5 横幅消费);无待核对条目时 unknown_progress=True。"""
+    from migration.journal import JobJournal
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    jobs_dir = game / ".mcmig" / "jobs"
+    jobs_dir.mkdir(parents=True)
+    JobJournal(jobs_dir, "stale0", "migrate", src="src", dst="dst",
+               game_root=str(game)).record_intent("a.txt", {"op": "copy"})
+    j1 = JobJournal(jobs_dir, "stale1", "migrate", src="src", dst="dst",
+                    game_root=str(game))
+    j1.record_intent("b.txt", {"op": "copy"})
+    j1.record_completion("b.txt")                           # 全完成但未收尾(崩溃前夜)
+    items = {i["job_id"]: i for i in client.get("/api/jobs/interrupted").json()["items"]}
+    assert set(items) == {"stale0", "stale1"}
+    assert items["stale0"]["src"] == "src" and items["stale0"]["dst"] == "dst"
+    assert items["stale0"]["game_root"] == str(game)
+    assert items["stale0"]["unknown_progress"] is False      # 有待核对条目
+    assert items["stale1"]["unknown_progress"] is True       # 全完成未收尾
+
+
+def test_interrupted_dismiss_endpoint(tmp_path, monkeypatch):
+    """#9:dismiss 端点删除指定未收尾 journal;再 dismiss → 404。"""
+    from migration.journal import JobJournal
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    jobs_dir = game / ".mcmig" / "jobs"
+    jobs_dir.mkdir(parents=True)
+    JobJournal(jobs_dir, "stale1", "migrate", src="s", dst="d",
+               game_root=str(game)).record_intent("a.txt", {"op": "copy"})
+    assert client.post("/api/jobs/interrupted/stale1/dismiss", json={}).json()["ok"] is True
+    assert not (jobs_dir / "stale1.jsonl").exists()
+    assert client.post("/api/jobs/interrupted/stale1/dismiss", json={}).status_code == 404
+
+
+def test_interrupted_dismiss_rejects_live_owner(tmp_path, monkeypatch):
+    """评审 P2-8:活任务的 journal 不可 dismiss——跨进程持有实例锁(如正在
+    运行的 CLI 迁移)时端点以 409 拒绝,防止删档后活任务重建出缺 start/意图
+    的残缺 journal(恢复证据被削弱)。"""
+    import subprocess
+    import sys
+    import textwrap
+
+    from migration.journal import JobJournal
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    jobs_dir = game / ".mcmig" / "jobs"
+    jobs_dir.mkdir(parents=True)
+    JobJournal(jobs_dir, "livejob", "migrate", src="src", dst="dst",
+               game_root=str(game)).record_intent("a.txt", {"op": "copy"})
+    holder = subprocess.Popen(
+        [sys.executable, "-c", textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, {str(_REPO_ROOT)!r})
+            import time
+            from migration.instlock import instance_locks
+            with instance_locks({str(game)!r}, "src", "dst"):
+                print("HELD", flush=True); time.sleep(30)
+        """)],
+        stdout=subprocess.PIPE)
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == b"HELD"
+        resp = client.post("/api/jobs/interrupted/livejob/dismiss", json={})
+        assert resp.status_code == 409
+        assert (jobs_dir / "livejob.jsonl").exists()    # 档案未被删除
+    finally:
+        holder.kill()
+        holder.wait()
+
+
+def test_interrupted_endpoints_survive_torn_multibyte_journal(tmp_path, monkeypatch):
+    """评审(0.12.0 复审#3):journal 末行截断在多字节字符内部(中文路径)——
+    修复前 read_text 整体解码失败→整档按损坏跳过,恢复证据全丢;现按字节
+    逐行解码保留完整前缀:interrupted 清单呈现待核对条目(而非空),dismiss
+    可正常清除(锁探针判活通过)。"""
+    import json as _json
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    jobs_dir = game / ".mcmig" / "jobs"
+    jobs_dir.mkdir(parents=True)
+    start = _json.dumps({"op": "start", "kind": "migrate", "src": "src", "dst": "dst",
+                         "game_root": str(game), "started_at": "t"}, ensure_ascii=False)
+    ok_intent = _json.dumps({"op": "intent", "rel": "已完成的意图.txt",
+                             "detail": {"op": "copy"}}, ensure_ascii=False)
+    line = _json.dumps({"op": "intent", "rel": "配置/龙.txt",
+                        "detail": {"op": "copy"}}, ensure_ascii=False)
+    cut = len(line[: line.index("龙")].encode("utf-8")) + 2   # 切在「龙」第 2/3 字节
+    (jobs_dir / "torn.jsonl").write_bytes(
+        (start + "\n" + ok_intent + "\n").encode("utf-8")
+        + line.encode("utf-8")[:cut])
+    resp = client.get("/api/jobs/interrupted")                # 修复前:500→跳过→[]
+    assert resp.status_code == 200
+    items = resp.json()["items"]                              # 修复前:[](整档丢弃)
+    assert [i["job_id"] for i in items] == ["torn"]
+    assert [e["rel"] for e in items[0]["entries"]] == ["已完成的意图.txt"]
+    resp2 = client.post("/api/jobs/interrupted/torn/dismiss", json={})
+    assert resp2.status_code == 200                           # 可判定未收尾→可清除
+    assert not (jobs_dir / "torn.jsonl").exists()
+
+
+def test_dismiss_rejects_path_traversal_job_id(tmp_path, monkeypatch):
+    """修复 A1(安全):dismiss 的 job_id 走形态白名单——URL 里的 ``%5C`` 在
+    Windows 下解码出 ``\\`` 被 pathlib 当路径分隔符,修复前可删除 ``jobs/``
+    之外任意 ``.json``/``.jsonl``(含 ``versions/<ver>.json`` 版本清单与
+    ``launcher_profiles.json``);修复后 404 且目标文件原样保留。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    (game / ".mcmig" / "jobs").mkdir(parents=True)
+    # 诱饵 1:jobs/ 同级 .mcmig 下的 .jsonl(顶层对象 JSON 可被当 journal 读)
+    decoy = game / ".mcmig" / "decoy.jsonl"
+    decoy.write_text("{}", encoding="utf-8")
+    # 诱饵 2:版本清单(两层上跳,拟真多行 pretty JSON)
+    ver = game / "versions" / "v1" / "v1.json"
+    ver.parent.mkdir(parents=True, exist_ok=True)
+    ver.write_text('{\n  "id": "v1"\n}', encoding="utf-8")
+    for url in (
+        "/api/jobs/interrupted/..%5Cdecoy/dismiss",
+        "/api/jobs/interrupted/..%5C..%5Cversions%5Cv1%5Cv1/dismiss",
+    ):
+        assert client.post(url, json={}).status_code == 404
+    assert decoy.exists(), "jobs/ 之外的诱饵文件不得被删除"
+    assert ver.exists(), "版本清单不得被删除"
+
+
+def test_job_endpoints_reject_malformed_job_id(tmp_path, monkeypatch):
+    """修复 A1:状态/事件/取消三端点统一输入面——形态非法(分隔符/穿越形态)
+    一律 404,与「job 不存在」同型应答。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    assert client.get("/api/jobs/..%5Cdecoy").status_code == 404
+    assert client.get("/api/jobs/..%5Cdecoy/events").status_code == 404
+    assert client.post("/api/jobs/..%5Cdecoy/cancel", json={}).status_code == 404
+    assert client.get("/api/jobs/..").status_code == 404
+
+
+def test_dismiss_rejects_windows_device_names(tmp_path, monkeypatch):
+    """评审 M1:Windows 保留设备名(NUL/CON/COM1…)此前过白名单——``jobs/NUL.jsonl``
+    被 Win32 解析为设备,exists() 真而 unlink() 抛 PermissionError → 500;
+    现按「首个 '.' 前的段」排除(设备名规则),一律 404 不触盘。"""
+    from migration.gui.server import _valid_job_id
+
+    assert _valid_job_id("stale1") is True            # 正常条目不受影响
+    for bad in ("NUL", "con", "COM1", "lpt9.bak", "aux.jsonl",
+                "NUL  .jsonl", "CON .txt", "nul."):   # 尾随空格/点变体同为设备
+        assert _valid_job_id(bad) is False, bad
+    game, client = _make_client(tmp_path, monkeypatch)
+    (game / ".mcmig" / "jobs").mkdir(parents=True)    # 设备名路径须真实可触达
+    for name in ("NUL", "con", "COM1"):
+        # 修复前:jobs/<设备名>.jsonl 触发 unlink PermissionError → 500
+        assert client.post(f"/api/jobs/interrupted/{name}/dismiss", json={}).status_code == 404
+
+
+def test_dismiss_unlink_failure_returns_conflict(tmp_path, monkeypatch):
+    """评审 M1 补:删除阶段失败(设备变体/句柄占用等)不得 500——按 409 三段式
+    呈现并提示手动删除;文件保留不误删。"""
+    from migration.journal import JobJournal
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    jobs_dir = game / ".mcmig" / "jobs"
+    jobs_dir.mkdir(parents=True)
+    JobJournal(jobs_dir, "held", "migrate", src="s", dst="d",
+               game_root=str(game)).record_intent("a.txt", {"op": "copy"})
+    real_unlink = Path.unlink
+
+    def _blocked(self: Path, *a: object, **k: object) -> None:
+        if self.name == "held.jsonl":
+            raise PermissionError(13, "被占用(注入)")
+        real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", _blocked)
+    resp = client.post("/api/jobs/interrupted/held/dismiss", json={})
+    assert resp.status_code == 409                    # 修复前:500
+    assert {"what", "why", "details"} <= set(resp.json().keys())
+    assert (jobs_dir / "held.jsonl").exists()         # 失败不误删
+
+
+def test_dismiss_clears_non_ascii_journal_name(tmp_path, monkeypatch):
+    """修复 M2:job_id 校验放宽为「单一路径分量」语义——用户手放的中文/空格名
+    journal 档案(scan_interrupted 以 p.stem 列条目)此前「横幅可见但 dismiss
+    恒 404」不可清除;现可正常清除(穿越/设备名仍拒,见相邻用例)。"""
+    from urllib.parse import quote
+
+    from migration.journal import JobJournal
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    jobs_dir = game / ".mcmig" / "jobs"
+    jobs_dir.mkdir(parents=True)
+    j = JobJournal(jobs_dir, "我的 迁移", "migrate", src="src", dst="dst",
+                   game_root=str(game))
+    j.record_intent("a.txt", {"op": "copy"})          # 未收尾 → 入中断清单
+    items = client.get("/api/jobs/interrupted").json()["items"]
+    assert [i["job_id"] for i in items] == ["我的 迁移"]   # 横幅可列出
+    url = "/api/jobs/interrupted/" + quote("我的 迁移") + "/dismiss"
+    assert client.post(url, json={}).status_code == 200        # 修复前:404(不可清除)
+    assert not (jobs_dir / "我的 迁移.jsonl").exists()
+    assert client.post(url, json={}).status_code == 404        # 清除后幂等 404
+
+
+def test_dismiss_concurrent_delete_is_idempotent_success(tmp_path, monkeypatch):
+    """复核 Minor:exists() 与 unlink() 之间档案被并发 dismiss(另一标签页/
+    进程)抢先删除——清除目标已达成,按幂等成功收场;不得虚构「无法删除」
+    冲突让用户去手动删除一个已经不在的文件。"""
+    from migration.journal import JobJournal
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    jobs_dir = game / ".mcmig" / "jobs"
+    jobs_dir.mkdir(parents=True)
+    JobJournal(jobs_dir, "raced", "migrate", src="s", dst="d",
+               game_root=str(game)).record_intent("a.txt", {"op": "copy"})
+    real_unlink = Path.unlink
+
+    def _raced(self: Path, *a: object, **k: object) -> None:
+        if self.name == "raced.jsonl":
+            real_unlink(self, *a, **k)                # 并发方先删
+            raise FileNotFoundError(2, "并发已删(注入)")
+        real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", _raced)
+    resp = client.post("/api/jobs/interrupted/raced/dismiss", json={})
+    assert resp.status_code == 200                    # 修复前:409(虚构冲突)
+    assert resp.json() == {"ok": True}
+    assert not (jobs_dir / "raced.jsonl").exists()
+
+
+def test_legacy_plan_legacy_layout_snapshots_drift_blocked(tmp_path, monkeypatch):
+    """评审 I1:review=None 计划 + 快照仅存旧布局时,执行侧兜底校验必须与 CLI
+    同参(legacy_dir=mig_legacy)——漏传会让校验材料取位失败而静默跳过,旧布局
+    的旧版计划在 GUI 仍零校验(弱于 CLI)。"""
+    import json as _json
+
+    from migration.plan import MigrationPlan
+    from migration.review import plan_fingerprint
+
+    # 旧布局快照目录须在 workdir 解析前存在(resolve 时探测,路径契约 v3)
+    game = _make_game(tmp_path)
+    (tmp_path / ".mcmig" / "snapshots").mkdir(parents=True)
+    _game, client = _make_client(tmp_path, monkeypatch, game=game)
+    r = client.post("/api/plan", json={"src": "src", "dst": "dst"})
+    done = _wait_job_done(client, r.json()["job_id"])[-1]
+    assert done["type"] == "done"
+    # 快照搬到旧布局(cwd/.mcmig/snapshots),锚定位不再存在
+    anchored = game / ".mcmig" / "snapshots"
+    legacy = tmp_path / ".mcmig" / "snapshots"
+    for ver in ("src", "dst"):
+        (anchored / f"{ver}.snapshot.json").rename(legacy / f"{ver}.snapshot.json")
+    # 剥离审阅守卫(旧版计划)并复算指纹
+    plan_file = game / ".mcmig" / "plans" / "src__dst.plan.json"
+    payload = _json.loads(plan_file.read_text(encoding="utf-8"))
+    payload["review"] = None
+    plan_file.write_text(
+        _json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    legacy_id = plan_fingerprint(MigrationPlan.load(plan_file))
+    (game / "versions" / "src" / "options.txt").write_text("drift\n", encoding="utf-8")
+
+    r2 = client.post("/api/migrate", json={"src": "src", "dst": "dst", "ask_yes": [],
+                                           "plan_id": legacy_id})
+    events = _wait_job_done(client, r2.json()["job_id"])
+    assert events[-1]["type"] == "error", "旧布局快照 + 旧版计划漂移必须阻断(评审 I1)"
+    assert events[-1]["details"]["code"] == "review_state_changed"
+    assert (game / "versions" / "dst" / "options.txt").read_text(
+        encoding="utf-8") == "fps:60\n"
+
+
+# ---- 批次I-W3 T6:plan done 载荷增 diff 摘要(spec §5.1/T7) ----
+
+
+def test_plan_done_carries_diff_summary(tmp_path, monkeypatch):
+    """spec §5.1/T7:done 载荷带 diff 摘要——桶计数/体积/待确认/mod 配对/
+    compat 警示(不再只进 stderr 日志)/client_only/世界提示/检测范围说明。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    (game / "versions" / "src" / "mods").mkdir()
+    (game / "versions" / "src" / "mods" / "clientish-1.0.jar").write_bytes(b"jar")
+    job = client.post("/api/plan", json={"src": "src", "dst": "dst"}).json()["job_id"]
+    done = _wait_job_done(client, job)[-1]
+    diff = done["diff"]
+    for key in ("buckets", "total_bytes", "ask_count", "overwrite_count", "mod_pairs",
+                "compat_warnings", "client_only", "world_notices", "guard_scope"):
+        assert key in diff, f"done.diff 缺 {key}"
+    assert diff["buckets"]["must_migrate"] >= 1 and diff["guard_scope"]
+
+
+# ---- 批次I-W3 T7:swap 两阶段 API(preflight/apply + 指纹重验 + 取消窗,spec §5.2/§8) ----
+
+
+def _swap_layout(tmp_path, monkeypatch) -> tuple[Path, TestClient]:
+    """swap 两阶段公共布局:src(旧包独有 jar+options.txt)/dst(版本 json,
+    mods 空)/new_pack(含 newpack.jar);经 _make_client 注入 workdir。"""
+    game = tmp_path / "game"
+    src = game / "versions" / "src"
+    src.mkdir(parents=True)
+    (src / "options.txt").write_text("fps:120\n", encoding="utf-8")
+    (src / "mods").mkdir()
+    (src / "mods" / "oldpack-only.jar").write_bytes(b"OLD")
+    dst = game / "versions" / "dst"
+    dst.mkdir()
+    (dst / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
+    (dst / "mods").mkdir()
+    pack = tmp_path / "newpack"
+    (pack / "mods").mkdir(parents=True)
+    (pack / "mods" / "newpack.jar").write_bytes(b"NEW")
+    return _make_client(tmp_path, monkeypatch, game=game)
+
+
+def _swap_preflight_done(client: TestClient, game: Path) -> dict:
+    """跑完 preflight job,返回 done 载荷(含 preflight_id 与三类决策清单)。
+
+    new_pack 用 _swap_layout 的固定位:<tmp>/newpack(与 game 同级)。
+    """
+    job = client.post("/api/swap/preflight", json={
+        "src": "src", "dst": "dst",
+        "new_pack": str(game.parent / "newpack"),
+    }).json()["job_id"]
+    events = _wait_job_done(client, job)
+    done = events[-1]
+    assert done["type"] == "done", done
+    return done
+
+
+def _apply_body(pf: dict) -> dict:
+    """apply 请求体:以 preflight_id 携带全部决策(默认全拒/零覆盖)。"""
+    return {"preflight_id": pf["preflight_id"], "src": "src", "dst": "dst",
+            "accept_incompat": False, "accept_extras": False, "overwrite_jars": []}
+
+
+def test_swap_apply_rejects_changed_inputs(tmp_path, monkeypatch):
+    """两阶段指纹重校验:preflight 后篡改目标 mods/(新增 jar)→ apply 拒
+    (swap_inputs_changed),零写盘。"""
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    pf = _swap_preflight_done(client, game)
+    (game / "versions" / "dst" / "mods" / "intruder.jar").write_bytes(b"X")
+    job = client.post("/api/swap/apply", json=_apply_body(pf)).json()["job_id"]
+    err = _wait_job_done(client, job)[-1]
+    assert err["type"] == "error" and err["code"] == "swap_inputs_changed"
+    assert not (game / "versions" / "dst" / "mods" / "newpack.jar").exists()
+
+
+def test_swap_apply_rejects_switched_game_root(tmp_path, monkeypatch):
+    """评审 P2-3:preflight 后切换游戏根(POST /api/config)再 apply → 拒
+    (swap_inputs_changed:指纹含规范化 game_root,跨根必失配)。"""
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    pf = _swap_preflight_done(client, game)
+    other = tmp_path / "other_root"
+    # 完整版本对(评审 v4 P2-4:只有 dst 会先被 apply 的版本校验 422 挡下,
+    # 触不到指纹失配分支)
+    for name in ("src", "dst"):
+        (other / "versions" / name).mkdir(parents=True)
+    (other / "versions" / "src" / "options.txt").write_text("x\n", encoding="utf-8")
+    (other / "versions" / "dst" / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.228"]}}',
+        encoding="utf-8")
+    assert client.post("/api/config", json={"game_root": str(other)}).status_code == 200
+    job = client.post("/api/swap/apply", json=_apply_body(pf)).json()["job_id"]
+    err = _wait_job_done(client, job)[-1]
+    assert err["type"] == "error" and err["code"] == "swap_inputs_changed"
+
+
+def test_swap_apply_rejects_changed_version_json(tmp_path, monkeypatch):
+    """评审 P2-3:preflight 后修改目标 <dst>.json → apply 拒(NeoForge 兼容
+    判定的输入已变,兼容检查须重跑,不能沿用预检结论)。"""
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    pf = _swap_preflight_done(client, game)
+    (game / "versions" / "dst" / "dst.json").write_text(
+        '{"arguments": {"game": ["--fml.neoforgeVersion", "21.1.999"]}}',
+        encoding="utf-8")
+    job = client.post("/api/swap/apply", json=_apply_body(pf)).json()["job_id"]
+    err = _wait_job_done(client, job)[-1]
+    assert err["type"] == "error" and err["code"] == "swap_inputs_changed"
+    assert not (game / "versions" / "dst" / "mods" / "newpack.jar").exists()
+
+
+def test_swap_apply_chains_modpack_swap_replan(tmp_path, monkeypatch):
+    """评审 P1-2:apply 装包后同 job 链式重扫+规划(modpack_swap=True)——done
+    载荷与 plan job 同形(plan_id/persisted/diff);随后从该计划 migrate,
+    旧包独有 jar 不回迁(源独有 mod 归换包排除,非 must_migrate)。"""
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    pf = _swap_preflight_done(client, game)
+    job = client.post("/api/swap/apply", json=_apply_body(pf)).json()["job_id"]
+    done = _wait_job_done(client, job)[-1]
+    assert done["type"] == "done" and done["job_kind"] == "swap"
+    assert done["plan_id"] and done["persisted"] is True
+    assert done["install"]["copied"] == 1
+    # done.plan 是 _group_actions 分组 {origin: {actions: [...]}}(评审 v4 P2-4:
+    # 无扁平 actions 键)——遍历各组的 actions
+    moved = {a["path"]
+             for group in done["plan"].values()
+             for a in group["actions"]
+             if a["origin"] in ("must_migrate", "mod_added")}
+    assert "mods/oldpack-only.jar" not in moved        # 换包排除,非可迁移
+    mig = client.post("/api/migrate", json={
+        "plan_id": done["plan_id"], "src": "src", "dst": "dst",
+        "ask_yes": []}).json()["job_id"]
+    _wait_job_done(client, mig)
+    assert (game / "versions" / "dst" / "mods" / "newpack.jar").exists()
+    assert not (game / "versions" / "dst" / "mods" / "oldpack-only.jar").exists()
+
+
+def test_swap_cancel_window_closes_before_replan(tmp_path, monkeypatch):
+    """评审 v3 P2-3:装包完成后取消窗原子关闭——重扫/规划阶段的 cancel 请求
+    409,job 以携带计划的 done 正常收口(封死「done 带成功计划 vs GET 收口
+    cancelled」的分歧)。"""
+    import threading
+    import time
+
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    pf = _swap_preflight_done(client, game)
+    replan_started = threading.Event()
+    real_build = server_module.build_plan
+
+    def slow_build(*a, **k):
+        replan_started.set()
+        time.sleep(0.5)                                # 留出取消请求的观察窗
+        return real_build(*a, **k)
+
+    monkeypatch.setattr(server_module, "build_plan", slow_build)
+    job = client.post("/api/swap/apply", json=_apply_body(pf)).json()["job_id"]
+    assert replan_started.wait(timeout=10.0), "未进入链式重规划阶段"
+    resp = client.post(f"/api/jobs/{job}/cancel", json={})
+    assert resp.status_code == 409                     # 取消窗已关(白名单⑩)
+    done = _wait_job_done(client, job)[-1]
+    assert done["type"] == "done" and done.get("plan_id")
+
+
+def test_cancel_endpoint_rechecks_closed_window_in_lock(tmp_path, monkeypatch):
+    """评审 v4 P2-3:取消端点不得依赖锁外 can_cancel 读——白盒直接构造
+    cancel_closed=True 的 swap job(关窗瞬间的形态),取消 409 且不置
+    cancelling(锁内重检;若只在锁外判定,此形态会 202 并污染终态)。"""
+    _game, client = _swap_layout(tmp_path, monkeypatch)
+    from migration.gui.server import Job
+
+    job = Job("swapclosed", "swap")
+    job.cancel_closed = True                           # 白盒:直接构造关窗形态
+    store = client.app.state.jobs                      # T7 暴露(app.state.jobs)
+    store._jobs["swapclosed"] = job
+    resp = client.post("/api/jobs/swapclosed/cancel", json={})
+    assert resp.status_code == 409
+    assert job.status != "cancelling"                  # 未被置为取消中
+
+
+def test_swap_apply_replan_failure_reports_install_state(tmp_path, monkeypatch):
+    """评审 v3 契约A/B:装包成功而链式规划失败——error 载荷带 install 统计与
+    backup_dir(用户须知目标 mods/ 已被修改,不可静默只报规划失败)。"""
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    # 冲突 jar 必须在 preflight **前**于两侧创建(评审 v4 P2-4:指纹覆盖两侧
+    # jar 清单,预检后再加 victim.jar 会先触发 swap_inputs_changed;且新包
+    # 无同名 jar 则根本没有可覆盖冲突)
+    (game / "versions" / "dst" / "mods" / "victim.jar").write_bytes(b"OLD")
+    (game.parent / "newpack" / "mods" / "victim.jar").write_bytes(b"NEW")
+    pf = _swap_preflight_done(client, game)
+    assert "victim.jar" in pf["conflicts"]             # 冲突已被预检识别
+
+    def _boom(*a, **k):
+        raise ValueError("规划失败(模拟)")
+
+    monkeypatch.setattr(server_module, "build_plan", _boom)
+    job = client.post("/api/swap/apply", json={
+        **_apply_body(pf), "overwrite_jars": ["victim.jar"]}).json()["job_id"]
+    err = _wait_job_done(client, job)[-1]
+    assert err["type"] == "error" and err.get("code") == "swap_replan_failed"
+    assert err["install"]["copied"] >= 1 and err["backup_dir"]
+    assert (game / "versions" / "dst" / "mods" / "newpack.jar").exists()
+    backup = Path(err["backup_dir"])
+    assert (backup / "victim.jar").read_bytes() == b"OLD"
+
+
+def test_job_submission_rejected_while_draining(tmp_path, monkeypatch):
+    """评审 v3 P2-5:begin_shutdown 置 draining 后,新 job 提交 503(plan/
+    migrate/swap 三入口同一守卫,此处以 plan 代表)。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    client.app.state.jobs.begin_shutdown()
+    resp = client.post("/api/plan", json={"src": "src", "dst": "dst"})
+    assert resp.status_code == 503
+
+
+def test_job_submission_rejected_when_drain_lands_during_start(tmp_path, monkeypatch):
+    """评审 v4 P2-2:draining 判定必须在 JobStore.start() 的临界区内——以
+    「drain-then-start」交错注入模拟「端点过检→关窗→注册」的真实交错:
+    判定仅在端点锁外预检时,本交错会照常建 job(红);锁内首判 → 503(绿)。"""
+    from migration.gui.server import JobStore
+
+    game, client = _make_client(tmp_path, monkeypatch)
+    real_start = JobStore.start
+
+    def _drain_then_start(self, *a, **k):
+        self.begin_shutdown()  # 注册前一瞬关窗(交错点)
+        return real_start(self, *a, **k)
+
+    monkeypatch.setattr(JobStore, "start", _drain_then_start)
+    resp = client.post("/api/plan", json={"src": "src", "dst": "dst"})
+    assert resp.status_code == 503
+
+
+def test_version_name_error_single_component_only():
+    """评审(0.12.0 复审#1):版本名必须是「单一路径分量」——绝对路径/盘符/
+    分隔符/`.`/`..`/通配符/控制字符/尾随空白点一律非法;中文等正常名放行。"""
+    from migration.pipeline import version_name_error
+
+    assert version_name_error("1.21.1-NeoForge_21.1.228") is None
+    assert version_name_error("我的版本") is None
+    for bad in ("", ".", "..", "a/b", "a\\b", "/abs", "C:\\v", "C:v",
+                "\\\\srv\\share", "a\nb", " a", "a ", "a.", "a*", "a?", "a|"):
+        assert version_name_error(bad) is not None, bad
+
+
+def test_version_inputs_reject_out_of_root_names(tmp_path, monkeypatch):
+    """评审(0.12.0 复审#1):版本名只作单一路径分量拼接——修复前
+    ``_ensure_version_dirs`` 只查 ``(versions/<v>).is_dir()``,pathlib 拼绝对
+    路径时整体替换,外部已存在目录即通过受理(preflight 202/后续写盘落在
+    game_root 之外);修复后 plan/migrate/swap preflight/apply 四端点对
+    绝对路径与穿越形态一律 422,目标侧零写盘。"""
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    outside = tmp_path / "outside"
+    (outside / "mods").mkdir(parents=True)
+    (outside / "mods" / "victim.jar").write_bytes(b"V")
+    pack = str(game.parent / "newpack")
+    # 绝对路径(修复前 is_dir 通过 → 202 受理,写盘可落在 game_root 外)
+    assert client.post("/api/swap/preflight", json={
+        "src": "src", "dst": str(outside), "new_pack": pack}).status_code == 422
+    # 穿越形态(相对 versions/ 逃出 game_root)
+    assert client.post("/api/swap/preflight", json={
+        "src": "src", "dst": "../outside", "new_pack": pack}).status_code == 422
+    assert client.post("/api/plan", json={
+        "src": str(outside), "dst": "dst"}).status_code == 422
+    assert client.post("/api/migrate", json={
+        "src": "src", "dst": str(outside), "ask_yes": [], "dry_run": False,
+        "plan_id": "x"}).status_code == 422
+    assert (outside / "mods" / "victim.jar").read_bytes() == b"V"  # 零写盘
+
+
+def test_write_guard_checks_origin_and_content_type(tmp_path, monkeypatch):
+    """评审(0.12.0 复审#11):写端点(POST)除 Host 外还须过 Origin 白名单与
+    JSON Content-Type——修复前带外部 Origin、无 Content-Type 的停机 POST 仍
+    200(浏览器 CSRF 可盲打:Host 由浏览器按目标生成必过,no-cors text/plain
+    可携 JSON 体);同源/无 Origin 的 JSON 请求不受影响(非浏览器工具)。"""
+    game, client = _make_client(tmp_path, monkeypatch)
+    # 外部 Origin(浏览器不可伪造头):403,不触端点
+    r = client.post("/api/shutdown", json={},
+                    headers={"Origin": "http://evil.example"})
+    assert r.status_code == 403
+    # Origin 白名单内的端口变体:放行到端点本体(此处为 200 ok)
+    r_ok = client.post("/api/shutdown", json={},
+                       headers={"Origin": "http://127.0.0.1:1"})
+    assert r_ok.status_code == 200 and r_ok.json()["ok"] is True
+    # Content-Type 非 JSON(CSRF no-cors 只能发简单类型):415
+    (tmp_path / "second").mkdir()
+    _, client2 = _make_client(tmp_path / "second", monkeypatch)
+    r2 = client2.post("/api/shutdown", content=b"{}",
+                      headers={"Content-Type": "text/plain"})
+    assert r2.status_code == 415
+    # 缺 Content-Type 的裸 POST(修复前直达端点):415
+    r3 = client2.post("/api/shutdown", content=b"")
+    assert r3.status_code == 415
+
+
+def test_startup_survives_unsweepable_finished_journal(tmp_path, monkeypatch, caplog):
+    """评审(0.12.0 复审#4)启动面:应用工厂同步清扫 finished journal——清扫
+    失败(只读文件)不得阻断 create_app,GUI 照常起、横幅清单照常空。"""
+    import os
+
+    from migration.journal import JobJournal
+
+    game = _make_game(tmp_path)
+    jobs = game / ".mcmig" / "jobs"
+    jobs.mkdir(parents=True)
+    JobJournal(jobs, "stale-done", "migrate", src="s", dst="d",
+               game_root=str(game)).finish()
+    locked = jobs / "stale-done.jsonl"
+    os.chmod(locked, 0o444)
+    try:
+        import migration.workdir as wd
+
+        monkeypatch.setattr(wd, "_is_frozen", lambda: False)
+        monkeypatch.chdir(tmp_path)
+        w = wd.resolve_workdir(game_root=game)
+        w.save_game_root(game)
+        with caplog.at_level("WARNING", logger="migration.journal"):
+            client = TestClient(create_app(workdir=w), base_url="http://127.0.0.1")
+        assert client.get("/api/jobs/interrupted").json()["items"] == []
+        assert locked.exists()
+        assert "stale-done" in caplog.text
+    finally:
+        os.chmod(locked, 0o666)
+
+
+def test_swap_apply_install_failure_reports_partial_results(tmp_path, monkeypatch):
+    """评审(0.12.0 复审#5)GUI 消费面:装包中途失败(空间/文件操作)不再以
+    异常吞掉已知结果——error 事件携带 install 部分统计(copied/backed_up)与
+    backup_dir(用户须能判断「已改动什么、原件在哪」),code 区分于规划失败。"""
+    import migration.gui.server as srv
+    from migration.pipeline import SwapInstallOutcome
+
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    pf = _swap_preflight_done(client, game)
+    bk = tmp_path / "bk"
+    monkeypatch.setattr(
+        srv, "swap_install",
+        lambda *a, **k: SwapInstallOutcome(1, 0, 1, ["victim.jar"], bk, False,
+                                           "磁盘空间不足:需要 9.9 MB,剩余 1.0 MB"))
+    job = client.post("/api/swap/apply", json=_apply_body(pf)).json()["job_id"]
+    err = _wait_job_done(client, job)[-1]
+    assert err["type"] == "error" and err["code"] == "swap_install_failed"
+    assert err["install"]["copied"] == 1                       # 已知部分结果保留
+    assert err["install"]["backed_up"] == ["victim.jar"]
+    assert "不足" in err["install"]["error"]
+    # 备份位置直达(job 真实备份根 = <game>/.mcmig/backups/swap/<UTC 时间戳>)
+    bd = Path(err["backup_dir"])
+    assert "swap" in bd.parts and "backups" in bd.parts
+    assert {"what", "why"} <= set(err.keys())                  # 三段式文案齐备
+
+
+def test_sse_generator_unsubscribes_promptly_on_cancellation():
+    """评审(0.12.0 复审#7):客户端断开订阅须及时释放——修复前 SSE 泵是同步
+    生成器,``queue.get(0.5s)`` 阻塞在线程池线程,断开时的任务取消传不进
+    同步迭代器,``finally unsubscribe`` 要等下一事件/终态才跑(订阅滞留
+    ``job._subs``);改 async 泵 + ``asyncio.to_thread`` 拉取后,取消在 await
+    点即时生效,finally 即刻注销。"""
+    import asyncio
+    from contextlib import suppress
+
+    from migration.gui.server import Job, _sse_gen
+
+    async def _scenario() -> tuple[int, float]:
+        job = Job("j1", "migrate")
+        job.emit({"type": "phase", "name": "scan"})   # seq=1 入历史
+        got_first = asyncio.Event()
+
+        async def _consume() -> None:
+            # Starlette 形态:取消发生在「等下一帧」的 __anext__ 内部
+            # (客户端断开时流正阻塞在取帧),而非消费侧 sleep
+            frames = _sse_gen(job, 0)
+            await frames.__anext__()          # 首帧(重放段)
+            got_first.set()
+            await frames.__anext__()          # 无新事件:持续等待(断开即在此)
+
+        t0 = asyncio.get_running_loop().time()
+        task = asyncio.create_task(_consume())
+        await asyncio.wait_for(got_first.wait(), timeout=2)
+        assert len(job._subs) == 1                    # 消费中:订阅在册
+        task.cancel()                                 # 客户端断开(Starlette 取消)
+        with suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)   # 修复前:取消传不进 → 超时抛错
+        return len(job._subs), asyncio.get_running_loop().time() - t0
+
+    subs_left, elapsed = asyncio.run(_scenario())
+    assert subs_left == 0                             # finally 即刻注销
+    assert elapsed < 2                                # 未等事件/终态
+
+
+# ---- Task 9:更新端点与 update job 四件契约(spec §4.3.4) ----
+
+
+def _wait_status(client: TestClient, job_id: str, statuses: set[str], tries: int = 300) -> dict:
+    """轮询 GET 快照直到状态命中集合(默认 3s 窗;超时抛断言)。"""
+    import time as _t
+
+    snap: dict = {}
+    for _ in range(tries):
+        snap = client.get(f"/api/jobs/{job_id}").json()
+        if snap["status"] in statuses:
+            return snap
+        _t.sleep(0.01)
+    raise AssertionError(f"job 未达状态 {statuses}: {snap}")
+
+
+def test_update_job_is_cancellable_and_progress_in_snapshot():
+    """update job 四件之二:可取消;progress 事件进 GET 快照(progress_bytes)。"""
+    from migration.gui.server import Job
+
+    job = Job("t1", "update")
+    assert job.can_cancel is True
+    assert Job("t2", "plan").can_cancel is False
+    job.emit({"type": "progress", "received": 10, "total": 100})
+    snap = job.snapshot()
+    assert snap["progress_bytes"] == {"received": 10, "total": 100}
+
+
+def test_update_check_source_mode(tmp_path, monkeypatch):
+    from migration import _form
+
+    monkeypatch.setattr(_form, "FORM", "source")
+    _game, client = _make_client(tmp_path, monkeypatch)
+    r = client.post("/api/update/check", json={})
+    assert r.status_code == 200 and r.json()["mode"] == "source"
+    assert r.json()["form"] == "source"   # 评审④ P2-2:形态随检查结果下发
+
+
+def test_update_check_three_states(tmp_path, monkeypatch):
+    """三态:发现新版(tag/asset/size)/已是最新/失败(error 三段式)。"""
+    from migration import _form, updater
+
+    monkeypatch.setattr(_form, "FORM", "onefile")
+    _game, client = _make_client(tmp_path, monkeypatch)
+    rel = updater.ReleaseInfo("v0.13.1", (
+        updater.AssetInfo("mcmig-gui-0.13.1-win-x64.exe", 31, "u"),
+        updater.AssetInfo("SHA256SUMS.txt", 1, "s"),
+    ))
+    monkeypatch.setattr(updater, "fetch_latest_release", lambda: rel)
+    import migration
+
+    monkeypatch.setattr(migration, "__version__", "0.12.0")
+    body = client.post("/api/update/check", json={}).json()
+    assert body["newer"] is True and body["asset_name"] == "mcmig-gui-0.13.1-win-x64.exe"
+    assert body["size"] == 31 and body["latest"] == "0.13.1"
+    assert body["form"] == "onefile"   # 评审④ P2-2:页面据此选形态化替换指引
+    monkeypatch.setattr(updater, "fetch_latest_release", lambda: None)
+    body = client.post("/api/update/check", json={}).json()
+    # 无任何发布:newer=False 且 latest=None(页面据 latest 呈「尚无发布」)
+    assert body["newer"] is False and body["latest"] is None
+
+    def _boom():
+        raise updater.UpdateError("更新检查失败", "网络不可达")
+
+    monkeypatch.setattr(updater, "fetch_latest_release", _boom)
+    body = client.post("/api/update/check", json={}).json()
+    assert body["error"]["what"] == "更新检查失败"
+
+
+def test_update_check_proxy_html_structured_error(tmp_path, monkeypatch):
+    """评审④ P2-6:GUI 检查端遇代理 HTML(200)返回结构化三段式,不是 500/裸异常。"""
+    import httpx
+
+    from migration import _form, updater
+
+    monkeypatch.setattr(_form, "FORM", "onefile")
+    monkeypatch.setattr(
+        updater, "_open_client",
+        lambda: httpx.Client(
+            transport=httpx.MockTransport(
+                lambda req: httpx.Response(200, content=b"<html>login</html>",
+                                           headers={"content-type": "text/html"})),
+            follow_redirects=True))
+    _game, client = _make_client(tmp_path, monkeypatch)
+    r = client.post("/api/update/check", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["error"]["what"] == "更新检查失败" and "JSON" in body["error"]["why"]
+
+
+def test_update_download_job_done_payload(tmp_path, monkeypatch):
+    """update job 四件之三:done 载荷=UpdatePlan 全字段(与 GET 同源)。"""
+    from migration import _form, updater
+    import migration.gui.server as srv
+
+    monkeypatch.setattr(_form, "FORM", "onefile")
+    game, client = _make_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(srv, "_update_staging_root", lambda: game / "up-staging")
+    plan = updater.UpdatePlan("0.13.1", "a.exe", game / "up-staging" / "u" / "a.exe", 7, "ab")
+    monkeypatch.setattr(updater, "plan_update",
+                        lambda root, *, progress_cb=None, should_cancel=None: plan)
+    r = client.post("/api/update/download", json={})
+    assert r.status_code == 202
+    job_id = r.json()["job_id"]
+    events = _wait_job_done(client, job_id)
+    done = events[-1]
+    assert done["type"] == "done" and done["job_kind"] == "update"
+    snap = client.get(f"/api/jobs/{job_id}").json()
+    assert snap["done"]["version"] == "0.13.1" and snap["done"]["sha256"] == "ab"
+    assert snap["done"]["form"] == "onefile"   # 评审④ P2-2:刷新恢复路同源携带形态
+
+
+def test_update_download_cancelled_terminal(tmp_path, monkeypatch):
+    """取消:should_cancel 命中 → cancelled 终态(done.cancelled=True)。"""
+    import time as _t
+
+    from migration import _form, updater
+    import migration.gui.server as srv
+
+    monkeypatch.setattr(_form, "FORM", "onefile")
+    game, client = _make_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(srv, "_update_staging_root", lambda: game / "up-staging")
+
+    def _fake_plan(root, *, progress_cb=None, should_cancel=None):
+        while should_cancel is not None and not should_cancel():
+            _t.sleep(0.01)
+            if progress_cb:
+                progress_cb(1, 10)
+        raise updater.UpdateCancelled()
+
+    monkeypatch.setattr(updater, "plan_update", _fake_plan)
+    r = client.post("/api/update/download", json={})
+    job_id = r.json()["job_id"]
+    _wait_status(client, job_id, {"running"})
+    client.post(f"/api/jobs/{job_id}/cancel", json={})
+    snap = _wait_status(client, job_id, {"cancelled", "failed", "succeeded", "partial_failed"})
+    assert snap["status"] == "cancelled" and snap["done"]["cancelled"] is True
+
+
+def test_update_open_location_rejects_outside_staging(tmp_path, monkeypatch):
+    import migration.gui.server as srv
+
+    _game, client = _make_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(srv, "_update_staging_root", lambda: tmp_path)
+    r = client.post("/api/update/open-location", json={"path": str(tmp_path.parent / "evil.exe")})
+    assert r.status_code == 400
+
+
+def test_update_open_location_uses_explorer_select(tmp_path, monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr("migration.gui.server.subprocess.run",
+                        lambda cmd, check=None: calls.append(cmd))
+    import migration.gui.server as srv
+
+    _game, client = _make_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(srv, "_update_staging_root", lambda: tmp_path)
+    target = tmp_path / "u" / "a.exe"
+    target.parent.mkdir()
+    target.write_bytes(b"")
+    r = client.post("/api/update/open-location", json={"path": str(target)})
+    assert r.status_code == 200
+    assert calls and calls[0][0] == "explorer" and calls[0][1] == "/select,"
+
+
+# ---- 评审② 修复波:update runner 防御性收尾与 settle ----
+
+
+def test_update_job_unexpected_error_settles(tmp_path, monkeypatch):
+    """未预期异常(RuntimeError)不得让 job 永挂 running:error 终态+单锁释放。"""
+    from migration import _form, updater
+    import migration.gui.server as srv
+
+    monkeypatch.setattr(_form, "FORM", "onefile")
+    game, client = _make_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(srv, "_update_staging_root", lambda: game / "up-staging")
+
+    def _boom(root, *, progress_cb=None, should_cancel=None):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(updater, "plan_update", _boom)
+    r = client.post("/api/update/download", json={})
+    job_id = r.json()["job_id"]
+    snap = _wait_status(client, job_id, {"failed", "succeeded", "cancelled", "partial_failed"})
+    assert snap["status"] == "failed" and snap["done"]["job_kind"] == "update"
+    # 单锁已释放:后续任务可启动(不再 409)
+    monkeypatch.setattr(updater, "plan_update",
+                        lambda root, *, progress_cb=None, should_cancel=None: None)
+    r2 = client.post("/api/update/download", json={})
+    assert r2.status_code == 202
+
+
+def test_update_cancel_after_plan_settles_with_cleanup(tmp_path, monkeypatch):
+    """取消落在「校验完成→收尾」窗口:settle 单次判定 → cancelled+清理本次暂存,
+    绝不出现 done 带成功产物而 GET 报 cancelled 的矛盾(评审② I3,与 migrate I2 同规)。"""
+    import time as _t
+
+    from migration import _form, updater
+    import migration.gui.server as srv
+
+    monkeypatch.setattr(_form, "FORM", "onefile")
+    game, client = _make_client(tmp_path, monkeypatch)
+    staging = game / "up-staging"
+    monkeypatch.setattr(srv, "_update_staging_root", lambda: staging)
+
+    def _fake_plan(root, *, progress_cb=None, should_cancel=None):
+        while should_cancel is not None and not should_cancel():
+            _t.sleep(0.01)
+        sub = root / "u1"
+        sub.mkdir(parents=True)
+        p = sub / "a.exe"
+        p.write_bytes(b"x")
+        return updater.UpdatePlan("9.9.9", "a.exe", p, 1, "ab")
+
+    monkeypatch.setattr(updater, "plan_update", _fake_plan)
+    r = client.post("/api/update/download", json={})
+    job_id = r.json()["job_id"]
+    _wait_status(client, job_id, {"running"})
+    client.post(f"/api/jobs/{job_id}/cancel", json={})
+    snap = _wait_status(client, job_id, {"cancelled", "failed", "succeeded", "partial_failed"})
+    assert snap["status"] == "cancelled" and snap["done"]["cancelled"] is True
+    assert not (staging / "u1").exists()   # 本次暂存已清理(仅本任务子目录)
+
+
+def test_swap_apply_emits_file_events_per_jar(tmp_path, monkeypatch):
+    """T13.5:GUI 装包阶段逐 jar 产生 file 事件(index/total)——复用既有进度通道。"""
+    game, client = _swap_layout(tmp_path, monkeypatch)
+    pf = _swap_preflight_done(client, game)
+    job = client.post("/api/swap/apply", json=_apply_body(pf)).json()["job_id"]
+    events = _wait_job_done(client, job)
+    files = [ev for ev in events if ev.get("type") == "file"]
+    assert files, "装包阶段必须产生逐 jar file 事件(进度可见)"
+    assert [f["index"] for f in files] == list(range(1, len(files) + 1))
+    assert all(f["total"] == len(files) for f in files)
+    # 终审 C?I1:file 事件必须带 status——缺省会让页面渲染「(undefined)」
+    assert all(f.get("status") == "copied" for f in files)

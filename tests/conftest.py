@@ -223,7 +223,7 @@ def built_plan_layout(tmp_path: Path):
     data = game / ".mcmig"
     src_snap = scan_version(game, "src", data / "snapshots")
     dst_snap = scan_version(game, "dst", data / "snapshots")
-    plan, _compat, _pairs = build_plan(
+    plan, _compat, _pairs, _extras = build_plan(
         tmp_path, game, "src", "dst",
         mcmig_dir=data, plans_dir=data / "plans", data_dir=data,
     )

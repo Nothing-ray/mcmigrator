@@ -2,9 +2,35 @@
 
 [English](README.en.md) | [🏠 落地页](README.md)
 
-> Minecraft 整合包版本迁移工具(只读 scan/diff)— 在同一整合包的版本隔离文件夹之间,比对玩家状态差异。
+> Minecraft 整合包版本迁移工具:扫描 / 比对 / 计划 / 执行 / 换包 / 本地向导——在同一整合包的版本隔离文件夹之间迁移玩家状态。
 
-同一整合包从一个 NeoForge 版本文件夹迁到另一个时,你想知道:**玩家在新版本里要保留/改动哪些文件?** `mcmigrator` 用 `scan` 扫描版本文件夹、用 `diff` 对比两份快照,产出迁移导向的 6 桶报告。**v0 纯只读**——绝不改动游戏文件,产物落在 `.mcmig/`(布局见「数据与卸载」),可无限次试。
+同一整合包从一个 NeoForge 版本文件夹迁到另一个时,你想知道:**玩家在新版本里要保留/改动哪些文件?** `mcmigrator` 用 `scan` 扫描版本文件夹、`diff` 对比快照(迁移导向 6 桶报告),`plan`/`migrate` 全链路迁移玩家状态,`swap` 更换整个整合包;所有写盘动作先备份、可 `--dry-run` 预览,工具自有数据落在 `.mcmig/`(布局见「数据与卸载」)。
+
+## 两种包怎么选
+
+| 发行物 | 形态 | 建议 |
+|---|---|---|
+| `mcmig-<版本>-win-x64.zip` | **onedir 绿色目录** | **推荐**:解压即用,含 `mcmig.exe`(CLI)与 `mcmig-gui.exe`(窗口);启动快、磁盘占用省 |
+| `mcmig-gui-<版本>-win-x64.exe` | onefile 单文件 | 尝鲜:双击即用的窗口版;每次启动需解压到临时目录(较慢),杀软误报率相对较高 |
+
+## 下载
+
+在 [Releases](https://github.com/Nothing-ray/mcmigrator/releases) 页下载任一资产;每份发行附 `SHA256SUMS.txt`(两资产的 SHA256 清单)。下载后校验(Windows 自带命令):
+
+```bat
+certutil -hashfile mcmig-<版本>-win-x64.zip SHA256
+```
+
+输出与 `SHA256SUMS.txt` 中该文件名的值一致即下载完好;不一致请重新下载。
+
+## 更新方法(基础档)
+
+- **CLI**:`mcmig update [--check]` —— 检查是否有新版(`--check` 仅检查),有则下载 → SHA256 强制校验 → 暂存,并按安装形态打印**替换三步**:
+  - **onedir 绿色目录**:①退出所有 mcmig 进程(窗口与命令行);②把下载的 zip 解压,用解压出的 `mcmig` 文件夹内容覆盖现有 `mcmig` 程序目录(同名文件覆盖;你自己的 `data/config.toml` 保留);③重新启动。应用后暂存目录可整目录删除。
+  - **onefile 单文件**:①退出当前 mcmig;②用本次下载的 exe 替换你现在使用的 `mcmig-gui*.exe`(覆盖或改名均可);③重新启动。应用后暂存目录可整目录删除。
+- **GUI**:步①「关于 / 更新」面板 —— 检查更新 / 下载并校验(可取消,刷新页面进度可恢复),完成态显示「**已下载,尚未应用**」+ 打开暂存位置按钮 + 与上面同源的形态化替换指引。
+- **行为约定**:工具**不会自动运行下载的文件**,也不提供「立即运行」;源码运行模式不提供下载(请 `git pull`)。校验失败/清单异常一律拒绝本次下载并清理临时文件。
+- 自动应用更新(免手动替换)随后续版本提供,当前为**下载-校验-手动替换**。
 
 ## 特性
 
@@ -57,7 +83,22 @@ mcmig diff <src> <dst> --show-identical --show-never              # 显示隐藏
 | `mcmig migrate <src> <dst>` | 执行已保存的迁移计划(先 plan 后 migrate;覆盖自动备份到 `_conflict_backup/`) |
 | `mcmig swap <src> <dst> <新包目录>` | 整合包替换:兼容预检→装包→生成换包迁移计划 |
 | `mcmig doctor` | 环境体检:数据完整性 / 游戏目录配置 / 权限 / 磁盘空间 |
-| `mcmig gui [--port N] [--no-browser]` | 启动本地 Web 迁移向导(自动开浏览器;默认随机空闲端口) |
+| `mcmig-gui` | 以独立窗口启动迁移向导(WebView2 渲染;不可用时自动回退浏览器模式) |
+| `mcmig gui [--port N] [--no-browser] [--window]` | 启动本地 Web 迁移向导(自动开浏览器;默认随机空闲端口;`--window` 同独立窗口) |
+
+## 图形界面
+
+三步迁移向导:①选版本 → ②审阅计划 → ③执行迁移。两种启动方式:
+
+- **独立窗口**:`mcmig-gui`(或 `mcmig gui --window`)——pywebview + WebView2 渲染。启动前做数据清单自检与渲染器预检;pywebview 未安装、缺 WebView2 运行时或窗口启动失败时**自动回退浏览器模式**(打印提示;预检挡在开窗之前,不会闪开过时的 MSHTML 窗口)。任务运行中关窗会被阻止并提示(等任务完成或取消后再退);空闲关窗直接退出。
+- **浏览器模式**:`mcmig gui`(默认随机空闲端口,自动开浏览器;`--no-browser` 不自动开)。
+
+v0.12 起的向导能力:
+
+- **审阅页摘要**:计划页顶部显示五要素——待迁移 N 项 / 约多少 MB / 待确认 M / 将覆盖(有备份)O / 兼容警告 K,并附「检测范围说明」(说明摘要承诺了什么、没承诺什么);mod 配对术语中文化(升级/改名/重打包),diff 摘要与警示随计划一并呈现,不再只落服务端日志。
+- **换包两阶段**:换包面板先发起**只读预检**(`/api/swap/preflight`),呈现三类决策清单(新包中与目标 NeoForge 不兼容的 mod / 目标 mods/ 中新包没有的残留 jar / 同名但内容不同的冲突);确认后**应用装包**(`/api/swap/apply`,服务端持锁三重重验:输入指纹重算 + 版本对身份 + 兼容重跑),装包完成即在同一任务内链式重扫并生成换包迁移计划,直接进入审阅页(旧包独有 jar 不回迁)。被覆盖 jar 先备份到 `<游戏根>/.mcmig/backups/swap/<UTC 时间戳>/`;装包完成进入重规划阶段后取消入口隐藏(该段不可取消,取消请求得 409)。
+- **刷新恢复与断线重连**:任务运行中刷新页面,按事件游标续显进度(不重扫不重放);网络瞬断时页面显示「连接中断,正在自动重连…」,恢复后事件按序号去重、不重复渲染,浏览器重连以 `Last-Event-ID` 请求头续订(优先于订阅 URL 中的旧游标参数)。
+- **中断恢复**:迁移与换包装包的 write-ahead journal 落在 `<游戏根>/.mcmig/jobs/`;服务异常退出后重启,页面顶部横幅列出中断任务的待核对清单,按指引核对后可逐条 dismiss(该任务仍在运行时清除请求被 409 拒绝);已正常收尾的 journal 档案在下次读取中断清单时自动清扫,不累积。
 
 ## 工作方式
 
@@ -120,7 +161,7 @@ mcmig swap <旧版本> <新版本> <新包目录>   # 预检+装包+出计划(�
 mcmig migrate <旧版本> <新版本>           # 审阅计划后执行复制
 ```
 
-新版本文件夹请先用 PCL2 安装好对应 NeoForge。migrate 可重入(中断后重跑自动续传)。
+新版本文件夹请先用 PCL2 安装好对应 NeoForge。migrate 可重入(中断后重跑自动续传)。图形界面中的换包为两阶段交互(只读预检 → 确认装包 + 链式生成换包计划),见「图形界面」。
 
 ### .bak 判定法
 
@@ -181,16 +222,16 @@ feature/release/up/port/api/lib/compat`,家族键任意位置出现即剥,闭集
 mcmig/(exe 所在文件夹)              <游戏根>/.mcmig/(实例态,CLI/GUI 互通)
 ├── mcmig-gui.exe / mcmig.exe        ├── snapshots/ plans/ rules.yaml
 └── data/                            ├── jobs/(任务 journal,中断待核对)
-    └── config.toml(仅全局配置)      ├── locks/ 与 backups/(批次I W3 起)
+    └── config.toml(仅全局配置)      ├── locks/(预留)/ backups/swap/(换包覆盖备份)
 ```
 
 - **软件侧全局态**:绿色 exe 下为 `data/config.toml`,**仅存全局配置**(游戏根目录指向),绝不写入 AppData 或用户目录——整个客户端文件夹拷走即带走配置;源码运行下为工作目录 `.mcmig/config.yaml`(兼容现状)。首跑未配置时不报错(欢迎态),由向导步①输入框引导填写并落盘。
-- **实例态(`<游戏根>/.mcmig/`)**:快照(`snapshots/`)、迁移计划(`plans/`)、用户规则(`rules.yaml`)、任务日志(`jobs/`,迁移 write-ahead journal,异常退出后据此在页面横幅提示「待核对」)统一锚定游戏根目录,绿色与源码两模式**同址**,多个整合包根互不串数据;`locks/` 为跨进程实例锁登记位(预留),`backups/` 自批次I W3 起启用。
-- **旧布局迁移说明**:旧绿色布局 `exe/data/<游戏名>/snapshots|plans|rules.yaml` 与旧源码布局 `cwd/.mcmig/` 实例态为**只读回退**——工具绝不自动写入旧位置;旧快照命中时照常读取并提示建议整体迁移;`rules.yaml` 两处并存时**以新位置为准**(旧文件忽略并提示)。建议把旧 `snapshots/`、`rules.yaml` 整体搬至 `<游戏根>/.mcmig/` 后删除旧文件。
+- **实例态(`<游戏根>/.mcmig/`)**:快照(`snapshots/`)、迁移计划(`plans/`)、用户规则(`rules.yaml`)、任务日志(`jobs/`,迁移与换包装包的 write-ahead journal——异常退出后据此在页面横幅提示「待核对」,已收尾档案自动清扫)统一锚定游戏根目录,绿色与源码两模式**同址**,多个整合包根互不串数据;`locks/` 为跨进程实例锁登记位(预留),`backups/swap/<UTC 时间戳>/` 为换包装包的覆盖备份(批次I W3 起启用)。
+- **旧布局迁移说明**:旧绿色布局 `exe/data/<游戏名>/snapshots|plans|rules.yaml` 与旧源码布局 `cwd/.mcmig/` 实例态为**只读回退**——工具绝不自动写入旧位置;旧快照命中时照常读取并提示建议整体迁移;`rules.yaml` 两处并存时**以新位置为准**(旧文件忽略并提示)。「使用旧布局 plan」的提示为 **CLI**(`mcmig migrate`)侧行为——GUI 生成计划恒先重扫两侧,快照与计划文件始终落在锚定位置(旧布局快照仅发只读提示,不参与定位)。建议把旧 `snapshots/`、`rules.yaml` 整体搬至 `<游戏根>/.mcmig/` 后删除旧文件。
 
 ### 游戏侧会写什么
 
-工具在游戏根目录创建的唯一目录是 `.mcmig/`(快照、迁移计划、用户规则与任务日志,纯工具产物——快照重扫即重建;任务日志不会重扫重建,删除它只会让「中断待核对」横幅消失);除此之外不创建任何其他工具目录。迁移期间唯一写入游戏内容的是**冲突备份**:同名但内容不同的文件在覆盖前会先备份到 `<目标版本>/_conflict_backup/`(镜像相对路径结构;首份备份为覆盖前的原件,重跑不会覆盖)。迁移完成并确认无误后,该文件夹可安全删除。
+工具在游戏根目录创建的唯一目录是 `.mcmig/`(快照、迁移计划、用户规则与任务日志,纯工具产物——快照重扫即重建;任务日志仅保留未收尾档案,已正常收尾的在下次读取中断清单时自动清扫,删除未收尾档案只会让「中断待核对」横幅消失);除此之外不创建任何其他工具目录。迁移期间唯一写入游戏内容的是**冲突备份**:同名但内容不同的文件在覆盖前会先备份到 `<目标版本>/_conflict_backup/`(镜像相对路径结构;首份备份为覆盖前的原件,重跑不会覆盖)。换包(swap)则按用户确认把新包 `mods/` 装入目标版本,被覆盖 jar 先备份到 `<游戏根>/.mcmig/backups/swap/<UTC 时间戳>/`。迁移完成并确认无误后,这些备份文件夹均可安全删除。
 
 ### 如何卸载
 
@@ -201,20 +242,22 @@ mcmig/(exe 所在文件夹)              <游戏根>/.mcmig/(实例态,CLI/GUI �
 
 ### 校验下载完整性(SHA256)
 
-每次 GitHub Release 附带 exe 与其 SHA256 校验值。下载后请校验(Windows 自带命令):
+每次 GitHub Release 附带两种资产与一份 `SHA256SUMS.txt` 校验清单。下载后校验(Windows 自带命令):
 
 ```bat
-certutil -hashfile mcmig.exe SHA256
+certutil -hashfile <下载的文件> SHA256
 ```
 
-将输出与 Release 页面的 SHA256 比对,一致即下载完好;不一致请重新下载。
+将输出与 `SHA256SUMS.txt` 中该文件名的值比对,一致即下载完好;不一致请重新下载。`mcmig update` 的下载路径会自动做同一校验,失败即拒绝并清理。
 
 ## 项目结构
 
 ```
 mcmigrator/
-├── migration/          # 工具源码(hashing/rules/classifier/snapshot/scanner/differ/reporter/cli)
+├── migration/          # 工具源码(hashing/rules/classifier/snapshot/scanner/differ/pipeline/updater/gui)
 ├── tests/              # 单元 + 端到端测试(pytest)
+├── tools/packaging/    # 发行构建:build.py(双形态)/两个 PyInstaller spec/锁定文件/发布守卫
+├── docs/               # 递延账本(backlog.md)与 SDD 计划留档
 ├── Reference/          # 设计文档(specs / design / plans)
 ├── data/default_rules.yaml  (在包内)  # 内置默认分类规则
 ├── config.example.yaml # 配置模板
@@ -232,6 +275,18 @@ mcmigrator/
 ## 贡献
 
 本地开发/跑测试:安装开发依赖组 `pip install -e ".[dev]"`(含 pytest 与 ruff)。**uv 用户注意**:`uv sync` 精确模式只装运行时依赖、会剪掉 pytest,测试环境请改用 `uv pip install -e ".[dev]"`。
+
+**构建发行物**(需 Python 3.13;在独立构建 venv 内,依赖按 `tools/packaging/requirements-win-build.txt` 锁定文件安装):
+
+```bat
+python -m venv .venv-build
+.venv-build\Scripts\python.exe -m pip install -r tools\packaging\requirements-win-build.txt
+.venv-build\Scripts\python.exe tools\packaging\build.py --form onefile
+.venv-build\Scripts\python.exe tools\packaging\build.py --form onedir
+.venv-build\Scripts\python.exe tools\packaging\build.py --sums dist-release
+```
+
+tag `v*` 推送后由 GitHub Actions 自动执行同一流程(发布守卫先校验 tag==pyproject==`__version__` 三处一致)。
 
 欢迎提交以下内容(中文/英文均可):
 
@@ -279,10 +334,16 @@ mcmigrator/
 - ✅ v1 Phase 1:`plan` 子命令 + config 玩家改动判定(`.bak` 法 + 白名单)(已实现)
 - ✅ v1 Phase 2:`migrate` 实际写盘 + `swap` 换包编排(已实现;回滚见未来)
 - ✅ v0.6:事务式文件操作(fsops)+ 绿色 exe 数据布局 + `doctor` 体检 + 本地 Web 向导 `mcmig gui`(已实现)
+- ✅ v0.12:GUI 换包两阶段(预检→装包)+ 独立窗口壳 `mcmig-gui`(WebView2,缺失降级浏览器)+ 页面刷新恢复/断线自动重连 + journal 中断横幅 dismiss 与自动清扫(已实现)
+- ✅ v0.13:分发闭环——PyInstaller 双形态入库 + GitHub Actions 自动构建发布(双平台全检 + SHA256SUMS)+ 更新基础档(`mcmig update` 与向导「关于/更新」面板:检查→下载→校验→暂存→手动替换)(已实现)
 - 📋 v1 Phase 3:Manifest 决策沉淀(自动记忆迁移决策)
 - 📋 未来:Mod Profile(META-INF 解析)+ 内容检测
 
 详见 [`Reference/specs/`](Reference/specs/)。
+
+## 附录:占用实测(0.13.0 试发后补录)
+
+onefile / onedir 的体积、冷启动时间与磁盘峰值实测数据随 0.13.0 试发补录(非验收承诺,仅供选包参考)。
 
 ## 许可证
 

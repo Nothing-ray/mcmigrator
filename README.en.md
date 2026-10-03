@@ -3,11 +3,37 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.11.0 / 2026-10-02
+> Last synced: v0.13.0 / 2026-10-03
 
-> A read-only scan/diff tool for Minecraft modpack version migration — compare player state across version-isolated folders (equivalent to instance isolation in MultiMC/Prism) of the same modpack.
+> A Minecraft modpack version-migration tool — scan, diff, plan, migrate, modpack swap, plus a local web wizard.
 
-When your modpack moves from one NeoForge version folder to another, you want to know: **which files does the player need to keep or update in the new version?** `mcmigrator` scans version folders with `scan` and compares two snapshots with `diff`, producing a migration-oriented 6-bucket report. **v0 is strictly read-only** — it never touches game files; all output lands in `.mcmig/` (layout detailed in *Data & Uninstall*), so you can run it as many times as you want.
+When your modpack moves from one NeoForge version folder to another, you want to know: **which files does the player need to keep or update in the new version?** `mcmigrator` scans version folders with `scan`, compares snapshots with `diff` (migration-oriented 6-bucket report), migrates player state end-to-end with `plan`/`migrate`, and swaps whole modpacks with `swap`; every write is backed up first and can be previewed with `--dry-run`, and tool-owned data lives in `.mcmig/` (layout detailed in *Data & Uninstall*).
+
+## Which Package to Choose
+
+| Artifact | Form | Recommendation |
+|---|---|---|
+| `mcmig-<version>-win-x64.zip` | **onedir portable folder** | **Recommended**: unzip and run; contains `mcmig.exe` (CLI) and `mcmig-gui.exe` (window); fast start, smaller footprint |
+| `mcmig-gui-<version>-win-x64.exe` | onefile single exe | For a quick try: double-click window build; unpacks to a temp dir on every start (slower) and has a higher antivirus false-positive rate |
+
+## Download
+
+Grab either artifact from the [Releases](https://github.com/Nothing-ray/mcmigrator/releases) page; each release ships a `SHA256SUMS.txt` (SHA256 list for both artifacts). Verify after downloading (built-in Windows command):
+
+```bat
+certutil -hashfile mcmig-<version>-win-x64.zip SHA256
+```
+
+A match with the entry in `SHA256SUMS.txt` means the download is intact; otherwise re-download.
+
+## Updating (Basic Tier)
+
+- **CLI**: `mcmig update [--check]` — check for a newer release (`--check` only checks); if found, download → enforce SHA256 → stage, then print the **three replacement steps** for your install form:
+  - **onedir portable folder**: (1) quit every mcmig process (window and console); (2) unzip the downloaded zip and copy the extracted `mcmig` folder contents over your existing `mcmig` program folder (overwrite same-named files; your own `data/config.toml` is kept); (3) restart. The staging folder can be deleted afterwards.
+  - **onefile single exe**: (1) quit the running mcmig; (2) replace the `mcmig-gui*.exe` you currently use with the downloaded exe (overwrite or rename); (3) restart. The staging folder can be deleted afterwards.
+- **GUI**: step ① "About / Update" panel — check / download & verify (cancellable; progress survives a page refresh); the done state shows "**Downloaded, not yet applied**" with an *open staging location* button and the same form-specific replacement instructions.
+- **Behavior contract**: the tool **never runs downloaded files** and offers no "run now" button; source checkouts don't offer downloads (use `git pull`). A failed checksum or malformed manifest rejects the download and cleans up.
+- Automatic (in-place) updates arrive in a later release; today's flow is **download – verify – replace manually**.
 
 ## Features
 
@@ -60,9 +86,24 @@ mcmig diff <src> <dst> --show-identical --show-never              # show hidden 
 | `mcmig migrate <src> <dst>` | Execute the saved migration plan (plan first, then migrate; overwrites are auto-backed up to `_conflict_backup/`) |
 | `mcmig swap <src> <dst> <new-pack-dir>` | Modpack swap: compatibility precheck → install pack → generate swap migration plan |
 | `mcmig doctor` | Environment health check: data integrity / game root config / permissions / disk space |
-| `mcmig gui [--port N] [--no-browser]` | Launch the local web migration wizard (auto-opens the browser; random free port by default) |
+| `mcmig-gui` | Launch the migration wizard as a standalone window (WebView2 renderer; falls back to browser mode automatically when unavailable) |
+| `mcmig gui [--port N] [--no-browser] [--window]` | Launch the local web migration wizard (auto-opens the browser; random free port by default; `--window` = the standalone window) |
 
 > `<version>` = `versions/` subfolder name (MC + loader, e.g. `1.21.1-NeoForge_21.1.227` = Minecraft 1.21.1 + NeoForge 21.1.227).
+
+## Graphical Interface
+
+A three-step migration wizard: ① pick versions → ② review the plan → ③ execute. Two ways to launch:
+
+- **Standalone window**: `mcmig-gui` (or `mcmig gui --window`) — pywebview + WebView2 rendering. Before starting it runs a data-manifest self-check and a renderer precheck; if pywebview is missing, the WebView2 runtime is absent, or the window fails to start, it **falls back to browser mode automatically** (with a printed hint; the precheck happens before the window opens, so no obsolete MSHTML window ever flashes). Closing the window while a job is running is blocked with a notice (wait for completion or cancel); closing while idle exits directly.
+- **Browser mode**: `mcmig gui` (random free port by default, auto-opens the browser; `--no-browser` skips opening).
+
+Wizard capabilities as of v0.12:
+
+- **Review-page summary**: the plan page header shows five key figures — N items to migrate / approx. size / M to confirm / O to be overwritten (backed up) / K compat warnings — plus a "detection scope" note stating exactly what the summary does and does not promise; mod-pairing terms are localized (upgrade / renamed / rebuilt), and the diff summary and warnings now arrive with the plan instead of living only in server logs.
+- **Two-stage swap**: the swap panel first issues a **read-only preflight** (`/api/swap/preflight`), presenting three decision lists (mods in the new pack incompatible with the target NeoForge / leftover jars in the target's mods/ that the new pack lacks / same-name jars with different content). After confirmation it **applies the install** (`/api/swap/apply`; the server re-verifies under the instance lock: input fingerprint recompute + version-pair identity + compat rerun), then chain-rescans and generates the swap migration plan within the same job, landing directly on the review page (old-pack-only jars are not migrated back). Overwritten jars are backed up first to `<game-root>/.mcmig/backups/swap/<UTC timestamp>/`; once the install completes and the replanning phase begins, the cancel entry is hidden (that phase is not cancellable — a cancel request gets 409).
+- **Refresh recovery & reconnect**: refresh the page while a job is running and progress resumes from the event cursor (no rescan, no replay); on a network blip the page shows "connection lost, reconnecting…", and after recovery events are deduplicated by sequence number — the browser reconnects with the `Last-Event-ID` request header (which takes priority over a stale cursor parameter in the subscription URL).
+- **Interruption recovery**: write-ahead journals for migration and swap-install land in `<game-root>/.mcmig/jobs/`; after the server exits abnormally and restarts, a banner at the top of the page lists the interrupted job's pending-review items — confirm them against the guidance, then dismiss entries one by one (dismissal is rejected with 409 while that job is still alive); journals of jobs that finished normally are swept automatically the next time the interrupted list is read, so nothing accumulates.
 
 ## How It Works
 
@@ -125,7 +166,7 @@ mcmig swap <old-version> <new-version> <new-pack-dir>   # precheck + install + p
 mcmig migrate <old-version> <new-version>               # review the plan, then execute the copy
 ```
 
-Create the new version folder and install its NeoForge via PCL2 first. `migrate` is resumable (re-run after an interruption continues where it left off).
+Create the new version folder and install its NeoForge via PCL2 first. `migrate` is resumable (re-run after an interruption continues where it left off). In the GUI, swap is a two-stage interaction (read-only preflight → confirm install + chain-generated swap plan); see *Graphical Interface*.
 
 ### .bak Heuristic
 
@@ -177,16 +218,16 @@ Tool state splits into two layers: the **global layer** (travels with the tool) 
 mcmig/ (exe folder)                  <game-root>/.mcmig/ (instance layer, CLI/GUI shared)
 ├── mcmig-gui.exe / mcmig.exe        ├── snapshots/ plans/ rules.yaml
 └── data/                            ├── jobs/ (job journal; interrupted = pending review)
-    └── config.toml (global only)    ├── locks/ and backups/ (from Batch I W3)
+    └── config.toml (global only)    ├── locks/ (reserved) / backups/swap/ (swap overwrite backups)
 ```
 
 - **Global layer (software side)**: with the portable exe it is `data/config.toml`, holding **only global config** (the game-root pointer) — nothing is ever written to AppData or user directories, and copying the whole client folder carries the config along. For source runs it is the working directory's `.mcmig/config.yaml` (unchanged). A first run with nothing configured is a welcome state (no error); the wizard's step-① input box guides you to set and persist it.
-- **Instance layer (`<game-root>/.mcmig/`)**: snapshots (`snapshots/`), migration plans (`plans/`), user rules (`rules.yaml`), and job journals (`jobs/` — the migration write-ahead journal; after an abnormal exit it feeds the page's "pending review" banner) are all anchored at the game root, **same location** for both portable and source modes, so multiple modpack roots never mix. `locks/` is the cross-process instance-lock registry (reserved); `backups/` arrives with Batch I W3.
-- **Migrating from the old layout**: the old portable layout `exe/data/<game-name>/snapshots|plans|rules.yaml` and the old source-mode instance state under `cwd/.mcmig/` are **read-only fallbacks** — the tool never writes to the old locations; legacy snapshots are still read, with a hint recommending a bulk move; when `rules.yaml` exists in both places, **the new location wins** (the old file is ignored with a notice). Recommended: move old `snapshots/` and `rules.yaml` into `<game-root>/.mcmig/` as a whole, then delete the old copies.
+- **Instance layer (`<game-root>/.mcmig/`)**: snapshots (`snapshots/`), migration plans (`plans/`), user rules (`rules.yaml`), and job journals (`jobs/` — the write-ahead journal for migration and swap-install; after an abnormal exit it feeds the page's "pending review" banner, and finished archives are swept automatically) are all anchored at the game root, **same location** for both portable and source modes, so multiple modpack roots never mix. `locks/` is the cross-process instance-lock registry (reserved); `backups/swap/<UTC timestamp>/` holds swap-install overwrite backups (from Batch I W3).
+- **Migrating from the old layout**: the old portable layout `exe/data/<game-name>/snapshots|plans|rules.yaml` and the old source-mode instance state under `cwd/.mcmig/` are **read-only fallbacks** — the tool never writes to the old locations; legacy snapshots are still read, with a hint recommending a bulk move; when `rules.yaml` exists in both places, **the new location wins** (the old file is ignored with a notice). The "using legacy-layout plan" hint is a **CLI-side** (`mcmig migrate`) behavior — the GUI always rescans both sides when generating a plan, so snapshots and plan files always land at the anchored location (legacy snapshots only produce a read-only notice and never participate in locating). Recommended: move old `snapshots/` and `rules.yaml` into `<game-root>/.mcmig/` as a whole, then delete the old copies.
 
 ### What Gets Written on the Game Side
 
-The only directory the tool ever creates inside the game root is `.mcmig/` (snapshots, migration plans, user rules, and job journals — pure tool artifacts; snapshots rebuild on re-scan, and deleting the job journals merely clears the "pending review" banner); no other tool directory is created. The only thing written to game **content** during migration is the **conflict backup**: a file with the same name but different content is backed up to `<target-version>/_conflict_backup/` before being overwritten (mirroring the relative path; the first backup is the pre-overwrite original, and re-runs never overwrite it). Once the migration is verified fine, that folder can be safely deleted.
+The only directory the tool ever creates inside the game root is `.mcmig/` (snapshots, migration plans, user rules, and job journals — pure tool artifacts; snapshots rebuild on re-scan; job journals keep only unfinished archives: finished ones are swept automatically the next time the interrupted list is read, and deleting an unfinished journal merely clears the "pending review" banner); no other tool directory is created. The only thing written to game **content** during migration is the **conflict backup**: a file with the same name but different content is backed up to `<target-version>/_conflict_backup/` before being overwritten (mirroring the relative path; the first backup is the pre-overwrite original, and re-runs never overwrite it). A swap, by contrast, installs the new pack's `mods/` into the target version with your confirmation, backing up overwritten jars first to `<game-root>/.mcmig/backups/swap/<UTC timestamp>/`. Once the migration is verified fine, these backup folders can be safely deleted.
 
 ### How to Uninstall
 
@@ -197,20 +238,22 @@ The only directory the tool ever creates inside the game root is `.mcmig/` (snap
 
 ### Verifying the Download (SHA256)
 
-Each GitHub Release ships the exe plus its SHA256 checksum. Verify after downloading (built-in Windows command):
+Each GitHub Release ships two artifacts plus a `SHA256SUMS.txt` checksum list. Verify after downloading (built-in Windows command):
 
 ```bat
-certutil -hashfile mcmig.exe SHA256
+certutil -hashfile <downloaded file> SHA256
 ```
 
-Compare the output against the SHA256 on the Release page — a match means the download is intact; otherwise re-download.
+Compare the output against the entry for that filename in `SHA256SUMS.txt` — a match means the download is intact; otherwise re-download. `mcmig update` performs the same verification automatically and rejects + cleans up on failure.
 
 ## Project Structure
 
 ```
 mcmigrator/
-├── migration/          # tool source (hashing/rules/classifier/snapshot/scanner/differ/reporter/cli)
+├── migration/          # tool source (hashing/rules/classifier/snapshot/scanner/differ/pipeline/updater/gui)
 ├── tests/              # unit + end-to-end tests (pytest)
+├── tools/packaging/    # release builds: build.py (both forms) / two PyInstaller specs / lockfile / release guard
+├── docs/               # deferred-work ledger (backlog.md) and SDD plan records
 ├── Reference/          # design docs (specs / design / plans) — in Chinese
 ├── data/default_rules.yaml  (inside the package)  # built-in default classification rules
 ├── config.example.yaml # config template
@@ -229,6 +272,18 @@ Detailed design in `Reference/` (in Chinese): `specs/` (version design specs), `
 ## Contributing
 
 For local development and running tests, install the dev dependency group: `pip install -e ".[dev]"` (pytest and ruff included). **uv users note**: `uv sync` in exact mode installs only runtime dependencies and prunes pytest — use `uv pip install -e ".[dev]"` for test environments instead.
+
+**Building release artifacts** (requires Python 3.13; use a separate build venv and install the lockfile `tools/packaging/requirements-win-build.txt`):
+
+```bat
+python -m venv .venv-build
+.venv-build\Scripts\python.exe -m pip install -r tools\packaging\requirements-win-build.txt
+.venv-build\Scripts\python.exe tools\packaging\build.py --form onefile
+.venv-build\Scripts\python.exe tools\packaging\build.py --form onedir
+.venv-build\Scripts\python.exe tools\packaging\build.py --sums dist-release
+```
+
+Pushing a `v*` tag runs the same pipeline in GitHub Actions (the release guard first enforces tag == pyproject == `__version__`).
 
 Contributions welcome (in Chinese or English):
 
@@ -276,10 +331,16 @@ Zero-copy integration trick: map the server directory to `versions\<name>` with 
 - ✅ v1 Phase 1: `plan` subcommand + config player-edit detection (`.bak` heuristic + whitelist) (implemented)
 - ✅ v1 Phase 2: `migrate` actual writes + `swap` modpack orchestration (implemented; rollback see Future)
 - ✅ v0.6: transactional file operations (fsops) + portable-exe data layout + `doctor` health check + local web wizard `mcmig gui` (implemented)
+- ✅ v0.12: GUI two-stage swap (preflight → install) + standalone window shell `mcmig-gui` (WebView2, falls back to browser when missing) + page refresh recovery / auto-reconnect + journal interruption banner dismiss & auto-sweep (implemented)
+- ✅ v0.13: distribution loop — PyInstaller dual-form packaging + GitHub Actions auto build/release (dual-platform checks + SHA256SUMS) + basic-tier updater (`mcmig update` and the wizard's About/Update panel: check → download → verify → stage → replace manually) (implemented)
 - 📋 v1 Phase 3: Manifest decision persistence (auto-remember migration decisions)
 - 📋 Future: Mod Profile (META-INF parsing) + content detection
 
 See [`Reference/specs/`](Reference/specs/) for details.
+
+## Appendix: Measured Footprint (to be filled after the 0.13.0 trial release)
+
+Size, cold-start time, and peak disk usage for onefile / onedir will be recorded with the 0.13.0 trial release (informational, not an acceptance promise).
 
 ## License
 

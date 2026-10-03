@@ -1,7 +1,8 @@
-"""编排管线下沉:scan / diff / plan / execute 四段编排,CLI 与未来 GUI 平级消费。
+"""编排管线上下沉:scan / diff / plan / execute / swap 五段编排,CLI 与 GUI 平级消费。
 
 自 cli.py 原样搬移 `_run_plan_pipeline`、`_cmd_scan` 的扫描构建逻辑与
-`_cmd_diff` 的 diff 编排,逻辑不改,仅参数化 mcmig_dir / plans_dir / 快照目录:
+`_cmd_diff` 的 diff 编排,逻辑不改,仅参数化 mcmig_dir / plans_dir / 快照目录;
+批次I-W3 T7 再下沉 swap 编排(预检/装包/全流程,见文末 swap 段):
 - 快照路径 = <mcmig_dir>/snapshots/<版本名>.snapshot.json(与 snapshot_path(cwd,·) 同构,
   mcmig_dir=cwd/.mcmig 时两者完全一致)
 - plan 路径 = <plans_dir>/<src>__<dst>.plan.json(与 plan_path(cwd,·) 同构)
@@ -16,10 +17,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,7 +31,8 @@ from . import rules
 from .classifier import Classifier
 from .differ import DiffReport, Differ, is_mod_jar
 from .executor import Executor, FileResult
-from .fsops import check_disk_space, clean_stale_tmp
+from .fsops import FsOpsError, check_disk_space, clean_stale_tmp, copy_atomic, md5_of
+from .journal import JobJournal, JournalError
 from .plan import ActionRecord, Behavior, MigrationPlan, Origin, PlanPersistError
 from .planner import Planner
 from .preflight import (  # noqa: F401 — 重导出:spec 命名 pipeline.preflight_execute 成立
@@ -64,6 +69,39 @@ def _print_err(text: str) -> None:
 def _version_dir(game_root: Path, version: str) -> Path:
     """返回版本文件夹路径:game_root/versions/<version>。"""
     return game_root / "versions" / version
+
+
+# 版本名的非法字符集:路径分隔符(/ \)、盘符与 ADS 冒号、通配符与重定向符
+# (Win32 保留)、控制字符(0x00-0x1f,含换行)
+_VERSION_NAME_BAD_CHARS = set('\\/:*?"<>|')
+
+
+def version_name_error(name: str) -> str | None:
+    """校验版本名是「单一路径分量」,非法返回中文原因,合法返回 None。
+
+    版本名最终与 ``game_root / "versions" / <name>`` 拼接——pathlib 拼接
+    **绝对路径时会整体替换**,盘符/分隔符形态的「版本名」会把读写面带出
+    game_root;故 CLI/API/核心(run_swap)共用本校验先行拒绝。junction/
+    符号链接别名(名字合法、目录指向他处)不受影响——只校验名字形态。
+
+    Args:
+        name: 待校验的版本名。
+
+    Returns:
+        非法原因(中文);``None`` 表示合法。
+    """
+    if not name:
+        return "版本名不能为空"
+    if name in (".", ".."):
+        return "版本名不能是 . 或 .."
+    if name != name.strip():
+        return "版本名不能以空白开头或结尾(Windows 会归一化致名不符)"
+    if name.endswith("."):
+        return "版本名不能以点结尾(Windows 会归一化致名不符)"
+    for ch in name:
+        if ord(ch) < 0x20 or ch in _VERSION_NAME_BAD_CHARS:
+            return f"版本名含非法字符 {ch!r}(路径分隔符/盘符/通配符/控制字符)"
+    return None
 
 
 def list_versions(game_root: Path) -> list[str]:
@@ -269,6 +307,27 @@ def select_rules_dir(data_dir: Path, legacy_dir: Path | None) -> tuple[Path, lis
     return data_dir, notices
 
 
+def _same_physical_root(
+    src_snap: Snapshot, dst_snap: Snapshot, src_dir: Path, dst_dir: Path
+) -> bool:
+    """mtime 证据闸门统一口径:双侧快照均记录 resolved_root 则比记录值,
+    任一缺失(旧 v1 快照)回退活目录 resolve 比较——build_plan 与 run_diff
+    两处调用点同形(spec F35,W3 复审 #16)。
+
+    Args:
+        src_snap: 源侧快照(取 resolved_root 记录值)。
+        dst_snap: 目标侧快照(取 resolved_root 记录值)。
+        src_dir: 源侧活版本目录(fallback resolve 比较用)。
+        dst_dir: 目标侧活版本目录(fallback resolve 比较用)。
+
+    Returns:
+        双侧是否同一物理根(同实例随时间演化 → mtime 证据可用)。
+    """
+    if src_snap.resolved_root is not None and dst_snap.resolved_root is not None:
+        return src_snap.resolved_root == dst_snap.resolved_root
+    return src_dir.resolve() == dst_dir.resolve()
+
+
 def build_plan(
     cwd: Path,
     game_root: Path,
@@ -285,11 +344,12 @@ def build_plan(
     include: Sequence[str] = (),
     rule_files: Sequence[Path] = (),
     rules_dir: Path | None = None,  # 用户规则目录;None → 新旧位置自动选择(批次I-T1)
-) -> tuple[MigrationPlan, list["CompatWarning"], list["ModPair"]]:
+) -> tuple[MigrationPlan, list["CompatWarning"], list["ModPair"], dict[str, object]]:
     """plan 公共管线(plan 子命令与 swap 第三步共用,GUI 亦可直调)。
 
     流程:载入 src 快照 → dst 快照(rescan_dst=True 时现场重扫并落盘,否则载入已有)
-    → orphan 规则 → ruleset → diff(modpack_swap) → planner → mod 兼容检查 → 保存 plan。
+    → orphan 规则 → ruleset → diff(modpack_swap) → planner → mod 兼容检查
+    → 审阅摘要数据(extras) → 保存 plan。
 
     Args:
         cwd: 调用方工作目录(签名锚点;快照/rules/plans 路径已分别由
@@ -313,8 +373,11 @@ def build_plan(
             之间自动选择,选择结果非默认时发 warning 提示。
 
     Returns:
-        (plan, compat_warnings, mod_pairs):plan 与兼容警告同前;mod_pairs 为
-        双源配对结果(批次F,渲染级 ⇄ 注记用;plan 文件持久化不含它,schema 零变化)。
+        (plan, compat_warnings, mod_pairs, extras):plan 与兼容警告同前;mod_pairs 为
+        双源配对结果(批次F,渲染级 ⇄ 注记用;plan 文件持久化不含它,schema 零变化);
+        extras 为审阅摘要数据(批次I-W3 T6,spec §5.1: buckets=origin 计数、
+        total_bytes/ask_count=体积与待确认数、overwrite_count=带备份将覆盖数、
+        client_only=已知客户端件命中、world_notices=世界目录改名提示)。
 
     Raises:
         FileNotFoundError: src 快照不存在,或 rescan_dst=False 且 dst 快照不存在。
@@ -404,7 +467,7 @@ def build_plan(
             "请加 --modpack-swap 避免旧包 mod 被搬入新包。"
         )
     report = Differ(src_snap.files, dst_snap.files, clf, modpack_swap=modpack_swap,
-                    mtime_evidence=src_dir.resolve() == dst_dir.resolve()).diff()
+                    mtime_evidence=_same_physical_root(src_snap, dst_snap, src_dir, dst_dir)).diff()
     # 批次F:双源配对(与 run_diff 同一单点;plan 侧渲染 ⇄ 注记用,不进 plan.json);
     # 批次H:闸门收敛——双侧嵌入名册来自各自 scan 时刻,物理同目录不同刻也不恒等,配对有意义
     mod_pairs = compute_mod_pairs(
@@ -415,6 +478,28 @@ def build_plan(
     src_index = {e.path: e for e in src_snap.files}
     plan = Planner(report, src_index).plan()
     plan.src, plan.dst = src, dst
+    # 审阅摘要数据(批次I-W3 T6,spec §5.1):client_only 匹配与 run_diff 同一
+    # 单点——ctx 经 resolve_diff_context 按快照记录的 game_root 解析(语义一致)
+    from .moddb import load_client_mods
+
+    client_modids, client_families = load_client_mods()
+    client_only: set[str] = match_client_only_paths(
+        report, resolve_diff_context(src_snap, dst_snap),
+        client_modids, client_families)
+    extras: dict[str, object] = {
+        "buckets": plan.summary(),                # origin 计数(决策视角)
+        "total_bytes": sum(
+            a.src_size or 0 for a in plan.actions
+            if a.behavior in (Behavior.COPY, Behavior.ASK)),
+        "ask_count": sum(1 for a in plan.actions if a.behavior == Behavior.ASK),
+        # spec §5.1 顶部摘要「将覆盖(有备份)数」(评审建议 C 补):带备份目标
+        # 的动作=执行时目标同位文件会被移入备份
+        "overwrite_count": sum(
+            1 for a in plan.actions
+            if a.behavior in (Behavior.COPY, Behavior.ASK) and a.backup_target),
+        "client_only": sorted(client_only),
+        "world_notices": world_rename_notices(src_snap, dst_snap),
+    }
     # 版本兼容检查:对 mod_added 的 jar 检查 NeoForge 版本范围
     dst_nf_version = read_neoforge_version(dst_dir)
     mod_added_paths = [
@@ -444,7 +529,7 @@ def build_plan(
         except OSError as e:
             # 不再吞:保存失败的计划不可进入可执行状态(封死「审新执旧」,spec §3.3)
             raise PlanPersistError(f"plan 文件写入失败: {e}") from e
-    return plan, compat_warnings, mod_pairs
+    return plan, compat_warnings, mod_pairs, extras
 
 
 def _load_guard_snapshots(
@@ -475,8 +560,90 @@ def _load_guard_snapshots(
     try:
         return Snapshot.load(src_p), Snapshot.load(dst_p)
     except Exception as e:  # noqa: BLE001 — 快照损坏同缺失:材料不可用,交调用方按 review 裁定
-        log.warning("[提示] 审阅状态校验所需快照不可读(%s / %s): %s", src_p, dst_p, e)
+        log.warning("[警告] 审阅状态校验所需快照不可读(%s / %s): %s", src_p, dst_p, e)
         return None
+
+
+@dataclass(frozen=True)
+class PrecheckOutcome:
+    """执行前置检查结论:守卫+预检+状态校验三段合一的统一出口。
+
+    Attributes:
+        blockers: 按检查序聚合的阻断项(守卫→预检→状态,行为变更白名单①:
+            多阻断并存时首错优先序统一为「守卫→预检→状态校验」)。
+        warnings: 预检降级警告(决策放行后的提示,与被放行的检查项同 code)。
+        review_missing: plan.review is None(旧版计划,调用方发「旧版计划」提示)。
+    """
+
+    blockers: list[PreflightBlocker]
+    warnings: list[PreflightWarning]
+    review_missing: bool
+
+
+def precheck_execution(
+    plan: MigrationPlan, game_root: Path, src: str, dst: str, *,
+    legacy_dir: Path | None = None,
+    decisions: ExecutionDecisions | None = None,
+) -> PrecheckOutcome:
+    """执行前置检查单点(CLI/GUI 平级消费;调用方须已持实例锁,spec §4.2)。
+
+    检查序(行为变更白名单①):① 审阅守卫 validate_review(快照取 find_snapshot
+    实际命中位,规则经 select_rules_dir 同参复算,--force/accept_stale 放行
+    snapshot_changed);② 共享预检 preflight_execute;③ 首跑审阅状态校验
+    (rerun_executed 决策跳过;有守卫缺材料 fail-closed=review_snapshot_missing)。
+
+    Args:
+        plan: 已加载的迁移计划(review/executed_at 以内存对象为准)。
+        game_root: 游戏根目录(含 versions/)。
+        src: 源版本名。
+        dst: 目标版本名。
+        legacy_dir: 旧布局 .mcmig 目录(快照/规则回退位);None 表示无回退。
+        decisions: 执行预检三项显式决策;None 等于全 False(GUI 严格默认),
+            CLI 的 --force 映射为三项全 True。
+
+    Returns:
+        PrecheckOutcome:blockers 非空时不得执行;warnings 为决策放行后的
+        降级提示;review_missing 提示旧版计划(渐进采用,不阻断)。
+    """
+    blockers: list[PreflightBlocker] = []
+    warnings: list[PreflightWarning] = []
+    data_dir = game_root / ".mcmig"
+    # ① 审阅守卫:快照取 find_snapshot 实际命中位(锚定优先+旧布局回退,
+    # 与签发侧同构);规则目录同参复算(validate_review 内以 review.rule_sources
+    # 为权威,此处列表仅作无记录键旧守卫的回退)
+    if plan.review is not None:
+        chosen_rules_dir, _notices = select_rules_dir(data_dir, legacy_dir)
+        guard_blockers = validate_review(
+            plan, game_root=game_root,
+            snapshot_paths={
+                src: find_snapshot(data_dir, legacy_dir, src)[0],
+                dst: find_snapshot(data_dir, legacy_dir, dst)[0],
+            },
+            rule_sources=[chosen_rules_dir / "rules.yaml"],
+        )
+        if decisions is not None and decisions.accept_stale:
+            guard_blockers = [b for b in guard_blockers if b.code != "snapshot_changed"]
+        blockers.extend(guard_blockers)
+    # ② 共享执行预检(已执行/快照过期/目录缺失/疑似占用)
+    pre_blockers, warnings = preflight_execute(
+        plan, game_root, src, dst, decisions=decisions,
+        data_dir=data_dir, legacy_dir=legacy_dir)
+    blockers.extend(pre_blockers)
+    # ③ 首跑审阅状态校验:重跑决策跳过;有守卫缺材料 fail-closed
+    # (review=None 的旧版计划跳过——渐进采用语义,由调用方决定是否经
+    # execute_migration 的内部校验兜底)
+    rerun = decisions is not None and decisions.rerun_executed
+    if plan.review is not None and not rerun:
+        src_root = game_root / "versions" / src
+        snaps = _load_guard_snapshots(plan, src_root, legacy_dir=legacy_dir)
+        if snaps is not None:
+            blockers.extend(check_action_states(
+                plan.actions, snaps[0], snaps[1],
+                src_root, game_root / "versions" / dst))
+        else:
+            blockers.append(PreflightBlocker(
+                "review_snapshot_missing", MSG_REVIEW_SNAPSHOT_MISSING))
+    return PrecheckOutcome(blockers, warnings, plan.review is None)
 
 
 def execute_migration(
@@ -968,9 +1135,11 @@ def run_diff(
     # F12/F16: content_reader 注入语义复核(.properties/.json/.toml)
     # F19: modpack_swap 透传 differ(与 plan/swap 流程同源,换装验收旧 jar 归换包排除)
     # F35:mtime 证据闸门——两侧快照同物理根(同实例随时间演化)才开;
-    # 跨实例(复制必变 mtime)恒关,杜绝假阳性
-    mtime_ev = (src_snap.resolved_root is not None
-                and src_snap.resolved_root == dst_snap.resolved_root)
+    # 跨实例(复制必变 mtime)恒关,杜绝假阳性;口径与 build_plan 同形
+    # (双侧记录值优先,任一缺失回退活目录 resolve,W3 复审 #16)
+    src_vdir = Path(src_snap.game_root) / "versions" / src_snap.version
+    dst_vdir = Path(dst_snap.game_root) / "versions" / dst_snap.version
+    mtime_ev = _same_physical_root(src_snap, dst_snap, src_vdir, dst_vdir)
     report = Differ(
         src_snap.files, dst_snap.files, clf,
         content_reader=ctx.read_file if ctx is not None else None,
@@ -1016,4 +1185,407 @@ def run_diff(
     return DiffOutcome(
         report=report, mod_pairs=mod_pairs, src=src_snap, dst=dst_snap,
         notices=notices, client_only_paths=client,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 换包(swap)编排:预检 / 装包 / 全流程(自 cli.py 下沉,批次I-W3 T7,spec §8)
+# ---------------------------------------------------------------------------
+
+
+def _md5(path: Path) -> str | None:
+    """计算文件 MD5(装包阶段同名冲突判定用);不可读返回 None。"""
+    return md5_of(path)
+
+
+def _swap_preflight(dst_dir: Path, new_pack: Path) -> tuple[str | None, list[str]]:
+    """预检:返回 (dst 的 NeoForge 版本或 None 错误描述, 不满足清单)。"""
+    from .moddb import check_version_range, read_neoforge_version, scan_mods
+
+    nf = read_neoforge_version(dst_dir)
+    if nf is None:
+        return ("目标版本缺少 <版本名>.json(无法读取 NeoForge 版本)。"
+                "请先用 PCL2 安装目标 NeoForge 版本。"), []
+    reg = scan_mods(new_pack)
+    bad = []
+    for modid in sorted(reg.modids):
+        mi = reg.get(modid)
+        if mi is None or mi.neoforge_range is None:
+            continue
+        if not check_version_range(nf, mi.neoforge_range):
+            bad.append(f"  {modid}({mi.jar_filename}) 要求 {mi.neoforge_range},目标为 {nf}")
+    return None, bad
+
+
+def _swap_fingerprint(game_root: Path, src: str, dst: str, new_pack: Path,
+                      dst_mods: Path, new_mods: Path) -> str:
+    """两阶段输入指纹:参与决策的全部输入 → sha256(评审 P2-3 收口)。
+
+    绑定面:规范化实例身份(game_root.resolve,消 junction/别名——跨游戏根的
+    同名版本对必失配)+ 版本对 + 新包路径 + 目标 <dst>.json 内容(NeoForge
+    兼容判定的输入)+ 两侧 mods jar 名与 MD5 清单。
+    """
+    h = hashlib.sha256()
+    h.update(f"R|{game_root.resolve()}|{src}|{dst}|{new_pack.resolve()}".encode("utf-8"))
+    ver_json = game_root / "versions" / dst / f"{dst}.json"
+    if ver_json.is_file():
+        h.update(f"V|{file_sha256(ver_json)}".encode("utf-8"))
+    for jar in sorted(dst_mods.glob("*.jar")):
+        h.update(f"D|{jar.name}|{_md5(jar)}".encode("utf-8"))
+    for jar in sorted(new_mods.glob("*.jar")):
+        h.update(f"N|{jar.name}|{_md5(jar)}".encode("utf-8"))
+    return h.hexdigest()
+
+
+@dataclass(frozen=True)
+class SwapPreflightOutcome:
+    """换包预检结论(只读;CLI 中止文案与 GUI 两阶段第一阶段的共同数据源)。
+
+    Attributes:
+        error: 致命错(缺版本 json/缺源快照)→ CLI rc=2 文案;None 表示可继续。
+        incompat: NeoForge 不兼容清单。
+        extras: 目标有而新包无的 jar(装包后将残留)。
+        conflicts: 同名不同内容 jar(待覆盖决策)。
+        preflight_id: 输入指纹(sha256,仅只读预检产出;GUI apply 持锁重验用)。
+    """
+
+    error: str | None
+    incompat: list[str]
+    extras: list[str]
+    conflicts: list[str]
+    preflight_id: str | None
+
+
+@dataclass(frozen=True)
+class SwapInstallOutcome:
+    """换包装包结论(计数语义与下沉前 CLI 一致)。
+
+    Attributes:
+        copied: 复制数(含冲突覆盖件)。
+        skipped: 同名同 MD5 跳过数。
+        conflicted: 同名不同内容计数(无论覆盖决策)。
+        backed_up: 被覆盖前备份的 jar 名单。
+        backup_dir: 备份目录(调用方传入的 backup_root;dry-run 为 None)。
+        cancelled: 逐 jar 取消检查点命中(spec §4.3 覆盖 swap 装包)。
+        error: 非中断性失败原因(空间预检不过/中途文件操作或 journal 写失败,
+            0.12.0 复审#5/#6)——**不再上抛**:已完成的计数与备份名单保留在
+            本返回值,调用方据此呈现「已改动什么、原件在哪」;None=正常。
+    """
+
+    copied: int
+    skipped: int
+    conflicted: int
+    backed_up: list[str]
+    backup_dir: Path | None
+    cancelled: bool = False
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class SwapRunOutcome:
+    """run_swap 全流程结构化结果(评审 v3 契约A:CLI 既有输出所需信息全量回传;
+    装包成功而规划失败时,install 保留——用户须知目标 mods/ 已被修改)。
+
+    Attributes:
+        rc: 0=成功/用户拒绝继续;2=预检失败/规划失败。
+        preflight: 预检结构化结果(error/incompat/extras/conflicts)。
+        install: 装包结果;规划失败时同样保留。
+        compat_warnings: 规划期兼容警告。
+        plan_summary: plan.summary()(规划成功时)。
+        plan_file: 计划文件路径(「审阅后 migrate」提示行)。
+        plan_error: 规划失败原因(install 已完成的情形)。
+    """
+
+    rc: int
+    preflight: SwapPreflightOutcome | None
+    install: SwapInstallOutcome | None
+    compat_warnings: tuple[str, ...] = ()
+    plan_summary: dict[str, int] | None = None
+    plan_file: Path | None = None
+    plan_error: str | None = None
+
+
+def swap_preflight(game_root: Path, dst: str, new_pack: Path, *,
+                   src: str, legacy_dir: Path | None = None) -> SwapPreflightOutcome:
+    """换包预检(只读):NeoForge 兼容 + 源快照存在性 + extras/conflicts + 输入指纹。
+
+    Args:
+        game_root: 游戏根目录。
+        dst: 目标版本名(读 <dst>.json 判 NeoForge 兼容;缺失为致命错)。
+        new_pack: 新整合包目录(含 mods/)。
+        src: 源版本名(仅用于源快照存在性检查——规划步依赖,装包前检查)。
+        legacy_dir: 旧布局 .mcmig 目录(源快照回退位);None 表示仅查锚定布局。
+
+    Returns:
+        SwapPreflightOutcome:error 非 None 为致命错(缺版本 json/缺源快照,调用方
+        按文案中止);incompat 为不兼容清单;extras 为目标有而新包无的 jar;
+        conflicts 为同名不同内容 jar(待覆盖决策);preflight_id 为输入指纹
+        (仅无致命错时产出,GUI apply 持锁重验用)。
+    """
+    dst_dir = _version_dir(game_root, dst)
+    err, bad = _swap_preflight(dst_dir, new_pack)
+    if err is not None:
+        return SwapPreflightOutcome(error=err, incompat=[], extras=[],
+                                    conflicts=[], preflight_id=None)
+    # 预检:src 快照必须已存在(规划步依赖;装包前检查,dry-run 同样生效)
+    src_snap = find_snapshot(game_root / ".mcmig", legacy_dir, src)[0]
+    if not src_snap.exists():
+        return SwapPreflightOutcome(
+            error=f"缺少源版本快照 {src_snap}\n请先运行: mcmig scan {src}",
+            incompat=[], extras=[], conflicts=[], preflight_id=None)
+    dst_mods = dst_dir / "mods"
+    new_mods = new_pack / "mods"
+    new_names = {p.name for p in new_mods.glob("*.jar")}
+    existing = {p.name for p in dst_mods.glob("*.jar")} if dst_mods.is_dir() else set()
+    extras = sorted(existing - new_names)
+    conflicts = sorted(
+        n for n in existing & new_names
+        if _md5(dst_mods / n) != _md5(new_mods / n)
+    )
+    fingerprint = _swap_fingerprint(game_root, src, dst, new_pack, dst_mods, new_mods)
+    return SwapPreflightOutcome(error=None, incompat=bad, extras=extras,
+                                conflicts=conflicts, preflight_id=fingerprint)
+
+
+def _probe_existing_dir(p: Path) -> Path:
+    """沿祖先找到第一个存在的目录(空间探测基准;全不存在时返回 anchor)。"""
+    probe = p
+    while not probe.exists() and probe != probe.anchor:
+        probe = probe.parent
+    return probe
+
+
+def _swap_space_error(dst_mods: Path, actions: list[tuple[Path, Path, bool]],
+                      backup_root: Path) -> str | None:
+    """装包前磁盘空间预检(0.12.0 复审#6),不足返回中文原因(None=通过)。
+
+    写入需求=将复制 jar 大小之和;备份需求=将被覆盖目标大小之和。目标卷与
+    备份卷**同卷合并**计算、**异卷分别**检查(fsops.check_disk_space 复用,
+    探测基准沿祖先找现有目录)。首个装包动作前拦截,避免部分文件已改写后
+    才发现空间不足。
+    """
+    need_write = sum(j.stat().st_size for j, _t, _o in actions)
+    need_backup = sum(t.stat().st_size for _j, t, o in actions if o)
+    if need_write == 0 and need_backup == 0:
+        return None
+    try:
+        dst_probe = _probe_existing_dir(dst_mods)
+        bak_probe = _probe_existing_dir(backup_root)
+        same_volume = os.stat(dst_probe).st_dev == os.stat(bak_probe).st_dev
+        if same_volume:
+            check_disk_space(dst_mods, need_write + need_backup)
+        else:
+            check_disk_space(dst_mods, need_write)
+            check_disk_space(backup_root, need_backup)
+    except FsOpsError as e:  # DiskSpaceError 是其子类
+        return e.why
+    return None
+
+
+def swap_install(dst_mods: Path, new_mods_dir: Path, *, overwrite: set[str],
+                 dry_run: bool, backup_root: Path,
+                 journal: JobJournal | None = None,
+                 should_cancel: Callable[[], bool] | None = None,
+                 progress_cb: Callable[[str, int, int], None] | None = None) -> SwapInstallOutcome:
+    """将新包 mods/*.jar 装入目标 mods/(覆盖前备份 + write-ahead journal + 取消检查点)。
+
+    逐 jar:取消检查点命中即停(安全边界=当前 jar 已完成为准,与 executor
+    取消同型),cancelled=True;identical(同名同 MD5)零写盘且不记 journal
+    意图;同名不同内容未选中覆盖者保留目标原件。
+
+    失败不上抛(0.12.0 复审#5):空间预检不过(首个动作前,零写盘)或中途
+    文件操作/journal 写失败,以 ``SwapInstallOutcome.error`` 返回**已知部分
+    结果**(copied/backed_up 保留),调用方据此呈现已改动内容与备份位置。
+
+    Args:
+        dst_mods: 目标版本 mods/ 目录。
+        new_mods_dir: 新包 mods/ 目录(不存在时零动作,返回全 0)。
+        overwrite: 预收集的覆盖决策(选中覆盖的冲突 jar 名集合;CLI 由
+            Confirm 回调收集,GUI 由勾选收集——决策与执行解耦)。
+        dry_run: True 时零写盘,仅计数(journal 亦不挂——调用方不建)。
+        backup_root: 覆盖备份目录(调用方传入,形如
+            <game_root>/.mcmig/backups/swap/<UTC 时间戳>;被覆盖 jar 先备份到
+            backup_root/<jar 名> 再写入,事务复制见 fsops.copy_atomic)。
+        journal: write-ahead journal;None 表示不记录(①意图→复制→③完成,
+            含备份相对位与备份根,崩溃后经 scan_interrupted 呈现「待核对」)。
+        should_cancel: 逐 jar 取消检查点;None 时不可取消(CLI 通道)。
+
+    Returns:
+        SwapInstallOutcome(copied 含冲突覆盖件,conflicted 计全部同名冲突
+        无论决策——计数语义与下沉前 CLI 逐字对拍;error 见类 docstring)。
+    """
+    copied = skipped = conflicted = 0
+    backed_up: list[str] = []
+    cancelled = False
+    error: str | None = None
+    if not new_mods_dir.is_dir():
+        return SwapInstallOutcome(0, 0, 0, backed_up, None, False)
+    # 预扫描(0.12.0 复审#5/#6):一次判定 identical/冲突/将写清单,供空间
+    # 预检与执行段共用;取消检查点仍在每个写动作前
+    actions: list[tuple[Path, Path, bool]] = []
+    for jar in sorted(new_mods_dir.glob("*.jar")):
+        target = dst_mods / jar.name
+        will_overwrite = False
+        if target.exists():
+            if _md5(target) == _md5(jar):
+                skipped += 1
+                continue  # identical:零写盘,不记意图
+            conflicted += 1
+            if jar.name not in overwrite:
+                continue  # 决策=保留目标
+            will_overwrite = True
+        actions.append((jar, target, will_overwrite))
+    if not dry_run and actions:
+        space_err = _swap_space_error(dst_mods, actions, backup_root)
+        if space_err is not None:
+            return SwapInstallOutcome(0, skipped, conflicted, backed_up, None,
+                                      False, space_err)
+    for jar, target, will_overwrite in actions:
+        if should_cancel is not None and should_cancel():
+            cancelled = True
+            break  # 安全边界:当前 jar 之前的工作均已完成
+        if not dry_run:
+            if journal is not None:
+                # 意图含备份根(0.12.0 复审#5):崩溃后中断清单能直接指出
+                # 「原件在哪个备份目录」,不必让用户反查 jobs 目录
+                try:
+                    journal.record_intent(
+                        jar.name,
+                        {"op": "install",
+                         "backup": jar.name if will_overwrite else None,
+                         "backup_root": str(backup_root)})
+                except JournalError as e:
+                    error = f"装包日志写入失败,已停止装包:{e}"
+                    break
+            try:
+                if copy_atomic(jar, target, rel=jar.name, backup_dir=backup_root):
+                    backed_up.append(jar.name)
+            except (FsOpsError, OSError) as e:
+                why = getattr(e, "why", None) or str(e)
+                error = f"装包文件操作失败({jar.name}):{why}"
+                break
+            # 物理复制已完成即计入——完成记录失败不抹除「文件已在盘上」事实
+            copied += 1
+            if progress_cb is not None:
+                progress_cb(jar.name, copied, len(actions))  # 逐 jar 进度(T13.5)
+            if journal is not None:
+                try:
+                    journal.record_completion(jar.name)
+                except JournalError as e:
+                    error = f"装包日志写入失败,已停止装包:{e}"
+                    break
+        else:
+            copied += 1          # dry-run:只计数
+    backup_dir = None if dry_run else backup_root
+    return SwapInstallOutcome(copied, skipped, conflicted, backed_up, backup_dir,
+                              cancelled, error)
+
+
+def run_swap(cwd: Path, game_root: Path, src: str, dst: str, new_pack: Path, *,
+             confirm_extras: Callable[[list[str]], bool],
+             resolve_conflict: Callable[[str], bool],
+             force: bool = False,
+             dry_run: bool = False,
+             progress_cb: Callable[[str, int, int], None] | None = None) -> SwapRunOutcome:
+    """换包全流程编排:预检 → 交互决策(extras 确认/冲突覆盖)→ 装包 → 重扫规划。
+
+    调用约定:**调用方须已持 instance_locks(game_root, src, dst)**(spec §4.2,
+    预检→装包(写目标 mods/)→重扫规划全程在锁内;装包确认等交互在锁内进行
+    属有意语义——正在操作该实例,他方 mcmig 应等待而非并发写盘)。
+
+    Args:
+        cwd: 调用方工作目录(旧布局快照/rules 回退基准)。
+        game_root: 游戏根目录。
+        src: 源版本名(玩家数据来源,规划步的源)。
+        dst: 目标版本名(装包目标)。
+        new_pack: 新整合包目录(含 mods/)。
+        confirm_extras: extras 确认回调(目标有而新包无的 jar 将残留)——
+            回调方自行打印清单与提示行后取得布尔决策,False=中止(零装包)。
+        resolve_conflict: 同名冲突覆盖决策回调(逐 jar 调用)——回调方自行打印
+            提示行;True=覆盖(旧件先备份),False=保留目标。
+        force: 忽略兼容不满足与 extras 确认(冲突决策仍逐个询问,与既有 CLI 语义一致)。
+        dry_run: 装包零写盘且跳过规划(规划会基于旧状态误导)。
+
+    Returns:
+        SwapRunOutcome(评审 v3 契约A:事中/事后信息全量入返回值——CLI 对拍
+        基准=决策语义与退出码;规划失败分支 rc=2 且 install 保留+plan_error,
+        装包统计与备份位置必须可见,目标 mods/ 已被修改,不可静默)。
+    """
+    dst_dir = _version_dir(game_root, dst)
+    # 核心侧同闸(0.12.0 复审#1):CLI 已先行校验,此处兜底防其他调用方
+    # 直接以绝对路径/穿越形态调 run_swap(拼接会越出 game_root)
+    for name in (src, dst):
+        why = version_name_error(name)
+        if why is not None:
+            raise ValueError(f"非法版本名 {name!r}:{why}")
+    legacy_dir = cwd / ".mcmig"
+    data_dir = game_root / ".mcmig"
+    # 第一步:预检(NeoForge 兼容 + 源快照存在性 + extras/conflicts 清单 + 指纹)
+    preflight = swap_preflight(game_root, dst, new_pack, src=src, legacy_dir=legacy_dir)
+    if preflight.error is not None:
+        return SwapRunOutcome(rc=2, preflight=preflight, install=None)
+    if preflight.incompat and not force:
+        return SwapRunOutcome(rc=2, preflight=preflight, install=None)
+    if preflight.extras and not force and not confirm_extras(preflight.extras):
+        return SwapRunOutcome(rc=0, preflight=preflight, install=None)
+    # 冲突覆盖决策预收集(决策与执行解耦:与装包循环不交错)
+    overwrite = {name for name in preflight.conflicts if resolve_conflict(name)}
+    # 第二步:装包(覆盖备份目录=<game_root>/.mcmig/backups/swap/<UTC 时间戳>)
+    backup_root = (data_dir / "backups" / "swap"
+                   / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ%f"))
+    journal: JobJournal | None = None
+    if not dry_run:
+        job_id = (datetime.now(timezone.utc).strftime("cli-%Y%m%dT%H%M%SZ-")
+                  + str(os.getpid()))
+        journal = JobJournal(data_dir / "jobs", job_id, "swap",
+                             src=src, dst=dst, game_root=str(game_root))
+    install = swap_install(dst_dir / "mods", new_pack / "mods", overwrite=overwrite,
+                           dry_run=dry_run, backup_root=backup_root,
+                           journal=journal, should_cancel=None,
+                           progress_cb=progress_cb)
+    if journal is not None:
+        # 收尾标记:装包在安全边界内结束(取消/完成同型),退出中断清单;
+        # 收尾写失败(0.12.0 复审#5)只警告——装包结果已知且必须返回,不得
+        # 因 finish 失败丢统计(jobs/ 可能残留一条未收尾档案,可核对后清除)
+        try:
+            journal.finish()
+        except JournalError as e:
+            log.warning("swap journal 收尾失败(装包结果仍在返回值中): %s", e)
+    if install.error is not None:
+        # 装包失败(空间预检不过/中途文件操作失败,0.12.0 复审#5/#6):契约B
+        # 同型——install 携带已知部分结果保留返回,plan_error 呈现原因,rc=2;
+        # 调用方必须呈现已改动内容与备份位置(目标 mods/ 可能已被部分改写)
+        return SwapRunOutcome(rc=2, preflight=preflight, install=install,
+                              plan_error=install.error)
+    if dry_run:
+        # 彩排模式未真正写盘,规划会基于旧状态误导用户,故跳过规划
+        return SwapRunOutcome(rc=0, preflight=preflight, install=install)
+    if install.cancelled:
+        # CLI 无取消通道(should_cancel=None),防御分支:部分装包不进规划
+        return SwapRunOutcome(rc=0, preflight=preflight, install=install)
+    # 第三步:重扫 dst(装包刚改写 mods/,rescan_dst=True)→ 规划(modpack_swap 内置)
+    try:
+        plan, compat_warnings, _pairs, _extras = build_plan(
+            cwd,
+            game_root,
+            src,
+            dst,
+            modpack_swap=True,
+            rescan_dst=True,
+            mcmig_dir=legacy_dir,
+            plans_dir=data_dir / "plans",
+            data_dir=data_dir,
+        )
+    except (FileNotFoundError, ValueError, PlanPersistError) as e:
+        # 评审 v3 契约B:装包已成功而规划失败——install 保留 + plan_error,
+        # 调用方必须呈现装包统计与备份位置(目标 mods/ 已被修改,不可静默)
+        return SwapRunOutcome(rc=2, preflight=preflight, install=install,
+                              plan_error=str(e))
+    return SwapRunOutcome(
+        rc=0,
+        preflight=preflight,
+        install=install,
+        compat_warnings=tuple(str(w) for w in compat_warnings),
+        plan_summary=plan.summary(),
+        plan_file=data_dir / "plans" / f"{src}__{dst}.plan.json",
     )

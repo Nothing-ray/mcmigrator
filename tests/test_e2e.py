@@ -736,8 +736,12 @@ def test_swap_install_identical_skip_and_dry_run(tmp_path, monkeypatch, capsys):
 
 
 def test_swap_install_conflict_resolver(tmp_path):
-    """同名不同内容:resolver False 保留目标 / True 覆盖目标(直接测 _swap_install 纯函数)。"""
-    from migration.cli import _swap_install
+    """同名不同内容:未选覆盖保留目标 / 选中覆盖先备份再写入(直接测 swap_install 纯函数)。
+
+    批次I-W3 T7:决策由回调改为预收集的 overwrite 集合(CLI 由 Confirm 收集、
+    GUI 由勾选收集),对拍基准=装包计数与去留语义不变。
+    """
+    from migration.pipeline import swap_install
 
     dst_mods = tmp_path / "dst" / "mods"
     new_mods = tmp_path / "new" / "mods"
@@ -749,20 +753,24 @@ def test_swap_install_conflict_resolver(tmp_path):
     (new_mods / "diff.jar").write_bytes(b"source-new")
     (new_mods / "fresh.jar").write_bytes(b"fresh")
 
-    # resolver 一律 False(保留目标):diff 保留目标旧内容
-    copied, skipped, conflicted = _swap_install(dst_mods, new_mods, lambda _n: False, False)
-    assert (copied, skipped, conflicted) == (1, 1, 1)
+    # 决策=不覆盖(保留目标):diff 保留目标旧内容
+    out = swap_install(dst_mods, new_mods, overwrite=set(), dry_run=False,
+                       backup_root=tmp_path / "bk1")
+    assert (out.copied, out.skipped, out.conflicted) == (1, 1, 1)
     assert (dst_mods / "diff.jar").read_bytes() == b"target-old"
     assert (dst_mods / "fresh.jar").exists()
 
-    # resolver 一律 True(覆盖):diff 被源覆盖
+    # 决策=覆盖:diff 被源覆盖(旧件先入备份)
     (new_mods / "diff2.jar").write_bytes(b"x")  # 无同名,直接复制
     (dst_mods / "diff2.jar").write_bytes(b"y")
-    # 此时:same/fresh 已同 MD5(skipped×2),diff/diff2 冲突且 resolver=True 覆盖(copied×2)
-    copied, skipped, conflicted = _swap_install(dst_mods, new_mods, lambda _n: True, False)
-    assert (copied, skipped, conflicted) == (2, 2, 2)
+    # 此时:same/fresh 已同 MD5(skipped×2),diff/diff2 冲突且选中覆盖(copied×2)
+    out2 = swap_install(dst_mods, new_mods, overwrite={"diff.jar", "diff2.jar"},
+                        dry_run=False, backup_root=tmp_path / "bk2")
+    assert (out2.copied, out2.skipped, out2.conflicted) == (2, 2, 2)
     assert (dst_mods / "diff.jar").read_bytes() == b"source-new"
     assert (dst_mods / "diff2.jar").read_bytes() == b"x"
+    assert sorted(out2.backed_up) == ["diff.jar", "diff2.jar"]
+    assert (out2.backup_dir / "diff.jar").read_bytes() == b"target-old"
 
 
 def test_swap_missing_dst_json_exit_2(tmp_path, monkeypatch, capsys):
@@ -912,7 +920,7 @@ def test_e2e_plan_render_pairs_annotation(tmp_path: Path, monkeypatch) -> None:
     assert _run(["scan", "dst", "--game-root", str(game_root)]) == 0
 
     data = game_root / ".mcmig"
-    plan, warns, pairs = build_plan(
+    plan, warns, pairs, _extras = build_plan(
         tmp_path, game_root, "src", "dst",
         mcmig_dir=tmp_path / ".mcmig",
         plans_dir=data / "plans",

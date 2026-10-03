@@ -257,3 +257,53 @@ def test_before_after_action_hooks_wrap_copy(mini_plan_dirs):
         ("intent", "f1.txt"), ("done", "f1.txt"),
         ("intent", "f2.txt"), ("done", "f2.txt"),
     ]
+
+
+# ---- 批次I-W3 T3:after_action 收口(有意向动作一律回调;结果先入列) ----
+
+
+def test_after_action_journal_error_keeps_result_counted(tmp_path):
+    """#4b:完成记录写失败时该文件结果已入列(分发计数不失真),后续停发。"""
+    from migration.journal import JournalError
+
+    src, dst = _setup(tmp_path)
+    (src / "config" / "b.toml").write_text("y=2\n", encoding="utf-8")
+    plan = _plan(_action("options.txt"), _action("config/a.toml"),
+                 _action("config/b.toml"))
+    calls = {"n": 0}
+
+    def after(_a, _r):
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            raise JournalError("journal 写入失败(模拟)")
+
+    ex = Executor(plan, src, dst, yes)
+    results = ex.execute(after_action=after)
+    assert ex.journal_failed is True
+    assert len(results) == 2                       # 第 2 文件结果已入列,第 3 文件停发
+    assert (dst / "options.txt").exists() and (dst / "config" / "a.toml").exists()
+    assert not (dst / "config" / "b.toml").exists()
+
+
+def test_after_action_not_called_for_skip(tmp_path):
+    """#5:SKIP 动作不触发 after_action(无意图,无 journal 写)。"""
+    src, dst = _setup(tmp_path)
+    plan = _plan(_action("options.txt", Behavior.SKIP), _action("config/a.toml"))
+    seen: list[str] = []
+    results = Executor(plan, src, dst, yes).execute(
+        after_action=lambda a, _r: seen.append(a.path))
+    assert seen == ["config/a.toml"]               # 仅 COPY 路径出现
+    assert not (dst / "options.txt").exists()      # SKIP 不写盘
+    assert not any(r.failed for r in results)
+
+
+def test_after_action_called_for_asked_no(tmp_path):
+    """asked_no 结局已知,完成记录照写(意图不留悬账)。"""
+    src, dst = _setup(tmp_path)
+    plan = _plan(_action("options.txt", Behavior.ASK))
+    seen: list[str] = []
+    results = Executor(plan, src, dst, no).execute(
+        after_action=lambda _a, r: seen.append(r.status))
+    assert results[0].status == "asked_no"
+    assert seen == ["asked_no"]                    # asked_no 也回调(T3 后语义)
+    assert not (dst / "options.txt").exists()      # 拒绝不写盘

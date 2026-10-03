@@ -18,9 +18,11 @@
   无人等待时持有者崩溃 → 对象直接消失、后续进程重建干净互斥体,abandoned
   无从标记——该场景的中断证据归 journal(T6);abandoned 只覆盖「他方
   等待中持有者死亡」这一可观测场景(恰为 spec §4.2 关心的交叉竞争场景)。
-- POSIX 回退(开发/测试用):临时目录锁文件 O_CREAT|O_EXCL + 内容 pid;
-  陈旧判定 pid 不存活(持有者死亡→接管并标记 abandoned,与 Windows 的
-  WAIT_ABANDONED 语义对齐)。
+- POSIX 回退(开发/测试用):锁文件上的 fcntl.flock(LOCK_EX|LOCK_NB 轮询);
+  互斥真源为内核 flock——持有者死亡由内核即刻释放,等待方干净获取,无
+  abandoned 语义(中断证据归 journal,spec §4.3);锁文件仅作锁载体(内容
+  pid 仅诊断,不参与判定),无「读 pid→unlink」陈旧接管路径——该 TOCTOU
+  窗口可互删他方活锁,两轮复审 B1/P1 双确认后随 pid 判定整体移除。
 """
 
 from __future__ import annotations
@@ -192,7 +194,7 @@ def _release_mutex(handle: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# POSIX 回退后端:临时目录锁文件 O_CREAT|O_EXCL + pid 陈旧判定(开发/测试用)
+# POSIX 回退后端:锁文件 fcntl.flock 互斥(开发/测试用;无陈旧接管路径)
 # ---------------------------------------------------------------------------
 
 
@@ -209,105 +211,46 @@ def _lock_file_path(key: str) -> Path:
     return Path(tempfile.gettempdir()) / f"mcmig-inst-{digest}.lock"
 
 
-def _pid_alive(pid: int) -> bool:
-    """判定 pid 是否存活(``os.kill(pid, 0)`` 探测,不发信号)。
+def _acquire_lockfile(key: str, timeout: float) -> tuple[int, bool]:
+    """flock 独占锁定(POSIX 回退;持有者死亡由内核即刻释放,无陈旧接管)。
 
-    Args:
-        pid: 待探测的进程号。
-
-    Returns:
-        进程存在返回 True;不存在返回 False(无权限属「存在但属他人」)。
+    互斥真源 = 打开状态上的 flock(LOCK_EX|LOCK_NB 轮询到超时);锁文件仅作
+    锁载体不再承载 pid 判定——「读 pid→unlink」的 TOCTOU 窗口(可互删他方
+    活锁)随 pid 判定整体消失(两轮复审 B1/P1 双确认)。abandoned 恒 False:
+    flock 无前持有者异常退出语义,中断证据归 journal(spec §4.3)。
     """
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    import fcntl
 
-
-def _stale_unlink(path: Path) -> bool:
-    """陈旧锁文件摘除:持有者 pid 已死 → unlink 成功即视为接管权到手。
-
-    Args:
-        path: 锁文件路径。
-
-    Returns:
-        本方 unlink 成功(可安全重建锁文件)返回 True;文件已被他人
-        接管/正常释放返回 False(调用方按普通争用继续轮询)。
-    """
-    try:
-        pid = int(path.read_text(encoding="ascii").strip())
-    except (OSError, ValueError):
-        pid = -1  # 内容不可读/非数字:视同陈旧(无从证明持有者存活)
-    if pid > 0 and _pid_alive(pid):
-        return False
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return False  # 他方已接管/正常释放:按普通争用处理
-    return True
-
-
-def _acquire_lockfile(key: str, timeout: float) -> tuple[Path, bool]:
-    """O_EXCL 创建锁文件获取所有权(POSIX 回退;陈旧锁接管并标记 abandoned)。
-
-    Args:
-        key: 实例键(锁文件路径由此派生)。
-        timeout: 等待超时秒数(轮询,间隔 ``_POSIX_POLL_SECONDS``)。
-
-    Returns:
-        (锁文件路径, 是否 abandoned——接管了持有者已死亡的陈旧锁)。
-
-    Raises:
-        InstanceLockError: 超时(锁文件仍被存活持有者占用)/ 系统调用失败。
-    """
     path = _lock_file_path(key)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, _POSIX_LOCK_MODE)
     deadline = time.monotonic() + max(timeout, 0.0)
     while True:
         try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, _POSIX_LOCK_MODE)
-        except FileExistsError:
-            if _stale_unlink(path):
-                # 抢到陈旧锁接管权:立即重建;若又被他方抢先,回落普通争用
-                try:
-                    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, _POSIX_LOCK_MODE)
-                except FileExistsError:
-                    continue
-                except OSError as e:
-                    raise InstanceLockError(
-                        f"实例锁({key})", f"锁文件创建失败({e})", {"holders": [key]}
-                    ) from e
-                os.write(fd, str(os.getpid()).encode("ascii"))
-                os.close(fd)
-                return path, True
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            os.ftruncate(fd, 0)
+            os.write(fd, str(os.getpid()).encode("ascii"))  # 诊断信息,非判定依据
+            return fd, False
+        except OSError:  # BlockingIOError=EWOULDBLOCK(锁仍被他方持有)
             if time.monotonic() >= deadline:
+                os.close(fd)
                 raise InstanceLockError(
                     f"实例锁({key})",
                     "获取实例排他锁超时:另一 mcmig 进程正在操作该实例,"
                     "请等待其完成(或关闭其他 mcmig 窗口/命令)后重试",
                     {"holders": [key], "timeout": timeout},
-                )
+                ) from None
             time.sleep(_POSIX_POLL_SECONDS)
-        except OSError as e:
-            raise InstanceLockError(
-                f"实例锁({key})", f"锁文件创建失败({e})", {"holders": [key]}
-            ) from e
-        else:
-            os.write(fd, str(os.getpid()).encode("ascii"))
-            os.close(fd)
-            return path, False
 
 
-def _release_lockfile(path: Path) -> None:
-    """删除锁文件释放所有权(POSIX 回退;尽力而为,不抛出)。"""
+def _release_lockfile(fd: int) -> None:
+    """解锁并关闭(POSIX;尽力而为,不抛出)。"""
+    import fcntl
+
     try:
-        path.unlink()
-    except FileNotFoundError:
-        pass  # 已被陈旧接管逻辑摘除:无需重复
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
     except OSError:
-        log.warning("锁文件删除异常(%s)", path, exc_info=True)
+        log.warning("flock 释放异常(fd=%s)", fd, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +258,7 @@ def _release_lockfile(path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _acquire(key: str, timeout: float) -> tuple[int | Path, bool]:
+def _acquire(key: str, timeout: float) -> tuple[int, bool]:
     """获取单个实例键的排他锁(按平台分派后端)。
 
     Args:
@@ -323,7 +266,8 @@ def _acquire(key: str, timeout: float) -> tuple[int | Path, bool]:
         timeout: 等待超时秒数。
 
     Returns:
-        (释放令牌——Windows 句柄 / POSIX 锁文件路径, 是否 abandoned)。
+        (释放令牌——Windows 互斥体句柄 / POSIX 锁文件 fd,两后端统一为 int,
+        归属由创建它的平台分支决定), 是否 abandoned。
 
     Raises:
         InstanceLockError: 超时争用/系统调用失败。
@@ -333,12 +277,18 @@ def _acquire(key: str, timeout: float) -> tuple[int | Path, bool]:
     return _acquire_lockfile(key, timeout)
 
 
-def _release(token: int | Path) -> None:
-    """释放单个实例锁(按令牌类型分派;尽力而为,不抛出)。"""
-    if isinstance(token, Path):
-        _release_lockfile(token)
-    else:
+def _release(token: int) -> None:
+    """释放单个实例锁(按平台标志分派;尽力而为,不抛出)。
+
+    分派只认 ``_IS_WINDOWS``(评审 P1-1):Windows 句柄与 POSIX fd 同为
+    int,不得以 ``isinstance(token, int)`` 判别——类型判别会把 Windows 句柄
+    误入 fcntl 释放路径(Windows 无 fcntl 模块即炸);令牌归属由创建它的
+    平台分支唯一决定。
+    """
+    if _IS_WINDOWS:
         _release_mutex(token)
+    else:
+        _release_lockfile(token)
 
 
 @contextmanager
@@ -353,8 +303,10 @@ def instance_locks(
     - 第二把获取失败 → 释放已获取的第一把并抛 :class:`InstanceLockError`
       (失败回滚,不留半套锁)。
     - yields ``{"abandoned": [实例键...]}``:abandoned = 前持有者异常退出
-      (Windows WAIT_ABANDONED / POSIX 陈旧锁接管),调用方须提示用户核对
-      journal 中断记录,不当干净任务处理。
+      (仅 Windows named mutex 路径可观测 WAIT_ABANDONED;POSIX flock 后端无
+      该语义、恒空——持有者死亡由内核即刻释放、等待方干净获取,中断证据归
+      journal,spec §4.3),调用方须提示用户核对 journal 中断记录,不当干净
+      任务处理。
 
     Args:
         game_root: 游戏根目录(含 versions/)。
@@ -369,7 +321,7 @@ def instance_locks(
         InstanceLockError: 任一把锁获取失败(details.holders 为争用键列表)。
     """
     keys = _lock_keys(game_root, versions)
-    acquired: list[int | Path] = []
+    acquired: list[int] = []
     abandoned: list[str] = []
     try:
         for key in keys:
