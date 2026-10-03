@@ -3,7 +3,7 @@
 [中文](README.zh-CN.md) | [🏠 Landing](README.md)
 
 > ℹ️ Community translation. The [Chinese version](README.zh-CN.md) is the authoritative source and may be ahead of this translation.
-> Last synced: v0.13.0 / 2026-10-03
+> Last synced: v1.0.0 / 2026-10-04
 
 > A Minecraft modpack version-migration tool — scan, diff, plan, migrate, modpack swap, plus a local web wizard.
 
@@ -303,6 +303,8 @@ Contributions welcome (in Chinese or English):
 
 - **On legacy Chinese Windows consoles (cmd / GBK code page), emoji in reports render as `?`.** This is a limitation of the Windows console encoding (GBK/cp936), which cannot represent emoji. `mcmigrator` degrades automatically to avoid crashing — Chinese text and all paths/reasons always display correctly; only decorative symbols like ✅📦🔄 become `?`. Modern terminals (Windows Terminal / PowerShell 7) are unaffected.
 
+- **Update assets carry same-origin integrity checks only**: `SHA256SUMS.txt` ships with the release, so it proves "asset matches the checksum list" — not the publisher's identity (no release signature yet). Always fetch artifacts from this project's Releases page; avoid third-party re-uploads. Publisher-signature evaluation is planned with the update-transaction tier.
+
 ### Encoding behavior (important)
 
 `mcmigrator` picks the output encoding by destination:
@@ -333,14 +335,15 @@ Zero-copy integration trick: map the server directory to `versions\<name>` with 
 - ✅ v0.6: transactional file operations (fsops) + portable-exe data layout + `doctor` health check + local web wizard `mcmig gui` (implemented)
 - ✅ v0.12: GUI two-stage swap (preflight → install) + standalone window shell `mcmig-gui` (WebView2, falls back to browser when missing) + page refresh recovery / auto-reconnect + journal interruption banner dismiss & auto-sweep (implemented)
 - ✅ v0.13: distribution loop — PyInstaller dual-form packaging + GitHub Actions auto build/release (dual-platform checks + SHA256SUMS) + basic-tier updater (`mcmig update` and the wizard's About/Update panel: check → download → verify → stage → replace manually) (implemented)
+- ✅ v1.0: distribution loop complete — dual-form releases + basic-tier updater verified on real machines (official package works out of the box / read-only-directory message box / offline three-part message / real WebView2 standalone window / update staging and open-location); ready for community distribution (implemented)
 - 📋 v1 Phase 3: Manifest decision persistence (auto-remember migration decisions)
 - 📋 Future: Mod Profile (META-INF parsing) + content detection
 
 See [`Reference/specs/`](Reference/specs/) for details.
 
-## Appendix: Measured Footprint (to be filled after the 0.13.0 trial release)
+## Appendix: Measured Footprint (to be filled after real-world 1.0 usage)
 
-Size, cold-start time, and peak disk usage for onefile / onedir will be recorded with the 0.13.0 trial release (informational, not an acceptance promise).
+Size, cold-start time, and peak disk usage for onefile / onedir will be recorded after real-world 1.0 usage (informational, not an acceptance promise).
 
 ## License
 
