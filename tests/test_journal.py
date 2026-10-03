@@ -227,7 +227,13 @@ def test_sweep_unlink_failure_keeps_file_and_scan_alive(tmp_path: Path, caplog):
     j.finish()
     f = tmp_path / "done1.jsonl"
     assert f.exists()
-    os.chmod(f, 0o444)          # Windows:只读位 → unlink PermissionError
+    # 制造「不可清扫」:Windows=只读文件(unlink → PermissionError);
+    # POSIX unlink 权限在父目录位 → 只读目录(同一 PermissionError 路径,
+    # Linux CI 真跑;首跑实测只读文件在 POSIX 可直接删除,断言落空)
+    if os.name == "nt":
+        os.chmod(f, 0o444)
+    else:
+        os.chmod(tmp_path, 0o555)
     try:
         with caplog.at_level("WARNING", logger="migration.journal"):
             items = scan_interrupted(tmp_path)   # 修复前:PermissionError 逃逸
@@ -235,4 +241,7 @@ def test_sweep_unlink_failure_keeps_file_and_scan_alive(tmp_path: Path, caplog):
         assert f.exists()                         # 文件保留,不因失败半途而废
         assert "done1" in caplog.text             # 留 warning 可观测
     finally:
-        os.chmod(f, 0o666)
+        if os.name == "nt":
+            os.chmod(f, 0o666)
+        else:
+            os.chmod(tmp_path, 0o755)

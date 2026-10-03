@@ -196,8 +196,25 @@ def build(form: str, out: Path) -> list[Path]:
     return [target]
 
 
+def _reconfigure_stdio() -> None:
+    """输出编码护栏(CI 首跑实测):英文 Windows runner 默认 cp1252,中文产物行
+    打印即 UnicodeEncodeError 打断构建步骤——重定向/管道强制 UTF-8,真实控制台
+    保原生编码仅降级不可编码字符(与 ``migration.cli._safe_reconfigure_streams``
+    同策;本脚本独立于包运行,不引 cli)。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.isatty():
+                stream.reconfigure(errors="replace")  # type: ignore[attr-defined]
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError):
+            pass  # 非 TextIOWrapper 或不支持 reconfigure(如已关闭/重定向到非文本流)
+
+
 def main() -> int:
     """CLI 入口:--form 构建单形态;--sums 对目录生成 SHA256SUMS.txt(仅两契约资产)。"""
+    _reconfigure_stdio()
     parser = argparse.ArgumentParser(description="mcmigrator 发行构建编排(spec W4 T11)")
     parser.add_argument("--form", choices=("onefile", "onedir"), help="构建形态")
     parser.add_argument("--out", type=Path, default=_ROOT / "dist-release", help="产物输出目录")

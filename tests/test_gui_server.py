@@ -1965,7 +1965,12 @@ def test_startup_survives_unsweepable_finished_journal(tmp_path, monkeypatch, ca
     JobJournal(jobs, "stale-done", "migrate", src="s", dst="d",
                game_root=str(game)).finish()
     locked = jobs / "stale-done.jsonl"
-    os.chmod(locked, 0o444)
+    # 制造「不可清扫」(与 test_journal 同策):Windows=只读文件;
+    # POSIX=只读父目录(unlink 权限在目录位),两平台同走 PermissionError 路径
+    if os.name == "nt":
+        os.chmod(locked, 0o444)
+    else:
+        os.chmod(jobs, 0o555)
     try:
         import migration.workdir as wd
 
@@ -1979,7 +1984,10 @@ def test_startup_survives_unsweepable_finished_journal(tmp_path, monkeypatch, ca
         assert locked.exists()
         assert "stale-done" in caplog.text
     finally:
-        os.chmod(locked, 0o666)
+        if os.name == "nt":
+            os.chmod(locked, 0o666)
+        else:
+            os.chmod(jobs, 0o755)
 
 
 def test_swap_apply_install_failure_reports_partial_results(tmp_path, monkeypatch):

@@ -40,8 +40,24 @@ def check(tag: str, root: Path = _ROOT) -> list[str]:
     return errors
 
 
+def _reconfigure_stdio() -> None:
+    """输出编码护栏(CI 首跑实测):英文 Windows runner 默认 cp1252,守卫中文
+    报错行打印即 UnicodeEncodeError 吞掉真实原因——重定向/管道强制 UTF-8,
+    真实控制台保原生编码仅降级不可编码字符(与 build.py 同策)。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.isatty():
+                stream.reconfigure(errors="replace")  # type: ignore[attr-defined]
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError):
+            pass  # 非 TextIOWrapper 或不支持 reconfigure
+
+
 def main() -> int:
     """CLI:``check_release.py <tag>``;非零退出=守卫拒绝。"""
+    _reconfigure_stdio()
     if len(sys.argv) != 2:
         print("用法: check_release.py <tag>", file=sys.stderr)
         return 2
